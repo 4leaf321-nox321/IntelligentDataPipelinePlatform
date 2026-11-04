@@ -73,13 +73,14 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt -r requirements-dev.txt
 
-      # **`mcp_server` 도 함께 본다.** 저장소 루트에 있어서 backend 안의 검사에
-      # 안 걸리는데, 그러면 그 파일만 규칙 밖에 남고 조용히 갈라진다.
+      # **`mcp_server` · `devtools` 도 함께 본다.** 저장소 루트에 있어서 backend 안의 검사에
+      # 안 걸리는데, 그러면 그 파일만 규칙 밖에 남고 조용히 갈라진다. `vendor/` 는 SP 의 사본이라
+      # 보지 않는다(고치지 않는다 — ADR 0001 §5).
       - name: 린트 (ruff)
         working-directory: backend
         run: |
-          python -m ruff check . ../mcp_server ../pipeline --config pyproject.toml
-          python -m ruff format --check . ../mcp_server ../pipeline --config pyproject.toml
+          python -m ruff check . ../mcp_server ../devtools --config pyproject.toml
+          python -m ruff format --check . ../mcp_server ../devtools --config pyproject.toml
 
       - name: 타입 (mypy strict)
         working-directory: backend
@@ -110,10 +111,8 @@ jobs:
       - name: MCP 서버 (갈라진 환경)
         run: |
           python -m venv /tmp/mcpvenv
-          /tmp/mcpvenv/bin/pip install --quiet -r mcp_server/requirements.txt -r pipeline/requirements.txt pytest
+          /tmp/mcpvenv/bin/pip install --quiet -r mcp_server/requirements.txt pytest
           /tmp/mcpvenv/bin/python -m pytest mcp_server/tests -q
-          # 로컬 정제 MCP(sp_mcp.py)도 같은 까닭으로 여기서 — 앱에 붙는 한 바퀴는 백엔드 pytest 가 봤다.
-          /tmp/mcpvenv/bin/python -m pytest pipeline/tests -q
 
       # **마이그레이션이 모델과 어긋났는지 본다.** 시험은 모델로 표를 만들기 때문에
       # 그 어긋남을 못 잡는다 — 그리고 그것은 배포하고 나서야 500 으로 드러난다.

@@ -289,6 +289,17 @@ class Settings(BaseSettings):
     """지도 작업의 임시 파일 상한(`temp_file_limit`, ADR 0049) — 넘으면 그 작업만 실패한다.
     `READ_TEMP_LIMIT` 처럼 배포가 앱 계정에 권한을 줄 때만 걸린다. 비우면 안 건다."""
 
+    relay_pipelines_dir: Path = REPO_DIR / "devtools"
+    """파이프라인 정의(`relay-pipeline/1`)가 있는 곳 — 아래를 전부 훑는다(`*.example.json` 은
+    뺀다). **운영은 저장소 밖**(예: `/etc/datarelay/pipelines`)이다 — 정의 · 레시피는 열 이름과
+    코드 체계가 사내 정보다(ADR 0001 §5). 개발 기본값은 샘플 PLM 의 정의가 있는 `devtools/`."""
+    relay_work_dir: Path = REPO_DIR / ".work" / "relay"
+    """파이프라인마다의 작업 폴더 — 미러 · 워터마크 · 지난번 적용된 출력 · 대기
+    계획(`relay_core.state`)."""
+    relay_secrets_file: Path | None = None
+    """정의의 `token_env` 를 풀 곳 — 프로세스 환경 변수가 먼저, 없으면 이 파일(dotenv 모양),
+    그다음 `backend/.env`. 비밀은 정의에 적지 않는다."""
+
     filestore_gc_hours: int = 24
     """첨부 저장소의 **고아 파일 정리**를 워커가 몇 시간마다 하나(`files/gc.py`). 0 이면 안
     한다 — 시스템 관리자가 작업(「고아 첨부 파일 정리」)으로만."""

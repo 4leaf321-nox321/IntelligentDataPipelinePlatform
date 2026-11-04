@@ -77,9 +77,6 @@ def test_배포_스크립트가_번들에_함께_담긴다() -> None:
         "mcp.service.template",
         "sync.service.template",
         "sync.timer.template",
-        # 지표 타이머(ADR 0013) — 밤마다 세어 두는 것이 번들에 없으면 지표가 조용히 낡는다.
-        "metrics.service.template",
-        "metrics.timer.template",
         "mcp_server/server.py",
         "mcp_server/requirements.txt",
         "mcp_server/guide",

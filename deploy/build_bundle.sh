@@ -85,25 +85,6 @@ if grep -rlqs -e '127.0.0.1:80' -e 'localhost:80' frontend/dist/assets 2>/dev/nu
 fi
 echo "    API 주소 검사 통과"
 
-# ── 1b. 정제 도구 키트 — 같은 판을 이미지 안에 넣는다 ─────────────────────────
-# 사용자 PC 에 푸는 zip(`sp-pipeline`)이다. 서버가 들고 있다가 화면(내 정보)에서 내려준다.
-# **따로 받게 두면** 사내망에서는 GitHub 에 못 닿아 받을 길이 없고, 운영의 사람도 AI 도 그런
-# 것이 있는 줄 몰랐다(실측). 서버와 **같은 판**이어야 한다 — 어긋나면 키트가 보내는 칸(백필
-# 칸 같은 것)을 서버가 모른다.
-#
-# 릴리스는 키트를 먼저 만들어 두므로(`release.yml`) 그것을 그대로 쓴다 — 릴리스에 올라가는
-# zip 과 서버가 내려주는 zip 이 **같은 파일**이다. 없으면 여기서 만든다.
-echo
-echo "==> [1b/4] 정제 도구 키트 (이미지에 넣는다)"
-KIT="${OUT_DIR}/sp-pipeline-${VERSION}.zip"
-if [[ ! -f "$KIT" ]]; then
-    ./deploy/build_pipeline_kit.sh "$VERSION"
-fi
-[[ -f "$KIT" ]] || { echo "오류: 정제 도구 키트를 만들지 못했습니다: $KIT"; exit 1; }
-# .def 의 %files 가 집는 자리 — 이름에 판을 안 넣는다(.def 는 고정 경로만 받는다).
-cp "$KIT" deploy/pipeline-kit.zip
-echo "    $(basename "$KIT") ($(du -h "$KIT" | cut -f1))"
-
 # ── 2. SIF ────────────────────────────────────────────────────────────────────
 echo
 echo "==> [2/4] Apptainer SIF 빌드 (처음에는 5~10분)"
@@ -141,8 +122,6 @@ cp deploy/mcp.service.template       "$STAGE/"
 cp deploy/worker.service.template    "$STAGE/"
 cp deploy/sync.service.template      "$STAGE/"
 cp deploy/sync.timer.template        "$STAGE/"
-cp deploy/metrics.service.template   "$STAGE/"
-cp deploy/metrics.timer.template     "$STAGE/"
 cp deploy/backup.service.template    "$STAGE/"
 cp deploy/backup.timer.template      "$STAGE/"
 # 이중화 — deploy.sh 가 source 하는 ha.sh 와, 서버에 /usr/local/sbin/pg-ha 로 깔리는 pg-ha.sh.

@@ -2,6 +2,8 @@
 
     GET  /api/v1/dev-models?page=&page_size=&updated_since=
                                   개발모델(과제 · 프로젝트 · 시험 주체가 중첩)
+    GET  /odata/v4/plm/DevModels?$filter=&$top=&$skip=&$orderby=&$expand=
+                                  같은 데이터를 OData v4 로(PascalCase · `@odata.nextLink`)
     POST /_mock/reset             처음 데이터로
     POST /_mock/scenario/change   바꾸기 · 지우기 · 새로 · 파생 끊기
     GET  /_mock/state             지금 데이터
@@ -19,11 +21,12 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 
 TOKEN = os.environ.get("MOCK_PLM_TOKEN", "mock-plm-token")
 DATA = Path(os.environ.get("MOCK_PLM_DATA", ".work/mock_plm/data.json"))
@@ -164,3 +167,68 @@ def scenario_change() -> dict[str, Any]:
 @app.get("/_mock/state")
 def state() -> list[dict[str, Any]]:
     return load()
+
+
+#: OData 쪽의 서버 쪽 쪽 크기 — 클라이언트의 `$top` 이 더 커도 이만큼씩 주고 다음 주소를 준다.
+ODATA_SERVER_PAGE = 3
+_SINCE = re.compile(r"^UpdatedAt (gt|ge) (\S+)$")
+
+
+def _odata(one: dict[str, Any]) -> dict[str, Any]:
+    task = one["task"]
+    return {
+        "ModelId": one["model_id"],
+        "ModelName": one["model_name"],
+        "KindCode": one["kind_cd"],
+        "Region": one["region"],
+        "Revision": one["revision"],
+        "BaseModelId": one["base_model_id"],
+        "IsDeleted": one["deleted"],
+        "UpdatedAt": one["updated_at"],
+        "Task": {
+            "Code": task["code"],
+            "Name": task["name"],
+            "StatusCode": task["status_cd"],
+            "SraDate": task["sra_date"],
+            "Project": {"Code": task["project"]["code"], "Name": task["project"]["name"]},
+            "TestSite": {
+                "Code": task["test_site"]["code"],
+                "Name": task["test_site"]["name"],
+                "Region": task["test_site"]["region"],
+            },
+        },
+    }
+
+
+@app.get("/odata/v4/plm/DevModels")
+def odata_dev_models(
+    request: Request,
+    authorization: str | None = Header(default=None),
+) -> dict[str, Any]:
+    """OData v4 의 흉내 — `$filter` 는 `UpdatedAt gt|ge <시각>` 하나만 안다. 서버가 쪽을 잘라
+    `@odata.nextLink` 를 준다(진짜 OData 서버처럼)."""
+    _authorized(authorization)
+    query = request.query_params
+    rows = sorted(load(), key=lambda one: one["model_id"])
+    wanted = query.get("$filter", "")
+    if wanted:
+        found = _SINCE.match(wanted.strip())
+        if not found:
+            raise HTTPException(
+                status_code=400, detail=f"이 흉내는 그 $filter 를 모릅니다: {wanted}"
+            )
+        op, at = found.groups()
+        rows = [
+            one
+            for one in rows
+            if (one["updated_at"] > at if op == "gt" else one["updated_at"] >= at)
+        ]
+    skip = int(query.get("$skip", "0"))
+    top = min(int(query.get("$top", "100")), ODATA_SERVER_PAGE)
+    page = [_odata(one) for one in rows[skip : skip + top]]
+    body: dict[str, Any] = {"@odata.context": "$metadata#DevModels", "value": page}
+    if skip + top < len(rows):
+        rest = {k: v for k, v in query.items() if k != "$skip"}
+        rest["$skip"] = str(skip + top)
+        body["@odata.nextLink"] = str(request.url.replace_query_params(**rest))
+    return body

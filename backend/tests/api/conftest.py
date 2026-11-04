@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import json
 import time
 import uuid
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -210,3 +213,18 @@ def work_until(db: Session, job_id: uuid.UUID) -> None:
             return
         if not job_services.process_one("test-worker"):
             return
+
+
+@pytest.fixture
+def registry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
+    """중계의 정의 폴더 · 작업 폴더를 임시로 — 시험의 정의는 지어낸 원천 · 대상이다."""
+    from app.config import get_settings
+    from tests.unit.test_relay_core import RECIPE
+
+    root = tmp_path / "pipelines"
+    root.mkdir()
+    (root / "recipe.table.json").write_text(json.dumps(RECIPE), encoding="utf-8")
+    settings = get_settings()
+    monkeypatch.setattr(settings, "relay_pipelines_dir", root)
+    monkeypatch.setattr(settings, "relay_work_dir", tmp_path / "work")
+    yield root

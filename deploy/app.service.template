@@ -26,6 +26,7 @@ WorkingDirectory=@@INSTALL_DIR@@
 ExecStart=/usr/bin/apptainer run \
     --bind @@ENV_FILE@@:/opt/app/backend/.env:ro \
     --bind @@FILESTORE_DIR@@:/data/filestore \
+    --bind @@RELAY_DIR@@:/data/relay \
     --bind @@LOG_DIR@@:/data/logs \
 @@BACKUP_BIND@@
     @@INSTALL_DIR@@/app.sif

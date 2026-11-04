@@ -107,15 +107,12 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     // **이 플랫폼의 일** — 어느 레거시 시스템의 어느 API 가 어느 Standard Platform 의 무엇으로
     // 가나(ADR 0001). 연결 지도가 첫 화면이고, 나머지는 지도에서 눌러 들어가는 자리다.
-    // 화면이 생기면 `pending` 을 지운다.
     title: '중계',
     items: [
       {
         label: '연결 지도',
         icon: Network,
         to: '/relay/map',
-        pending: true,
-        phase: '3단계',
         summary:
           '원천 시스템 → API → 파이프라인 → 대상 SP → 타입을 열을 고정한 흐름도로 봅니다. ' +
           '정의(파이프라인 · 레시피 · 대상 스키마)에서 매번 계산하고 손으로 그리지 않습니다.',
@@ -124,8 +121,6 @@ export const NAV_GROUPS: NavGroup[] = [
         label: '파이프라인',
         icon: Workflow,
         to: '/relay/pipelines',
-        pending: true,
-        phase: '3단계',
         summary:
           '원천 + 레시피 + 대상 + 주기 — 칸 대응 표, 실행 이력(받은 건수 · 바뀐 객체 · 무덤 · ' +
           '미해결 · 대상의 계획 링크), 지금 실행.',
@@ -134,16 +129,12 @@ export const NAV_GROUPS: NavGroup[] = [
         label: '원천 시스템',
         icon: Database,
         to: '/relay/sources',
-        pending: true,
-        phase: '3단계',
         summary: 'PLM · MES 같은 레거시 시스템과 그 엔드포인트 — 인증 방식(비밀은 안 보임) · 연결 상태.',
       },
       {
         label: '대상 인스턴스',
         icon: ServerCog,
         to: '/relay/targets',
-        pending: true,
-        phase: '3단계',
         summary:
           '받는 Standard Platform(자주검증 Datahub · 제조 데이터허브 …) — 판 · 정의 판 · ' +
           '토큰 만료 · 마지막 연결.',

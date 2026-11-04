@@ -95,33 +95,6 @@ jobs:
       # 설치를 한 자리에서 정한다 — ci 와 release 가 같은 것을 쓴다.
       - uses: ./.github/actions/apptainer
 
-      # **사용자 PC 에 옮기는 정제 도구 묶음**도 같은 태그로 낸다. **번들보다 먼저** 만든다 —
-      # 번들 빌드가 이것을 그대로 이미지에 넣어(서버가 「내 정보」 에서 내려준다), 릴리스에
-      # 올라가는 zip 과 서버 안의 zip 이 같은 파일이 된다. 사내망에서는 GitHub 에 못 닿으므로
-      # 서버에서 받는 길이 정본이고, 릴리스의 zip 은 인터넷이 되는 PC 를 위한 것이다.
-      - name: 정제 도구 묶음 빌드
-        run: |
-          set -euo pipefail
-          ./deploy/build_pipeline_kit.sh "${GITHUB_REF_NAME}"
-          kit=$(ls release/sp-pipeline-*.zip)
-          python3 -m zipfile -l "$kit" > /tmp/kit.txt
-          for f in sp_mcp.py sp_setup.py sp_pipeline.py sp_table.py sp_profile.py sp_work.py \
-                   install.cmd check.cmd AGENTS.md requirements.txt guide/GUIDE.md VERSION \
-                   python/python.exe python/Lib/site-packages/mcp/__init__.py \
-                   python/Lib/site-packages/pywin32.pth; do
-            grep -q "/$f " /tmp/kit.txt || { echo "묶음에 $f 가 없습니다"; exit 1; }
-          done
-          # **Windows 파이썬의 길** — 부품 · 키트 폴더 · `import site` 가 없으면 서버가 안 뜬다.
-          python3 - "$kit" <<'PY'
-          import sys, zipfile
-          kit = zipfile.ZipFile(sys.argv[1])
-          pth = [n for n in kit.namelist() if n.endswith("._pth") and "/python/" in n]
-          lines = kit.read(pth[0]).decode().split() if pth else []
-          missing = [want for want in ("Lib\\site-packages", "..", "site") if want not in lines]
-          if missing:
-              sys.exit(f"Windows 파이썬의 ._pth 에 {missing} 가 없습니다: {lines}")
-          PY
-
       # **버전은 태그다.** `git describe` 에 맡기면 얕은 체크아웃에서 엉뚱한 값이
       # 나오고, 그 값이 BUILD_INFO 를 거쳐 `/api/health` 까지 간다 — 「지금 서버에
       # 뭐가 깔렸나」 를 묻는 유일한 자리다.
@@ -168,8 +141,7 @@ jobs:
       - name: 번들 스크립트가 LF 인가
         run: |
           set -euo pipefail
-          # 정제 도구 묶음(sp-pipeline-*)은 서버 번들이 아니다 — 집지 않는다.
-          dir=$(find release -maxdepth 1 -type d -name '*-*' ! -name 'sp-pipeline-*' | head -1)
+          dir=$(find release -maxdepth 1 -type d -name '*-*' | head -1)
           [ -n "$dir" ] && ls "$dir"/*.sh >/dev/null 2>&1 || { echo "번들 폴더 · 스크립트를 찾지 못했습니다"; exit 1; }
           for sh in "$dir"/*.sh; do
             if grep -qU $'\r' "$sh"; then
@@ -213,13 +185,7 @@ jobs:
             printf '푸는 순간에야 드러나고, 그때는 배포하려고 서버에 붙어 있는 자리입니다.\n'
           } > "$RUNNER_TEMP/notes.md"
 
-          kit=$(ls release/sp-pipeline-*.zip)
-          {
-            printf '\n## 정제 도구 묶음 (데이터를 정제하는 사람의 PC)\n\n'
-            printf '`%s` 를 풀고 안의 `README.md` 「Claude Desktop · Gemini CLI 에 붙이기」 를 따릅니다.\n' "$(basename "$kit")"
-          } >> "$RUNNER_TEMP/notes.md"
-
-          gh release create "${GITHUB_REF_NAME}" "$tarball" "$sha" "$kit" "$kit.sha256" \
+          gh release create "${GITHUB_REF_NAME}" "$tarball" "$sha" \
             --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             --notes-file "$RUNNER_TEMP/notes.md"

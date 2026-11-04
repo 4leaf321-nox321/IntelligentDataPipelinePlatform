@@ -52,8 +52,36 @@ class Delta:
         return not any(one.sends for one in (*self.objects.values(), *self.relations.values()))
 
 
+#: SP 의 「지우기」 표기 — 빈 값(`null` · `""`)은 「안 보냄」 이라 옛 값이 남는다(지침서 §7).
+CLEAR = "\\null"
+
+
+def _empty(value: Any) -> bool:
+    return value is None or value == "" or value == []
+
+
 def _clean(row: dict[str, Any]) -> dict[str, Any]:
-    return {key: value for key, value in row.items() if not str(key).startswith("_")}
+    """견줄 모양 — `_` 칸(출처 · 메모)과 **빈 값**은 뺀다. SP 에서 빈 값은 「안 보냄」 이라, 새
+    칸이
+    비어 있는 것은 바뀐 것이 아니다."""
+    return {
+        key: value
+        for key, value in row.items()
+        if not str(key).startswith("_") and not _empty(value)
+    }
+
+
+def _with_clears(row: dict[str, Any], before: dict[str, Any]) -> dict[str, Any]:
+    """**원천에서 비워진 칸은 `\\null` 로** — 안 그러면 SP 는 「안 보냄」 으로 읽고 옛 값을
+    그대로
+    둔다(원천에서 지운 값이 대상에 영영 남는다)."""
+    out = dict(row)
+    for key in before:
+        if key in ("key", "label") or _empty(before[key]):
+            continue
+        if _empty(out.get(key)):
+            out[key] = CLEAR
+    return out
 
 
 def _rows_by_type(batches: Iterable[Any]) -> dict[str, list[dict[str, Any]]]:
@@ -137,6 +165,7 @@ def delta(
                 counts.created += 1
             elif _clean(row) != old[key]:
                 counts.changed += 1
+                row = _with_clears(row, old[key])
             else:
                 counts.unchanged += 1
                 continue

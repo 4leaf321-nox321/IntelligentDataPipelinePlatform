@@ -3,6 +3,7 @@
     python -m relay_core.cli run    <정의.json> [--work DIR]   받기 → 비교 → 미리보기
     python -m relay_core.cli apply  <정의.json> [--work DIR]   대기 중인 계획 적용
     python -m relay_core.cli status <정의.json> [--work DIR]   워터마크 · 기준 · 대기 계획
+    python -m relay_core.cli check  <정의.json>                이 서버에서 원천 · 대상에 닿나
 
 끝나는 값: 0 정상(보낼 것 없음 · 올림 · 적용) · 1 사람이 볼 것(미해결 · 계획 오류) · 2
 멈춤(원천 · 대상 · 정의 오류). 야간 작업의 경보로 쓴다.
@@ -18,7 +19,7 @@ from pathlib import Path
 
 from relay_core import runner
 from relay_core.adapters.rest import SourceError
-from relay_core.definition import DefinitionError, load
+from relay_core.definition import DefinitionError, Pipeline, load
 from relay_core.state import Workdir
 from relay_core.submit import SubmitError
 
@@ -27,7 +28,7 @@ DEFAULT_WORK = Path(os.environ.get("DATARELAY_WORK", Path.cwd() / ".work"))
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="relay")
-    parser.add_argument("command", choices=["run", "apply", "status"])
+    parser.add_argument("command", choices=["run", "apply", "status", "check"])
     parser.add_argument("definition", type=Path)
     parser.add_argument("--work", type=Path, default=DEFAULT_WORK)
     parser.add_argument(
@@ -42,6 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         pipeline = load(args.definition)
+        if args.command == "check":
+            return check(pipeline)
         work = Workdir(args.work, pipeline.slug)
         if args.command == "status":
             state = work.load_state()
@@ -72,6 +75,43 @@ def main(argv: list[str] | None = None) -> int:
     if outcome.counts:
         print(json.dumps(outcome.counts, ensure_ascii=False))
     return 1 if outcome.status == "blocked" else 0
+
+
+def check(pipeline: Pipeline) -> int:
+    """**이 서버에서** 원천 · 대상에 닿나 — relay 를 둘 서버를 고를 때 · 설치 뒤 처음에 돌린다.
+
+    원천에는 한 줄만 묻고, 대상에는 「누구인가」(`/api/health` 의 slug)와 「이 토큰이 사는가」
+    (`/api/auth/me`)만 묻는다. 아무것도 바꾸지 않는다."""
+    import httpx
+
+    ok = True
+    try:
+        print(f"원천  {pipeline.source:8s} {pipeline.adapter.probe()}")
+    except SourceError as failure:
+        ok = False
+        print(f"원천  {pipeline.source:8s} 실패 — {failure}")
+    target = pipeline.target
+    try:
+        health = httpx.get(f"{target.server}/api/health", timeout=10).json()
+        me = httpx.get(
+            f"{target.server}/api/auth/me",
+            headers={"Authorization": f"Bearer {target.token}"},
+            timeout=10,
+        )
+        who = (
+            me.json().get("email") if me.status_code == 200 else f"토큰 거절({me.status_code})"
+        )
+        admin = me.status_code == 200 and me.json().get("is_system_admin")
+        print(
+            f"대상  {target.name or target.server} — slug {health.get('slug')} · 판 "
+            f"{health.get('version')} · 토큰 {who}"
+            + ("" if admin else " · ⚠ 시스템 관리자가 아님")
+        )
+        ok = ok and me.status_code == 200 and bool(admin)
+    except (httpx.HTTPError, ValueError) as failure:
+        ok = False
+        print(f"대상  {target.server} 실패 — {failure}")
+    return 0 if ok else 2
 
 
 if __name__ == "__main__":

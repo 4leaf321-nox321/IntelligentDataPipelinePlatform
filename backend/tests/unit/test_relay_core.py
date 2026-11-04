@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -19,7 +20,7 @@ from relay_core.diff import delta
 from relay_core.mirror import Mirror
 from relay_core.records import SourceRecord
 
-RECIPE = {
+RECIPE: dict[str, Any] = {
     "format": "sp-table/1",
     "title": "개발모델 표(시험)",
     "types": [
@@ -129,6 +130,27 @@ def test_다음_실행은_바뀐_것과_사라진_것만_보낸다(tmp_path: Pat
     # 결과는 틀의 도구가 그대로 받는 실행 폴더다 — 보내기 전 검사를 통과한다.
     report = sp.pipeline.validate(sp.pipeline.load(send.run))
     assert report.errors == [], report.errors
+
+
+def test_빈_칸은_바뀐_것이_아니고_비워진_칸은_지우기로_보낸다(
+    tmp_path: Path, recipe: Path
+) -> None:
+    """SP 에서 빈 값은 「안 보냄」 이다 — 새 칸이 비어 있는 것은 바뀐 것이 아니고, 원천에서
+    값이
+    비워진 칸은 `\\null` 로 보내야 옛 값이 남지 않는다."""
+    applied = convert(
+        Mirror([_model("M1", "갤럭시", "A"), _model("M2", "엣지", "B")]),
+        recipe,
+        tmp_path / "a",
+        work=tmp_path,
+    ).run
+    after = Mirror([_model("M1", "갤럭시", ""), _model("M2", "엣지", "B")])
+    current = convert(after, recipe, tmp_path / "b", work=tmp_path).run
+    sent = delta(applied, current, tmp_path / "send", source="plm")
+    counts = sent.objects["plm_model"]
+    assert (counts.changed, counts.unchanged) == (1, 1)
+    (row,) = _rows(sent.run, "objects")
+    assert row["key"] == "M1" and row["model_kind"] == "\\null"
 
 
 def test_같은_입력이면_보낼_것이_없다(tmp_path: Path, recipe: Path) -> None:

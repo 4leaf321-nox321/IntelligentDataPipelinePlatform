@@ -1,5 +1,5 @@
 [Unit]
-Description=@@APP_NAME@@ 데이터 소스 동기화 (차례가 된 것을 작업으로 넣는다)
+Description=@@APP_NAME@@ 중계 — 차례가 된 파이프라인을 작업으로 넣는다
 After=@@APP_SLUG@@.service
 # 로컬 PostgreSQL 에 묶지 않는다 — 이중화에서는 DB 가 상대 서버에 있을 수 있다(app.service 참고).
 
@@ -15,10 +15,11 @@ WorkingDirectory=@@INSTALL_DIR@@
 ExecStart=/usr/bin/apptainer exec \
     --bind @@ENV_FILE@@:/opt/app/backend/.env:ro \
     --bind @@FILESTORE_DIR@@:/data/filestore \
+    --bind @@RELAY_DIR@@:/data/relay \
     --bind @@LOG_DIR@@:/data/logs \
 @@BACKUP_BIND@@
     @@INSTALL_DIR@@/app.sif \
-    sh -c 'cd /opt/app/backend && /opt/app/venv/bin/python scripts/sync_datasources.py --due'
+    sh -c 'cd /opt/app/backend && /opt/app/venv/bin/python scripts/relay_due.py'
 
 NoNewPrivileges=true
 ProtectSystem=full

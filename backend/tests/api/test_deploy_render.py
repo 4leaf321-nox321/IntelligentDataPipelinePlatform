@@ -112,9 +112,17 @@ def test_이중화는_공용_폴더와_로컬을_가른다(bundle: Path, tmp_pat
     assert "--bind /data/common/testplatform/.env:/opt/app/backend/.env:ro" in worker
     assert "python -m app.worker" in worker
     assert "@@" not in worker
+    # 중계의 정의 · 작업 폴더도 **공용**이다 — 두 서버의 워커 어느 쪽이 돌려도 같은 것을 본다.
+    assert "--bind /data/common/testplatform/relay:/data/relay" in worker
+    assert "--bind /data/common/testplatform/relay:/data/relay" in unit
 
     sync = read(etc, "systemd/system/testplatform-sync.service")
     assert "--bind /data/common/testplatform/.env" in sync
+    # 타이머는 차례가 된 파이프라인을 작업으로 넣는다(`scripts/relay_due.py`).
+    assert (
+        "scripts/relay_due.py" in sync
+        and "--bind /data/common/testplatform/relay:/data/relay" in sync
+    )
     # 지표 타이머(틀의 ADR 0013)는 템플릿을 안 가져왔다 — 배포가 건너뛴다(ADR 0001).
     assert not (etc / "etc" / "systemd/system/testplatform-metrics.service").exists()
     backup = read(etc, "systemd/system/testplatform-backup.service")

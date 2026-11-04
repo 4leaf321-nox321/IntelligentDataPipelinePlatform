@@ -22,10 +22,12 @@ from __future__ import annotations
 import json
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
+from relay_core.adapters.odata import ODataAdapter, ODataSource
 from relay_core.adapters.rest import Auth, RestAdapter, RestSource
 
 FORMAT = "relay-pipeline/1"
@@ -49,13 +51,13 @@ class Target:
 class Pipeline:
     slug: str
     source: str
-    adapter: RestAdapter
+    adapter: RestAdapter | ODataAdapter
     recipe: Path
     target: Target
     path: Path
 
 
-def _secret(spec: dict[str, Any], where: str) -> str:
+def _secret(spec: dict[str, Any], where: str, env: Mapping[str, str]) -> str:
     """`token_env` 의 값. 정의에 `token` 을 그대로 적었으면 거절한다 — 정의 파일이 퍼지는 날
     비밀도 같이 퍼진다."""
     if "token" in spec:
@@ -63,32 +65,58 @@ def _secret(spec: dict[str, Any], where: str) -> str:
     name = str(spec.get("token_env") or "")
     if not name:
         return ""
-    value = os.environ.get(name, "")
+    value = env.get(name, "")
     if not value:
         raise DefinitionError(f"{where}: 환경 변수 {name} 가 비어 있습니다.")
     return value
 
 
-def _rest(spec: dict[str, Any]) -> RestSource:
-    auth_spec = dict(spec.pop("auth", None) or {})
-    auth = Auth(
-        kind=str(auth_spec.get("kind") or "none"),
-        token=_secret(auth_spec, "adapter.auth"),
-        header=str(auth_spec.get("header") or "Authorization"),
-        user=str(auth_spec.get("user") or ""),
+def _auth(spec: dict[str, Any], env: Mapping[str, str]) -> Auth:
+    return Auth(
+        kind=str(spec.get("kind") or "none"),
+        token=_secret(spec, "adapter.auth", env),
+        header=str(spec.get("header") or "Authorization"),
+        user=str(spec.get("user") or ""),
     )
-    known = {one.name for one in fields(RestSource)} - {"auth"}
-    unknown = sorted(set(spec) - known)
+
+
+#: 어댑터 종류 → (원천 설정의 모양, 어댑터, 꼭 있어야 하는 칸).
+ADAPTERS: dict[str, tuple[type[Any], type[Any], tuple[str, ...]]] = {
+    "rest": (RestSource, RestAdapter, ("base_url", "path", "key", "columns")),
+    "odata": (ODataSource, ODataAdapter, ("service_url", "entity_set", "key", "columns")),
+}
+
+
+def check_adapter(spec: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """종류와 그 칸들 — **모르는 키는 거절한다**(조용히 무시하면 적은 사람은 적었다고
+    믿는다)."""
+    body = dict(spec)
+    kind = str(body.pop("kind", "rest"))
+    if kind not in ADAPTERS:
+        raise DefinitionError(f"모르는 어댑터입니다: {kind} (되는 것: {', '.join(ADAPTERS)})")
+    shape, _adapter, need = ADAPTERS[kind]
+    known = {one.name for one in fields(shape)}
+    unknown = sorted(set(body) - known)
     if unknown:
-        # **모르는 키는 거절한다** — 조용히 무시하면 적은 사람은 적었다고 믿는다(SP ADR 0005).
         raise DefinitionError(f"adapter: 모르는 칸입니다: {', '.join(unknown)}")
-    for need in ("base_url", "path", "key", "columns"):
-        if not spec.get(need):
-            raise DefinitionError(f"adapter.{need} 가 필요합니다.")
-    return RestSource(**spec, auth=auth)
+    for one in need:
+        if not body.get(one):
+            raise DefinitionError(f"adapter.{one} 가 필요합니다.")
+    return kind, body
 
 
-def load(path: Path) -> Pipeline:
+def _adapter(spec: dict[str, Any], env: Mapping[str, str]) -> RestAdapter | ODataAdapter:
+    kind, body = check_adapter(spec)
+    shape, adapter, _need = ADAPTERS[kind]
+    auth = _auth(dict(body.pop("auth", None) or {}), env)
+    built: RestAdapter | ODataAdapter = adapter(shape(**body, auth=auth))
+    return built
+
+
+def load(path: Path, env: Mapping[str, str] | None = None) -> Pipeline:
+    """달릴 수 있게 읽는다 — 비밀(`token_env`)까지 푼다. `env` 를 안 주면 프로세스의 환경
+    변수."""
+    env = os.environ if env is None else env
     body = json.loads(path.read_text(encoding="utf-8"))
     if body.get("format") != FORMAT:
         raise DefinitionError(f"{path}: format 이 {FORMAT} 이어야 합니다.")
@@ -100,10 +128,6 @@ def load(path: Path) -> Pipeline:
     source = str(body.get("source") or "")
     if not _SOURCE.match(source):
         raise DefinitionError(f"source(원천 이름 — plm · mes …)가 맞지 않습니다: {source!r}")
-    adapter_spec = dict(body.get("adapter") or {})
-    kind = adapter_spec.pop("kind", "rest")
-    if kind != "rest":
-        raise DefinitionError(f"모르는 어댑터입니다: {kind} (지금은 rest 하나)")
     recipe = (path.parent / str(body.get("recipe") or "")).resolve()
     if not recipe.is_file():
         raise DefinitionError(f"레시피가 없습니다: {recipe}")
@@ -111,14 +135,14 @@ def load(path: Path) -> Pipeline:
     target = Target(
         name=str(target_spec.get("name") or ""),
         server=str(target_spec.get("server") or "").rstrip("/"),
-        token=_secret(target_spec, "target"),
+        token=_secret(target_spec, "target", env),
     )
     if not target.server or not target.token:
         raise DefinitionError("target 의 server · token_env 가 필요합니다.")
     return Pipeline(
         slug=slug,
         source=source,
-        adapter=RestAdapter(_rest(adapter_spec)),
+        adapter=_adapter(dict(body.get("adapter") or {}), env),
         recipe=recipe,
         target=target,
         path=path,

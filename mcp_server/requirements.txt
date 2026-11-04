@@ -1,0 +1,3 @@
+# datarelay MCP 서버 — 별도 venv(백엔드와 의존성이 섞이지 않게). SP 의 MCP 와 같은 판.
+mcp==1.30.0
+httpx==0.28.1

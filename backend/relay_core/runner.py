@@ -41,7 +41,8 @@ def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _counts(found: Delta) -> dict[str, Any]:
+def counts_of(found: Delta) -> dict[str, Any]:
+    """비교 결과의 수 — 타입마다 생성 · 고침 · 그대로 · 무덤."""
     return {
         kind: {
             slug: {
@@ -80,7 +81,16 @@ def run(
     state = work.load_state()
     note = _settle_pending(state, submit)
 
-    fetched = pipeline.adapter.fetch(state.watermark)
+    since = state.watermark
+    # **삭제 표시가 없는 원천은 전량 날에 사라진 것을 안다**(부재 대조) — 증분 `full_every`
+    # 번마다 한 번.
+    source = pipeline.adapter.source
+    full_every = int(getattr(source, "full_every", 0) or 0)
+    due = full_every and state.incrementals + 1 >= full_every
+    if since and due and not getattr(source, "deleted", None):
+        since = None
+    fetched = pipeline.adapter.fetch(since)
+    state.incrementals = 0 if fetched.full else state.incrementals + 1
     mirror = work.load_mirror()
     took = mirror.apply(fetched)
     work.save_mirror(mirror)
@@ -109,9 +119,11 @@ def run(
     found = delta(
         baseline, made.run, work.path(f"sends/{when}"), source=pipeline.source, options=options
     )
-    counts = _counts(found)
+    counts = counts_of(found)
     if found.empty:
-        state.history.append({"at": _now(), "event": "nothing", "run": f"runs/{when}"})
+        state.history.append(
+            {"at": _now(), "event": "nothing", "run": f"runs/{when}", "counts": counts}
+        )
         work.save_state(state)
         return Outcome(
             "nothing",
@@ -139,7 +151,13 @@ def run(
         at=_now(),
     )
     state.history.append(
-        {"at": _now(), "event": "planned", "job_id": plan.job_id, "ok": plan.ok}
+        {
+            "at": _now(),
+            "event": "planned",
+            "job_id": plan.job_id,
+            "ok": plan.ok,
+            "counts": counts,
+        }
     )
     work.save_state(state)
     status = "planned" if plan.ok else "blocked"

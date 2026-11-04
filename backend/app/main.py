@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from html import escape as html_escape
 
@@ -37,6 +38,8 @@ from app.modules.jobs import routes as jobs_routes
 from app.modules.jobs import services as jobs_services
 from app.modules.notices import routes as notices_routes
 from app.modules.notifications import routes as notifications_routes
+from app.modules.relay import routes as relay_routes
+from app.modules.relay import services as relay_services
 from app.modules.server import performance as server_performance
 from app.modules.server import routes as server_routes
 from app.modules.server import services as server_services
@@ -78,6 +81,8 @@ def _api_router(settings: Settings) -> APIRouter:
     # 오래 걸리는 일(파이프라인 실행)은 요청이 아니라 작업이다 — 워커가 돈다.
     router.include_router(jobs_routes.router)
     router.include_router(server_routes.router)
+    # **이 플랫폼의 일** — 연결 지도 · 파이프라인 상세 · 실행(ADR 0001).
+    router.include_router(relay_routes.router)
 
     # --- 확장의 라우터 ---------------------------------------------------
     # 코어는 확장을 import 하지 않는다. 이름으로 찾아 붙이는 자리가 여기 하나다.
@@ -139,6 +144,8 @@ def _register_extensions() -> None:
     extensions.register_maintenance(jobs_services.maintenance)
     extensions.register_stats(jobs_services.stats)
     extensions.register_maintenance(server_services.maintenance)
+    # 적용을 기다리는 중계 계획 · 멈추거나 실패한 파이프라인 — 지도를 안 열어도 홈이 말한다.
+    extensions.register_maintenance(relay_services.maintenance)
     # **느린 요청 · 큰 응답**(ADR 0026) — 작업 목록 한 번이 93MB · 4.4초였던 것을 사용자가
     # 「화면이 느리다」 고 말하고 나서야 알았다(2026-10-09). 문턱을 넘은 경로가 홈에 뜬다.
     extensions.register_maintenance(server_performance.maintenance)
@@ -147,6 +154,7 @@ def _register_extensions() -> None:
     # 그것이 맞는 기본값이다(shared/scopes.py). MCP 는 사용자의 PAT 를 그대로 넘기므로
     # 레시피 초안 · 시험(ADR 0001)도 이 범위로 열린다.
     scopes.register_write_scope("/api/jobs", "relay:write")
+    scopes.register_write_scope("/api/relay", "relay:write")
     scopes.register_write_scope("/api/attachments", "relay:write")
     # 플랫폼의 자기소개 — 에이전트가 이 글로 어느 플랫폼에 물을지 고른다. 서버 화면의 다른 쓰기
     # (확장 켜기)는 토큰에 열지 않는다.
@@ -293,7 +301,9 @@ def _guard_writable_paths(settings: Settings) -> None:
     for label, path in targets:
         try:
             path.mkdir(parents=True, exist_ok=True)
-            probe = path / ".write-probe"
+            # **프로세스마다 다른 이름** — API 와 워커가 같은 순간에 뜨면 같은 이름을 서로 지워
+            # 한쪽이 「쓸 수 없습니다」 로 죽었다(2026-11-05, 개발 PC 에서 겪었다).
+            probe = path / f".write-probe-{os.getpid()}"
             probe.touch()
             probe.unlink()
         except OSError as failure:

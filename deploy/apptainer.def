@@ -19,10 +19,9 @@ From: ubuntu:24.04
     # 자리가 아예 없어진다. build_bundle.sh 가 빌드 직전에 이 파일을 만든다 —
     # `apptainer build` 를 직접 부르려면 그 파일을 먼저 만들어야 한다.
     deploy/BUILD_INFO.txt /opt/app/BUILD_INFO.txt
-    # **정제 도구 키트** — 사용자 PC 에 푸는 zip. 앱이 화면(내 정보)에서 내려준다
-    # (`config.pipeline_kit` = `/opt/app/deploy/pipeline-kit.zip`). build_bundle.sh 가 같은
-    # 판을 이 이름으로 둔다 — `apptainer build` 를 직접 부르려면 그 파일을 먼저 만든다.
-    deploy/pipeline-kit.zip /opt/app/deploy/pipeline-kit.zip
+    # **SP 정제 도구의 판을 고정한 사본**(ADR 0001 §5) — `relay_core.sp` 가 `/opt/app/vendor` 에서
+    # 찾는다. 빠지면 파이프라인 실행이 「SP 정제 도구가 없습니다」 로 멈춘다.
+    vendor /opt/app/vendor
 
 %post
     set -eux
@@ -65,6 +64,10 @@ From: ubuntu:24.04
     # 값은 systemd 유닛의 --bind 대상과 **같아야 한다.** 한쪽만 바꾸면 앱은
     # 마운트 안 된 경로에 쓰게 된다.
     export LOG_DIR=/data/logs
+    # 중계의 정의 · 작업 폴더 — 유닛의 `--bind @@RELAY_DIR@@:/data/relay` 와 같아야 한다. 정의(레시피)는
+    # 운영자가 `<RELAY_DIR>/pipelines` 에 두고, 미러 · 상태는 `<RELAY_DIR>/work` 에 쌓인다(이중화면 공용).
+    export RELAY_PIPELINES_DIR=/data/relay/pipelines
+    export RELAY_WORK_DIR=/data/relay/work
     export FILESTORE_DIR=/data/filestore
 
     # **선형대수 스레드는 하나.** 분석(ADR 0014)의 행렬은 작은데, OpenBLAS 가 프로세스마다 코어 수만큼

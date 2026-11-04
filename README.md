@@ -77,6 +77,22 @@ npm run lint && npm test && npm run build
 
 API 스키마가 바뀌면: `backend/scripts/export_openapi.py` → `frontend` 에서 `npm run api:types`.
 
+## relay 명령 · MCP
+
+```bash
+cd backend
+.venv/bin/python -m relay_core.cli check  <정의.json>   # 이 서버에서 원천 · 대상에 닿나(아무것도 안 바꿈)
+.venv/bin/python -m relay_core.cli run    <정의.json>   # 받기 → 변환 → 비교 → 대상에 미리보기
+.venv/bin/python -m relay_core.cli apply  <정의.json>   # 대기 중인 계획 적용
+.venv/bin/python -m relay_core.cli status <정의.json>
+```
+
+화면의 「지금 실행」 · 「적용」 과 타이머가 같은 함수를 작업으로 부른다. 정의는 `RELAY_PIPELINES_DIR`(운영
+`<DATA_DIR>/relay/pipelines`), 비밀은 정의에 적지 않고 `token_env` 의 환경 변수로.
+
+**MCP(8082)** — `mcp_server/`(별도 venv). AI(Claude Desktop)가 사용자의 PAT 로 붙어 레시피를 **짓고
+시험**한다. 켜기 · 적용은 사람이 화면에서. 붙이는 법은 화면 「내 정보 › AI 도구 연결」.
+
 ## SP 정제 도구의 판 올리기
 
 ```bash

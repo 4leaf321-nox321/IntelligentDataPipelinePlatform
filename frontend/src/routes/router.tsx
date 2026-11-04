@@ -36,6 +36,12 @@ const MembersPage = lazy(() => import('@/modules/workspaces/MembersPage'))
 const NoticesPage = lazy(() => import('@/modules/notices/NoticesPage'))
 const NotificationsPage = lazy(() => import('@/modules/notifications/NotificationsPage'))
 const ProfilePage = lazy(() => import('@/modules/auth/ProfilePage'))
+// 중계 — 지도만 흐름도 라이브러리(React Flow)를 싣는다. 표 화면은 그것을 안 받는다.
+const PipelineDetailPage = lazy(() => import('@/modules/relay/PipelineDetailPage'))
+const PipelinesPage = lazy(() => import('@/modules/relay/PipelinesPage'))
+const RelayMapPage = lazy(() => import('@/modules/relay/RelayMapPage'))
+const SourcesPage = lazy(() => import('@/modules/relay/SourcesPage'))
+const TargetsPage = lazy(() => import('@/modules/relay/TargetsPage'))
 const ServerPage = lazy(() => import('@/modules/server/ServerPage'))
 // 차트 층 자신의 문서다 — 도메인 모듈이 아니라 `shared/charts` 에 산다.
 const ChartGalleryPage = lazy(() => import('@/shared/charts/GalleryPage'))
@@ -84,6 +90,13 @@ export const router = createBrowserRouter(
             // 사이드바에 `pending: true` 로 적어 두면 아래 stubs 가 자리를 만든다.
             // 실제 화면이 생기면 그 표시를 지우고 여기에 한 줄을 적는다.
             ...stubs,
+
+            // 중계 — 이 플랫폼의 일(ADR 0001).
+            { path: 'relay/map', element: <RelayMapPage /> },
+            { path: 'relay/pipelines', element: <PipelinesPage /> },
+            { path: 'relay/pipelines/:slug', element: <PipelineDetailPage /> },
+            { path: 'relay/sources', element: <SourcesPage /> },
+            { path: 'relay/targets', element: <TargetsPage /> },
 
             // **이 설치가 켠 확장의 화면.** 서버가 `<meta name="app-extensions">` 로 준 이름만
             // 붙는다(`src/extensions`). 안 켠 인스턴스에는 경로 자체가 없다.

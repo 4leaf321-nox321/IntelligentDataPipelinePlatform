@@ -112,7 +112,35 @@ def as_text(value: Any) -> str:
     return str(value)
 
 
-def _truthy(value: Any) -> bool:
+def get_json(
+    client: httpx.Client,
+    url: str,
+    *,
+    params: dict[str, Any] | None,
+    headers: Mapping[str, str],
+    retries: int,
+    sleep: Callable[[float], None],
+) -> Any:
+    """GET 한 번 — 5xx · 네트워크 오류 · 429 만 다시 묻고, 그 밖의 4xx 는 바로 멈춘다(§8)."""
+    last = ""
+    for attempt in range(retries):
+        try:
+            answer = client.get(
+                url, params=params, headers={"Accept": "application/json", **headers}
+            )
+        except httpx.HTTPError as failure:
+            last = f"닿지 않습니다: {failure}"
+        else:
+            if answer.status_code == 200:
+                return answer.json()
+            last = f"{answer.status_code} {answer.text[:300]}"
+            if answer.status_code < 500 and answer.status_code != 429:
+                raise SourceError(f"원천이 거절했습니다({url}): {last}")
+        sleep(min(2**attempt, 10))
+    raise SourceError(f"원천에 {retries}번 물었지만 실패했습니다({url}): {last}")
+
+
+def truthy(value: Any) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "y", "yes", "예", "참", "o"}
@@ -132,22 +160,13 @@ class RestAdapter:
 
     def _get(self, params: dict[str, Any]) -> Any:
         url = self.source.base_url.rstrip("/") + "/" + self.source.path.lstrip("/")
-        headers = {"Accept": "application/json", **self.source.auth.headers()}
-        last: str = ""
-        for attempt in range(self.source.retries):
-            try:
-                answer = self._client.get(url, params=params, headers=headers)
-            except httpx.HTTPError as failure:
-                last = f"닿지 않습니다: {failure}"
-            else:
-                if answer.status_code == 200:
-                    return answer.json()
-                last = f"{answer.status_code} {answer.text[:300]}"
-                if answer.status_code < 500 and answer.status_code != 429:
-                    raise SourceError(f"원천이 거절했습니다({url}): {last}")
-            self._sleep(min(2**attempt, 10))
-        raise SourceError(
-            f"원천에 {self.source.retries}번 물었지만 실패했습니다({url}): {last}"
+        return get_json(
+            self._client,
+            url,
+            params=params,
+            headers=self.source.auth.headers(),
+            retries=self.source.retries,
+            sleep=self._sleep,
         )
 
     def _record(self, item: Any) -> SourceRecord:
@@ -156,7 +175,7 @@ class RestAdapter:
         key = as_text(value_at(item, self.source.key)).strip()
         if not key:
             raise SourceError(f"식별자({self.source.key})가 빈 항목입니다: {item!r}")
-        deleted = bool(self.source.deleted) and _truthy(
+        deleted = bool(self.source.deleted) and truthy(
             value_at(item, self.source.deleted or "")
         )
         values = (
@@ -171,6 +190,20 @@ class RestAdapter:
         )
         return SourceRecord(
             key=key, values=values, updated_at=updated or None, deleted=deleted
+        )
+
+    def probe(self) -> str:
+        """닿나 — 한 줄만 묻는다(`relay check`). 실패면 `SourceError`."""
+        source = self.source
+        params: dict[str, Any] = dict(source.params)
+        if source.paging in ("page", "offset", "cursor"):
+            params[source.size_param] = 1
+        body = self._get(params)
+        items = value_at(body, source.rows_path) if source.rows_path else body
+        if not isinstance(items, list):
+            raise SourceError(f"행 자리({source.rows_path})에 목록이 없습니다")
+        return f"응답 정상 — 첫 쪽 {len(items)}줄" + (
+            f", 식별자 {as_text(value_at(items[0], source.key))}" if items else ""
         )
 
     def fetch(self, since: str | None) -> Fetched:

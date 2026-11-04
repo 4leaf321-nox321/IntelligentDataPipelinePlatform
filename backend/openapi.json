@@ -3774,6 +3774,572 @@
         }
       }
     },
+    "/api/relay/map": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Relay Map",
+        "operationId": "relay_map_api_relay_map_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelayMap"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Detail",
+        "operationId": "pipeline_detail_api_relay_pipelines__slug__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDetail"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/run": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Run",
+        "operationId": "pipeline_run_api_relay_pipelines__slug__run_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RunIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/apply": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Apply",
+        "operationId": "pipeline_apply_api_relay_pipelines__slug__apply_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/recipes": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Recipe Versions",
+        "operationId": "recipe_versions_api_relay_pipelines__slug__recipes_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RecipeOut"
+                  },
+                  "title": "Response Recipe Versions Api Relay Pipelines  Slug  Recipes Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Recipe Draft",
+        "operationId": "recipe_draft_api_relay_pipelines__slug__recipes_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecipeIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeSaved"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/recipes/{version}": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Recipe Body",
+        "operationId": "recipe_body_api_relay_pipelines__slug__recipes__version__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Recipe Body Api Relay Pipelines  Slug  Recipes  Version  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/recipe-file": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Recipe File",
+        "description": "정의 파일이 가리키는 레시피 — 켜진 판이 없을 때 도는 것. 초안을 지을 출발점이다.",
+        "operationId": "recipe_file_api_relay_pipelines__slug__recipe_file_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Recipe File Api Relay Pipelines  Slug  Recipe File Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/recipes/{version}/test": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Recipe Test",
+        "description": "미러에 그 판을 돌려 본다 — **대상에 아무것도 안 보낸다.** 「켜면 무엇이 바뀌나」 를\n보인다.",
+        "operationId": "recipe_test_api_relay_pipelines__slug__recipes__version__test_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Recipe Test Api Relay Pipelines  Slug  Recipes  Version  Test Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/recipes/{version}/activate": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Recipe Activate",
+        "description": "켠다 — **화면에서 사람만**(토큰이면 거절). 다음 실행부터 이 판이 돈다.",
+        "operationId": "recipe_activate_api_relay_pipelines__slug__recipes__version__activate_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/sample": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Source Sample",
+        "description": "미러(마지막으로 받은 원천)의 앞 몇 줄 — 레시피가 읽는 **평평한 열** 그대로. 원천에 다시\n묻지 않는다(실행이 받아 둔 것).",
+        "operationId": "source_sample_api_relay_pipelines__slug__sample_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Source Sample Api Relay Pipelines  Slug  Sample Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/target-schema": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Target Schema",
+        "description": "대상 SP 의 정의 — 레시피가 만드는 타입 · 그 칸(자료형 · 고를 값 · 참조 대상).",
+        "operationId": "target_schema_api_relay_pipelines__slug__target_schema_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Target Schema Api Relay Pipelines  Slug  Target Schema Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/ext/sample/ping": {
       "get": {
         "tags": [
@@ -5432,6 +5998,60 @@
         ],
         "title": "KindOut"
       },
+      "LineageStep": {
+        "properties": {
+          "target_type": {
+            "type": "string",
+            "title": "Target Type"
+          },
+          "target_field": {
+            "type": "string",
+            "title": "Target Field"
+          },
+          "target_label": {
+            "type": "string",
+            "title": "Target Label",
+            "default": ""
+          },
+          "target_data_type": {
+            "type": "string",
+            "title": "Target Data Type",
+            "default": ""
+          },
+          "target_missing": {
+            "type": "boolean",
+            "title": "Target Missing",
+            "default": false
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "source_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Paths"
+          },
+          "transform": {
+            "type": "string",
+            "title": "Transform"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target_type",
+          "target_field",
+          "columns",
+          "source_paths",
+          "transform"
+        ],
+        "title": "LineageStep"
+      },
       "LoginRequest": {
         "properties": {
           "email": {
@@ -5516,6 +6136,82 @@
         ],
         "title": "MaintenanceItemOut",
         "description": "남은 일 하나. **홈이 이것을 보여 준다** — 관리 화면에 들어가야만 보이면\n아무도 안 본다."
+      },
+      "MapEdge": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "weight": {
+            "type": "integer",
+            "title": "Weight",
+            "default": 0
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "MapEdge"
+      },
+      "MapNode": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "sub": {
+            "type": "string",
+            "title": "Sub",
+            "default": ""
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "default": ""
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label",
+            "default": ""
+          },
+          "link": {
+            "type": "string",
+            "title": "Link",
+            "default": ""
+          },
+          "detail": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "label"
+        ],
+        "title": "MapNode"
       },
       "MemberAddRequest": {
         "properties": {
@@ -6065,6 +6761,144 @@
         "title": "PerformanceThresholdsOut",
         "description": "홈 「남은 일」 의 문턱 — 화면이 그 줄에 표시를 단다(같은 기준으로)."
       },
+      "PipelineDetail": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "system": {
+            "type": "string",
+            "title": "System"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "adapter_kind": {
+            "type": "string",
+            "title": "Adapter Kind"
+          },
+          "endpoint": {
+            "type": "string",
+            "title": "Endpoint"
+          },
+          "endpoint_label": {
+            "type": "string",
+            "title": "Endpoint Label"
+          },
+          "target_name": {
+            "type": "string",
+            "title": "Target Name"
+          },
+          "target_server": {
+            "type": "string",
+            "title": "Target Server"
+          },
+          "target_token_env": {
+            "type": "string",
+            "title": "Target Token Env"
+          },
+          "definition_path": {
+            "type": "string",
+            "title": "Definition Path"
+          },
+          "recipe_path": {
+            "type": "string",
+            "title": "Recipe Path"
+          },
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Types"
+          },
+          "relations": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Relations"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          },
+          "lineage": {
+            "items": {
+              "$ref": "#/components/schemas/LineageStep"
+            },
+            "type": "array",
+            "title": "Lineage"
+          },
+          "state": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "State"
+          },
+          "history": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "History"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/RelayJob"
+            },
+            "type": "array",
+            "title": "Jobs"
+          },
+          "target_schema_note": {
+            "type": "string",
+            "title": "Target Schema Note",
+            "default": ""
+          },
+          "recipe_label": {
+            "type": "string",
+            "title": "Recipe Label",
+            "default": "파일"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "system",
+          "source",
+          "adapter_kind",
+          "endpoint",
+          "endpoint_label",
+          "target_name",
+          "target_server",
+          "target_token_env",
+          "definition_path",
+          "recipe_path",
+          "types",
+          "relations",
+          "status",
+          "status_label",
+          "problems",
+          "lineage",
+          "state",
+          "history",
+          "jobs"
+        ],
+        "title": "PipelineDetail"
+      },
       "PlatformProfileIn": {
         "properties": {
           "summary": {
@@ -6375,6 +7209,108 @@
         "title": "ProfileUpdateRequest",
         "description": "자기 정보 수정.\n\n**표시 이름만 바꾼다.** 아이디(email)는 로그인 식별자라 본인이 바꾸면 감사\n로그·알림이 가리키는 대상이 흔들린다 — 그것은 관리자의 일로 남긴다."
       },
+      "QueuedOut": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "kind"
+        ],
+        "title": "QueuedOut"
+      },
+      "RecipeIn": {
+        "properties": {
+          "body": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Body"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "title": "RecipeIn"
+      },
+      "RecipeOut": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "client": {
+            "type": "string",
+            "title": "Client"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "activated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "status",
+          "note",
+          "client",
+          "created_at"
+        ],
+        "title": "RecipeOut"
+      },
+      "RecipeSaved": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "problems"
+        ],
+        "title": "RecipeSaved"
+      },
       "RejectRequest": {
         "properties": {
           "note": {
@@ -6389,6 +7325,97 @@
           "note"
         ],
         "title": "RejectRequest"
+      },
+      "RelayJob": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "created_at"
+        ],
+        "title": "RelayJob"
+      },
+      "RelayMap": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/MapNode"
+            },
+            "type": "array",
+            "title": "Nodes"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/MapEdge"
+            },
+            "type": "array",
+            "title": "Edges"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "nodes",
+          "edges"
+        ],
+        "title": "RelayMap"
       },
       "RequestCaseOut": {
         "properties": {
@@ -6588,6 +7615,23 @@
           "offset"
         ],
         "title": "RequestStatsOut"
+      },
+      "RunIn": {
+        "properties": {
+          "human_edits": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Human Edits"
+          }
+        },
+        "type": "object",
+        "title": "RunIn"
       },
       "ServerStatusOut": {
         "properties": {

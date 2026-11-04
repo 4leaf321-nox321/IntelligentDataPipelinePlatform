@@ -150,10 +150,13 @@ if [[ -n "$DATA_DIR" ]]; then
     ENV_FILE="$DATA_DIR/.env"
     FILESTORE_HOST_DIR="$DATA_DIR/filestore"
     BACKUP_HOST_DIR="$DATA_DIR/backup"
+    # 중계의 정의 · 미러 · 상태 — **공용**이다. 두 서버의 워커 어느 쪽이 돌려도 같은 상태를 본다.
+    RELAY_HOST_DIR="$DATA_DIR/relay"
 else
     ENV_FILE="$INSTALL_DIR/.env"
     FILESTORE_HOST_DIR="$INSTALL_DIR/filestore"
     BACKUP_HOST_DIR="${BACKUP_HOST_DIR:-}"
+    RELAY_HOST_DIR="$INSTALL_DIR/relay"
 fi
 LOG_HOST_DIR="$INSTALL_DIR/logs"
 # 앱이 DB 를 찾는 주소 — DB VIP 가 있으면 그것, 이중화인데 아직 없으면 주(master) 서버, 아니면 로컬.
@@ -321,10 +324,12 @@ ensure_dirs() {
     as_op mkdir -p "$INSTALL_DIR" "$LOG_HOST_DIR"
     if [[ -n "$DATA_DIR" ]]; then
         [[ -d "$(dirname "$DATA_DIR")" ]] || err "공용 폴더가 없습니다: $(dirname "$DATA_DIR") — /data 가 마운트됐는지 확인하세요"
-        mkdir -p "$DATA_DIR" "$FILESTORE_HOST_DIR" "$BACKUP_HOST_DIR" "$DATA_DIR/tls" "$DATA_DIR/db"
+        mkdir -p "$DATA_DIR" "$FILESTORE_HOST_DIR" "$BACKUP_HOST_DIR" "$DATA_DIR/tls" "$DATA_DIR/db" \
+            "$RELAY_HOST_DIR/pipelines" "$RELAY_HOST_DIR/work"
         chown "$OPERATOR:$OPERATOR" "$DATA_DIR" "$FILESTORE_HOST_DIR" "$BACKUP_HOST_DIR"
+        chown -R "$OPERATOR:$OPERATOR" "$RELAY_HOST_DIR"
     else
-        as_op mkdir -p "$FILESTORE_HOST_DIR"
+        as_op mkdir -p "$FILESTORE_HOST_DIR" "$RELAY_HOST_DIR/pipelines" "$RELAY_HOST_DIR/work"
     fi
     instance_save
     ha_save
@@ -570,6 +575,7 @@ in_container() {
     as_op apptainer exec \
         --bind "$ENV_FILE:/opt/app/backend/.env:ro" \
         --bind "$FILESTORE_HOST_DIR:/data/filestore" \
+        --bind "$RELAY_HOST_DIR:/data/relay" \
         --bind "$LOG_HOST_DIR:/data/logs" \
         ${backup_bind[@]+"${backup_bind[@]}"} \
         "$INSTALL_DIR/app.sif" "$@"
@@ -841,6 +847,7 @@ render_unit_paths() {  # $1=template
         -e "s|@@APP_SLUG@@|$APP_SLUG|g" \
         -e "s|@@ENV_FILE@@|$ENV_FILE|g" \
         -e "s|@@FILESTORE_DIR@@|$FILESTORE_HOST_DIR|g" \
+        -e "s|@@RELAY_DIR@@|$RELAY_HOST_DIR|g" \
         -e "s|@@LOG_DIR@@|$LOG_HOST_DIR|g" \
         -e "s|@@BACKUP_DIR@@|${BACKUP_HOST_DIR:-}|g" \
         -e "$backup_sed" \
@@ -1109,7 +1116,7 @@ cmd_install() {
   로그   : sudo journalctl -u $SERVICE_NAME -f
   워커   : sudo systemctl status $WORKER_SERVICE_NAME   (파일 가져오기가 여기서 돈다)
   접속   : $( [[ -n "$HA_ROLE" ]] && echo "https://$PUBLIC_HOST/$APP_SLUG/  (직접: http://$SELF_IP:$APP_PORT/)" || echo "http://<서버주소>:$APP_PORT/" )
-  자료   : 첨부 $FILESTORE_HOST_DIR · 설정 $ENV_FILE · 로그 $LOG_HOST_DIR$( [[ -n "$BACKUP_HOST_DIR" ]] && echo " · 백업 $BACKUP_HOST_DIR" )
+  자료   : 첨부 $FILESTORE_HOST_DIR · 중계 $RELAY_HOST_DIR(정의는 pipelines/) · 설정 $ENV_FILE · 로그 $LOG_HOST_DIR$( [[ -n "$BACKUP_HOST_DIR" ]] && echo " · 백업 $BACKUP_HOST_DIR" )
   MCP    : sudo systemctl status $MCP_SERVICE_NAME   (Claude 연동, 선택)
 
   위에 찍힌 관리자 임시 비밀번호는 **다시 표시되지 않습니다.**
@@ -1337,8 +1344,8 @@ cmd_setup() {
     [[ -n "$HA_ROLE" ]] && MCP_HOST="0.0.0.0"
     SELF_IP="${SELF_IP_GIVEN:-}"   # 상대 IP 를 이제 아니, 그쪽으로 나가는 내 주소를 다시 잰다
     ha_load
-    if [[ -n "$DATA_DIR" ]]; then ENV_FILE="$DATA_DIR/.env"; FILESTORE_HOST_DIR="$DATA_DIR/filestore"; BACKUP_HOST_DIR="$DATA_DIR/backup"
-    else ENV_FILE="$INSTALL_DIR/.env"; FILESTORE_HOST_DIR="$INSTALL_DIR/filestore"; BACKUP_HOST_DIR=""; fi
+    if [[ -n "$DATA_DIR" ]]; then ENV_FILE="$DATA_DIR/.env"; FILESTORE_HOST_DIR="$DATA_DIR/filestore"; BACKUP_HOST_DIR="$DATA_DIR/backup"; RELAY_HOST_DIR="$DATA_DIR/relay"
+    else ENV_FILE="$INSTALL_DIR/.env"; FILESTORE_HOST_DIR="$INSTALL_DIR/filestore"; BACKUP_HOST_DIR=""; RELAY_HOST_DIR="$INSTALL_DIR/relay"; fi
     LOG_HOST_DIR="$INSTALL_DIR/logs"
     if [[ -n "$DB_VIP" ]]; then DB_HOST="$DB_VIP"; elif [[ "$HA_ROLE" == backup ]]; then DB_HOST="$PEER_IP"; elif [[ "$HA_ROLE" == master ]]; then DB_HOST="$SELF_IP"; else DB_HOST="localhost"; fi
 

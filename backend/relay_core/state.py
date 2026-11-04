@@ -40,6 +40,8 @@ class State:
     applied_run: str | None = None
     applied_at: str | None = None
     pending: Pending | None = None
+    incrementals: int = 0
+    """마지막 전량 뒤 증분을 몇 번 받았나 — `full_every` 가 그 수로 전량 날을 정한다."""
     history: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -72,6 +74,7 @@ class Workdir:
             applied_run=raw.get("applied_run"),
             applied_at=raw.get("applied_at"),
             pending=Pending(**pending) if pending else None,
+            incrementals=int(raw.get("incrementals") or 0),
             history=list(raw.get("history") or []),
         )
 

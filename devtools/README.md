@@ -4,7 +4,7 @@
 
 | 것 | 자리 | 포트 |
 | --- | --- | --- |
-| 샘플 PLM API | `mock_plm/` — 개발모델 행 안에 과제 · 프로젝트 · 시험 주체가 중첩, `updated_since` 증분, `deleted` 표시, Bearer | 8088 |
+| 샘플 PLM API | `mock_plm/` — **OData v4**(`/odata/v4/plm/DevModels`, `$filter` · `$expand` · `nextLink`)와 같은 데이터의 REST 판. 개발모델 행 안에 과제 · 프로젝트 · 시험 주체가 중첩, 삭제 표시, Bearer | 8088 |
 | SP 시험 인스턴스 「자주검증 Datahub(시험)」 | `sandbox_sp/` — **SP 저장소의 코드를 그대로** slug `jvhubtest` · 별도 DB 로 띄운다 | 8087 |
 
 **SP 개발 DB(`standardplatform`)는 건드리지 않는다** — 거기에는 분석 실험 데이터가 있다. 시험
@@ -33,6 +33,12 @@ export MOCK_PLM_TOKEN=mock-plm-token RELAY_TARGET_TOKEN="$(cat ../.work/sandbox_
 curl -X POST http://127.0.0.1:8088/_mock/scenario/change
 .venv/bin/python -m relay_core.cli run   ../devtools/mock_plm/pipeline.json --work ../.work/relay
 .venv/bin/python -m relay_core.cli apply ../devtools/mock_plm/pipeline.json --work ../.work/relay
+
+# datarelay 자신(화면 · MCP 까지) — 창 셋. backend/.env 에 MOCK_PLM_TOKEN · RELAY_TARGET_TOKEN 을 적는다
+#   backend: .venv/bin/python -m uvicorn app.main:app --port 8081
+#   backend: .venv/bin/python -m app.worker          (API 가 뜬 뒤에)
+#   mcp_server: venv/bin/python server.py              (8082 — DATARELAY_API=http://127.0.0.1:8081)
+#   frontend: npm run dev                              (5250)
 
 # 내리기 — 시험 인스턴스는 PID 로만(같은 PC 의 다른 플랫폼을 건드리지 않게)
 devtools/sandbox_sp/down.sh

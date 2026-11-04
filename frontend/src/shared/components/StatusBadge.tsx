@@ -13,7 +13,7 @@
 
 import { cn } from '@/shared/lib/utils'
 
-type Tone = 'neutral' | 'good' | 'warn' | 'bad'
+export type Tone = 'neutral' | 'good' | 'warn' | 'bad'
 
 const TONE_CLASS: Record<Tone, string> = {
   neutral: 'bg-muted text-muted-foreground',
@@ -150,8 +150,60 @@ const SHEET: Record<string, { label: string; tone: Tone }> = {
   confirmed: { label: '확정', tone: 'good' },
 }
 
+/** 중계 파이프라인(ADR 0001) — 지도 · 목록 · 상세가 같은 말과 색을 쓴다. 말은 서버의
+ *  `relay/services.STATUS_LABEL` 과 같다. */
+const RELAY_PIPELINE: Record<string, { label: string; tone: Tone }> = {
+  ok: { label: '정상', tone: 'good' },
+  // **적용 대기는 나쁨이 아니라 주의다** — 사람이 계획을 읽고 적용하면 된다.
+  pending: { label: '적용 대기', tone: 'warn' },
+  // 멈춤은 계획에 오류가 있거나 레시피에 미해결이 있다 — 고치기 전엔 흐르지 않지만 사고는 아니다.
+  blocked: { label: '멈춤', tone: 'warn' },
+  failed: { label: '실패', tone: 'bad' },
+  broken: { label: '정의 오류', tone: 'bad' },
+  // 아직 안 돈 것은 사고가 아니다 — 처음 「지금 실행」 을 누르면 된다.
+  never: { label: '아직 안 돌았음', tone: 'neutral' },
+}
+
+/** 중계의 대상 SP — 지금 닿나. */
+const RELAY_TARGET: Record<string, { label: string; tone: Tone }> = {
+  ok: { label: '연결됨', tone: 'good' },
+  unreachable: { label: '닿지 않음', tone: 'bad' },
+  // 닿긴 하는데 엉뚱한 곳(다른 slug)이다 — 보내기 전에 정의를 봐야 한다.
+  mismatch: { label: '다른 인스턴스', tone: 'warn' },
+}
+
+/** 중계 레시피의 판 — AI(MCP)가 초안을 짓고 사람이 켠다. */
+const RELAY_RECIPE: Record<string, { label: string; tone: Tone }> = {
+  // 초안은 나쁨이 아니다 — 시험해 보고 켜면 된다.
+  draft: { label: '초안', tone: 'neutral' },
+  active: { label: '켜짐', tone: 'good' },
+  // 내려 둔 판은 이력이다 — 다시 켤 수 있다.
+  retired: { label: '내려 둠', tone: 'neutral' },
+}
+
+/** 레시피 판의 시험 — 미해결 없이 다 바뀌었나. */
+const RELAY_TRIAL: Record<string, { label: string; tone: Tone }> = {
+  clean: { label: '깨끗함', tone: 'good' },
+  // 켜면 그 실행이 멈춘다 — 멎은 것의 색.
+  blocked: { label: '막힘', tone: 'bad' },
+}
+
+/** 작업(`jobs`)의 상태 — 말은 `modules/jobs/api` 의 STATUS_LABEL 과 같다. */
+const JOB: Record<string, { label: string; tone: Tone }> = {
+  queued: { label: '대기', tone: 'neutral' },
+  running: { label: '진행 중', tone: 'warn' },
+  done: { label: '완료', tone: 'good' },
+  failed: { label: '실패', tone: 'bad' },
+  cancelled: { label: '취소됨', tone: 'neutral' },
+}
+
 const TABLES = {
   account: ACCOUNT,
+  job: JOB,
+  relay_pipeline: RELAY_PIPELINE,
+  relay_recipe: RELAY_RECIPE,
+  relay_target: RELAY_TARGET,
+  relay_trial: RELAY_TRIAL,
   delegation: DELEGATION,
   explode: EXPLODE,
   lineage: LINEAGE,
@@ -168,12 +220,22 @@ const TABLES = {
   workspace: WORKSPACE,
 } as const
 
+export type StatusKind = keyof typeof TABLES
+
+/**
+ * 그 상태의 결 — **배지가 아닌 자리**(흐름도의 테두리 · 선)도 같은 판정을 쓰게 한다. 그림이 제
+ * 색을 따로 고르면 배지는 주의인데 선은 빨강인 일이 생긴다.
+ */
+export function statusTone(kind: StatusKind, value: string): Tone {
+  return TABLES[kind][value]?.tone ?? 'neutral'
+}
+
 export function StatusBadge({
   kind,
   value,
   className,
 }: {
-  kind: keyof typeof TABLES
+  kind: StatusKind
   value: string
   className?: string
 }) {
