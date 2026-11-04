@@ -1,0 +1,291 @@
+/**
+ * API 클라이언트.
+ *
+ * **절대 주소를 갖지 않는다.** 개발에서는 Vite 프록시가, 배포에서는 같은 프로세스가
+ * /api 를 받는다. 빌드 시 API 주소를 굽는 방식은 값이 빠지면 사용자 브라우저가
+ * 자기 PC 를 부르는 사고가 나고, 그걸 막으려면 빌드 산출물을 검사하는 단계를 따로
+ * 둬야 한다. 상대경로면 그 사고 자체가 없다.
+ *
+ * **access 토큰은 여기 메모리에만 둔다.** localStorage 에 두면 XSS 한 번에
+ * 탈취된다. 새로고침하면 사라지지만, refresh 쿠키(httpOnly)로 다시 받아온다.
+ */
+
+import { PUBLIC_PATH } from '@/shared/base'
+import { ERROR_PREFIX } from '@/shared/branding'
+
+/** 접두어가 있으면 `/plm/api` — 서버가 index.html 에 심어 준 값이다. */
+const BASE = `${PUBLIC_PATH}/api`
+
+/** 클라이언트가 스스로 만드는 오류의 코드. **서버 코드와 같은 규약을 쓴다** —
+ *  두 규약이 섞이면 사용자가 알려 준 코드로 어느 쪽을 볼지 알 수 없다. */
+const CLIENT_ERROR = `${ERROR_PREFIX}-CLIENT-0001`
+
+/** 백엔드 오류 규약 (app/shared/errors.py 와 짝) */
+export interface ApiErrorBody {
+  error: {
+    code: string
+    message: string
+    request_id?: string
+    details?: Record<string, unknown>
+  }
+}
+
+export class ApiError extends Error {
+  readonly code: string
+  readonly status: number
+  readonly requestId: string | undefined
+  readonly details: Record<string, unknown>
+
+  constructor(status: number, body: ApiErrorBody) {
+    super(body.error.message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = body.error.code
+    this.requestId = body.error.request_id
+    this.details = body.error.details ?? {}
+  }
+}
+
+let accessToken: string | null = null
+let onSessionLost: (() => void) | null = null
+
+export const session = {
+  setToken(token: string | null) {
+    accessToken = token
+  },
+  getToken() {
+    return accessToken
+  },
+  /** 갱신까지 실패했을 때 호출된다 — AuthContext 가 로그인 화면으로 보낸다. */
+  onLost(handler: (() => void) | null) {
+    onSessionLost = handler
+  },
+}
+
+/** 봉투인가. **모양을 확인하고 나서 읽는다.** */
+function isEnvelope(value: unknown): value is ApiErrorBody {
+  const error = (value as ApiErrorBody | null)?.error
+  return typeof error?.code === 'string' && typeof error?.message === 'string'
+}
+
+/**
+ * 서버가 봉투 대신 무언가를 말했다면 **그 말을 살린다.**
+ *
+ * FastAPI 는 detail 로 낸다. 그것을 버리고 "예상하지 못한 응답" 만 띄우면 무엇이
+ * 잘못됐는지가 통째로 사라진다.
+ */
+function said(value: unknown): string {
+  const detail = (value as { detail?: unknown } | null)?.detail
+  return typeof detail === 'string' && detail ? ` — ${detail}` : ''
+}
+
+/**
+ * 오류 응답을 ApiError 로. **여기서 오류가 나면 안 된다.**
+ *
+ * 봉투가 아닌 JSON 이 오면 body.error.message 가 터지고, 화면에는 원인 대신
+ * 자바스크립트 예외가 뜬다 — 사람은 요청이 왜 실패했는지가 아니라 프론트가
+ * 깨졌다고 읽는다.
+ */
+async function parseError(response: Response): Promise<ApiError> {
+  let parsed: unknown = null
+  try {
+    parsed = await response.json()
+  } catch {
+    // JSON 도 아니다 — HTML 오류 페이지나 빈 본문.
+  }
+  if (isEnvelope(parsed)) return new ApiError(response.status, parsed)
+  return new ApiError(response.status, {
+    error: {
+      code: CLIENT_ERROR,
+      message: `서버가 예상하지 못한 응답을 보냈습니다 (HTTP ${response.status})${said(parsed)}`,
+    },
+  })
+}
+
+async function send(path: string, init?: RequestInit): Promise<Response> {
+  // FormData 일 때 Content-Type 을 직접 넣으면 **안 된다.** multipart 는 본문에
+  // boundary 문자열이 필요한데, 브라우저가 헤더를 만들 때 그것을 붙여 준다.
+  const isForm = init?.body instanceof FormData
+  return fetch(`${BASE}${path}`, {
+    ...init,
+    credentials: 'same-origin', // refresh 쿠키
+    headers: {
+      ...(isForm ? {} : { 'Content-Type': 'application/json' }),
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      ...init?.headers,
+    },
+  })
+}
+
+/** refresh 한 번의 결과 — 본문은 한 번만 읽히므로 읽어서 나눠 준다. */
+interface RefreshOutcome {
+  ok: boolean
+  status: number
+  body: unknown
+}
+
+let refreshing: Promise<RefreshOutcome> | null = null
+
+/**
+ * **refresh 는 한 번에 하나만 나간다.**
+ *
+ * React StrictMode 는 effect 를 두 번 돌린다. 앱이 뜰 때 /auth/refresh 가 같은
+ * 쿠키로 둘 나가면, 서버는 회전 직후의 옛 값이 다시 쓰인 것을 보고 그것을 탈취로
+ * 판정해 세션을 전부 끊는다 — 다시 로그인해도 다음 로드에서 또 끊긴다.
+ *
+ * 서버도 회전 직후의 옛 값을 봐 주지만(유예 창), 애초에 둘을 보내지 않는 것이
+ * 맞다. 진행 중인 요청이 있으면 그 약속을 같이 기다린다.
+ */
+function refreshOnce(): Promise<RefreshOutcome> {
+  if (!refreshing) {
+    refreshing = fetch(`${BASE}/auth/refresh`, { method: 'POST', credentials: 'same-origin' })
+      .then(async (response) => {
+        let body: unknown = null
+        try {
+          body = await response.json()
+        } catch {
+          // 본문 없는 401 등. 아래에서 상태만으로 판단한다.
+        }
+        const token = (body as { access_token?: unknown } | null)?.access_token
+        if (response.ok && typeof token === 'string') accessToken = token
+        return { ok: response.ok, status: response.status, body }
+      })
+      .finally(() => {
+        refreshing = null
+      })
+  }
+  return refreshing
+}
+
+/** 조용한 갱신. 성공하면 새 access 토큰을 보관한다. */
+export async function tryRefresh(): Promise<boolean> {
+  return (await refreshOnce()).ok
+}
+
+/**
+ * 앱 기동 때의 갱신 — 세션(사용자 정보)까지 돌려준다.
+ *
+ * api.post 와 같은 일이지만 **동시 호출을 하나로 합친다**(위 주석 참고).
+ */
+export async function refreshSession<T>(): Promise<T> {
+  const outcome = await refreshOnce()
+  if (!outcome.ok) {
+    if (isEnvelope(outcome.body)) throw new ApiError(outcome.status, outcome.body)
+    throw new ApiError(outcome.status, {
+      error: {
+        code: CLIENT_ERROR,
+        message: `세션을 되살리지 못했습니다 (HTTP ${outcome.status})${said(outcome.body)}`,
+      },
+    })
+  }
+  return outcome.body as T
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  let response = await send(path, init)
+
+  // access 는 12시간이면 만료된다. 사용자가 그 순간 하던 일을 잃지 않도록 한 번만
+  // 조용히 갱신하고 재시도한다. /auth/* 는 제외 — 갱신 자체가 실패한 상황에서
+  // 무한 재귀가 된다.
+  if (response.status === 401 && !path.startsWith('/auth/')) {
+    if (await tryRefresh()) {
+      response = await send(path, init)
+    } else {
+      onSessionLost?.()
+    }
+  }
+
+  if (!response.ok) throw await parseError(response)
+  if (response.status === 204) return undefined as T
+  return (await response.json()) as T
+}
+
+/**
+ * 파일 내려받기. **평범한 링크로는 안 된다.**
+ *
+ * access 토큰은 메모리에만 있고 쿠키가 아니므로, 브라우저가 스스로 여는 주소
+ * (a href · img src · iframe)에는 실리지 않는다. 그래서 그런 링크는 항상 401 이
+ * 나는데, 그 오류는 새 탭에서 나므로 **화면에는 아무 표시도 안 뜬다** — 사용자는
+ * 아무 일도 안 일어난 것처럼 본다.
+ */
+/**
+ * 서버가 붙인 파일 이름(`Content-Disposition`) — UTF-8(`filename*`)을 먼저, 없으면 따옴표 이름.
+ * 첨부처럼 ASCII 자리에 `download` 를 두는 응답은 그것을 이름으로 안 쓴다.
+ */
+export function filenameOf(header: string | null): string | null {
+  if (!header) return null
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header)
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim())
+    } catch {
+      // 깨진 인코딩이면 아래 따옴표 이름으로
+    }
+  }
+  const plain = /filename\s*=\s*"([^"]*)"/i.exec(header)
+  const name = plain?.[1]?.trim()
+  return name && name !== 'download' ? name : null
+}
+
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  let response = await send(path)
+  // 받는 사이 access 가 만료될 수 있다 — 그림(`fetchBlob`)과 같이 한 번 갱신하고 다시.
+  if (response.status === 401 && (await tryRefresh())) response = await send(path)
+  if (!response.ok) throw await parseError(response)
+
+  // **서버가 준 이름을 쓴다** — 부르는 쪽의 이름은 어림이다. 큰 내보내기는 zip 이 되고 작업의
+  // 결과는 xlsx · json 인데, 늘 `.csv` 로 받아 열리지 않았다(2026-10-08).
+  const named = filenameOf(response.headers.get('Content-Disposition'))
+  const url = URL.createObjectURL(await response.blob())
+  try {
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = named ?? filename
+    anchor.click()
+  } finally {
+    // 즉시 해제하면 저장이 시작되기 전에 사라지는 브라우저가 있다.
+    setTimeout(() => URL.revokeObjectURL(url), 10_000)
+  }
+}
+
+/**
+ * 파일 내용을 blob 으로 — **그림을 띄울 때**(ADR 0012).
+ *
+ * `<img src="/api/...">` 는 토큰이 안 실려 401 이다(위 `downloadFile` 과 같은 이유). 받아서
+ * `URL.createObjectURL` 로 띄운다. 사진을 보는 동안 access 가 만료될 수 있어 한 번 갱신하고
+ * 다시 받는다. 서버가 `Cache-Control: private` 을 주므로 같은 사진은 브라우저 캐시에서 온다.
+ */
+export async function fetchBlob(path: string): Promise<Blob> {
+  let response = await send(path)
+  if (response.status === 401 && (await tryRefresh())) response = await send(path)
+  if (!response.ok) throw await parseError(response)
+  return response.blob()
+}
+
+export const api = {
+  /**
+   * `signal` 을 주면 그 요청을 끊을 수 있다 — 끊으면 서버도 질의를 멈춘다(오래 도는 읽기, ADR
+   * 0048). 결과만 버리면 서버는 아무도 안 받는 답을 끝까지 만든다.
+   */
+  get: <T>(path: string, options?: { signal?: AbortSignal }) => request<T>(path, options),
+  post: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'POST', body: JSON.stringify(body ?? {}) }),
+  /**
+   * 파일 업로드 등 multipart 전송.
+   *
+   * **Content-Type 을 직접 넣지 않는다** — multipart 는 본문에 boundary 문자열이
+   * 필요한데 브라우저가 헤더를 만들 때 그것을 붙여 준다. `send` 가 FormData 를
+   * 알아보고 헤더를 비운다.
+   */
+  postForm: <T>(path: string, body: FormData) => request<T>(path, { method: 'POST', body }),
+  /** 한 벌을 통째로 갈아 끼우는 자원에 쓴다(조건 한 칸 같은 것). */
+  put: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PUT', body: JSON.stringify(body ?? {}) }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: 'PATCH', body: JSON.stringify(body ?? {}) }),
+  delete: <T>(path: string, body?: unknown) =>
+    request<T>(path, {
+      method: 'DELETE',
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    }),
+}

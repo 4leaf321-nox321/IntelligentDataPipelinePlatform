@@ -1,0 +1,46 @@
+[Unit]
+Description=@@APP_NAME@@ (FastAPI in Apptainer)
+After=network-online.target
+Wants=network-online.target
+# **로컬 PostgreSQL 에 묶지 않는다.** 이중화에서는 DB 가 상대 서버(DB VIP)에 있을 수 있어,
+# 여기에 Requires=postgresql.service 를 두면 대기 서버의 앱이 자기 DB 가 대기라는 이유로 안 뜬다.
+# DB 가 아직 안 떴으면 앱이 재시도한다(Restart=on-failure).
+
+[Service]
+Type=simple
+User=@@USER@@
+Group=@@USER@@
+WorkingDirectory=@@INSTALL_DIR@@
+
+# bind-mount 배치 — **이것이 전부다.** 호스트 경로는 deploy.sh 가 정한다(단독 서버면 설치 폴더,
+# 공용 스토리지를 쓰면 /data/<공통폴더>/<slug>/…). 컨테이너 안 경로는 늘 같다.
+#
+#   .env            읽기 전용. DB 비밀번호와 JWT 키라 이미지에 안 박는다
+#   /data/filestore 쓰기. 첨부의 실제 내용
+#   /data/logs      쓰기. 창을 닫아도 남아야 한다
+#   /data/backup    읽기. 백업 폴더가 있을 때만 — 앱이 마지막 백업 시각을 홈에 띄운다
+#
+# **SIF 루트는 읽기 전용이다.** 여기 안 걸린 경로에 쓰려 하면 그 순간
+# `[Errno 30] Read-only file system` 이 나고, 그 오류는 그 기능을 쓰는
+# 사람에게만 보인다.
+ExecStart=/usr/bin/apptainer run \
+    --bind @@ENV_FILE@@:/opt/app/backend/.env:ro \
+    --bind @@FILESTORE_DIR@@:/data/filestore \
+    --bind @@LOG_DIR@@:/data/logs \
+@@BACKUP_BIND@@
+    @@INSTALL_DIR@@/app.sif
+
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=30
+
+# 가벼운 하드닝 — Apptainer 가 이미 rootless·네임스페이스 격리다.
+# **ProtectHome 은 끈다**: 설치 폴더가 /home/<operator> 아래에 있어서,
+# 켜면 자기 .env 와 filestore 를 못 읽는다.
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=false
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

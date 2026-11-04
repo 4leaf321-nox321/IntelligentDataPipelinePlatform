@@ -1,0 +1,5 @@
+source=StandardPlatform/pipeline
+tag=v0.4.72
+commit=ab41cff
+9742845c6781c5da7780e6e91f3acd23e4ed4c4df0e2ea845479c1bf6df3af8a  vendor/sp_pipeline/sp_pipeline.py
+56a834f5d2c32bea14f9bd48bb474ae0ef8782d9a6bf487ba72b45233432544e  vendor/sp_pipeline/sp_table.py

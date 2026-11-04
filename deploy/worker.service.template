@@ -1,0 +1,35 @@
+[Unit]
+Description=@@APP_NAME@@ 작업 워커 (파일 가져오기 등 오래 걸리는 일)
+After=@@APP_SLUG@@.service
+# 로컬 PostgreSQL 에 묶지 않는다 — 이중화에서는 DB 가 상대 서버에 있을 수 있다(app.service 참고).
+
+[Service]
+Type=simple
+User=@@USER@@
+Group=@@USER@@
+WorkingDirectory=@@INSTALL_DIR@@
+
+# 웹 서비스와 **같은 SIF·같은 .env** 로 돈다. 두 서버에 하나씩 떠도 같은 작업을 두 번 안 집는다
+# (`FOR UPDATE SKIP LOCKED`). 작업 파일은 DB 에 있어 filestore 를 안 봐도 되지만, 앞으로의
+# 종류(내보내기 → 첨부)를 위해 같은 bind 를 건다.
+ExecStart=/usr/bin/apptainer exec \
+    --bind @@ENV_FILE@@:/opt/app/backend/.env:ro \
+    --bind @@FILESTORE_DIR@@:/data/filestore \
+    --bind @@LOG_DIR@@:/data/logs \
+@@BACKUP_BIND@@
+    @@INSTALL_DIR@@/app.sif \
+    sh -c 'cd /opt/app/backend && /opt/app/venv/bin/python -m app.worker'
+
+Restart=on-failure
+RestartSec=10
+# 하던 작업을 끝내고 멈춘다 — 그 안에 못 끝내면 systemd 가 죽이고, 다른 워커가 되살린다.
+TimeoutStopSec=120
+KillSignal=SIGTERM
+
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=false
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

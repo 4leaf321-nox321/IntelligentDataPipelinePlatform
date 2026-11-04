@@ -1,0 +1,6 @@
+# 개발·검증 전용. 배포 패키지에는 들어가지 않는다 (wheel 번들은 requirements.txt만 본다).
+mypy==2.3.0
+pytest==9.1.1
+# 시험을 작업자 여럿으로 — 작업자마다 DB 를 따로 쓴다(tests/conftest.py).
+pytest-xdist==3.8.0
+ruff==0.16.3

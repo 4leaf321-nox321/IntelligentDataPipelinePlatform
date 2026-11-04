@@ -1,0 +1,226 @@
+# 릴리스 — 태그 하나를 밀면 **받아서 옮길 수 있는 tar.gz** 가 나온다.
+#
+#     git tag v0.1.0 && git push origin v0.1.0
+#
+# 이 자리가 없으면 배포 경로가 끊긴다. 번들을 만들려면 리눅스 · apptainer · npm
+# 이 필요한데, **저장소를 받는 기계가 Windows 라면 그 기계에서 만들 수 없다** —
+# Apptainer 는 Windows 네이티브 빌드가 없다. 그래서 만드는 일을 여기서 한다.
+#
+# **검증을 통과해야 릴리스가 나온다.** 안 그러면 아무도 안 돌려 본 코드가 tar 로
+# 나가고, 그것이 깨졌다는 사실은 **운영 서버에서** 드러난다. 검증은 `ci.yml` 을
+# 불러 쓴다 — 여기 한 벌 더 적으면 언젠가 한쪽만 고쳐진다.
+#
+# **같은 커밋의 CI 가 이미 통과했으면 다시 돌리지 않는다**(`ci-passed`). 태그는 main
+# 에 민 커밋에 단다 — 그 커밋에서 CI 가 이미 같은 시험(ci.yml)을 돌렸다. 또 돌리면
+# 새로 아는 것 없이 늦어질 뿐이다(v0.4.44: CI 12분 + 릴리스 17분, 그중 15분이 같은
+# 시험). 그 CI 가 아직 돌고 있으면 끝나기를 기다린다 — 태그를 푸시 직후에 달아도 된다.
+
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+# 릴리스를 만들려면 쓰기가 필요하다. 기본 토큰의 권한을 여기서만 넓힌다.
+permissions:
+  contents: write
+
+jobs:
+  ci-passed:
+    name: 같은 커밋의 CI
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      passed: ${{ steps.look.outputs.passed }}
+    steps:
+      - id: look
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          runs="repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&per_page=20"
+          # 30초마다, 40분까지(CI 는 보통 12분). 기록이 아직 없으면 처음 2분은 기다린다 —
+          # 커밋과 태그를 잇달아 밀면 CI 실행이 늦게 잡힌다.
+          for round in $(seq 1 80); do
+            # API 가 잠깐 안 되면 「기록 없음」 으로 — 릴리스를 막지 않고 전부 돌리는 쪽으로 간다.
+            states=$(gh api "$runs" --jq '[.workflow_runs[] | "\(.status)/\(.conclusion)"] | join(" ")' || true)
+            echo "CI ${GITHUB_SHA::7}: ${states:-기록 없음}"
+            if [[ " $states " == *" completed/success "* ]]; then
+              echo "passed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            busy=$(tr ' ' '\n' <<< "$states" | grep -cv '^completed/' || true)
+            if [[ -z "$states" && $round -gt 4 ]] || [[ -n "$states" && $busy -eq 0 ]]; then
+              break
+            fi
+            sleep 30
+          done
+          # 실패 · 취소 · 기록 없음 — 아래 verify 가 전부 돌린다.
+          echo "passed=false" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: 검증 (CI 전체)
+    needs: ci-passed
+    if: needs.ci-passed.outputs.passed != 'true'
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: 번들 빌드 · 릴리스 게시
+    needs: [ci-passed, verify]
+    # verify 를 건너뛰었으면(같은 커밋의 CI 가 통과) 그대로 간다 — 조건을 안 적으면 「needs
+    # 중 하나라도 건너뛰면 같이 건너뛴다」 가 기본이다.
+    if: >-
+      !cancelled() && needs.ci-passed.result == 'success'
+      && (needs.verify.result == 'success' || needs.verify.result == 'skipped')
+    # **서버와 같은 우분투(24.04)에서 만든다** — 번들에 담는 .deb(apptainer · pgvector)를 이 러너의
+    # 저장소에서 받는다. `ubuntu-latest` 가 26.04 로 바뀐 뒤(2026-10) 거기에는 서버용
+    # `postgresql-16-pgvector` · `libfuse3-3` 이 없어 v0.4.69 · v0.4.70 번들에 .deb 가 빠졌다 — 폐쇄망
+    # 서버는 그것으로 깐다. 서버를 올리는 날 같이 올린다.
+    runs-on: ubuntu-24.04
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: '.node-version'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: '.python-version'
+
+      # 설치를 한 자리에서 정한다 — ci 와 release 가 같은 것을 쓴다.
+      - uses: ./.github/actions/apptainer
+
+      # **사용자 PC 에 옮기는 정제 도구 묶음**도 같은 태그로 낸다. **번들보다 먼저** 만든다 —
+      # 번들 빌드가 이것을 그대로 이미지에 넣어(서버가 「내 정보」 에서 내려준다), 릴리스에
+      # 올라가는 zip 과 서버 안의 zip 이 같은 파일이 된다. 사내망에서는 GitHub 에 못 닿으므로
+      # 서버에서 받는 길이 정본이고, 릴리스의 zip 은 인터넷이 되는 PC 를 위한 것이다.
+      - name: 정제 도구 묶음 빌드
+        run: |
+          set -euo pipefail
+          ./deploy/build_pipeline_kit.sh "${GITHUB_REF_NAME}"
+          kit=$(ls release/sp-pipeline-*.zip)
+          python3 -m zipfile -l "$kit" > /tmp/kit.txt
+          for f in sp_mcp.py sp_setup.py sp_pipeline.py sp_table.py sp_profile.py sp_work.py \
+                   install.cmd check.cmd AGENTS.md requirements.txt guide/GUIDE.md VERSION \
+                   python/python.exe python/Lib/site-packages/mcp/__init__.py \
+                   python/Lib/site-packages/pywin32.pth; do
+            grep -q "/$f " /tmp/kit.txt || { echo "묶음에 $f 가 없습니다"; exit 1; }
+          done
+          # **Windows 파이썬의 길** — 부품 · 키트 폴더 · `import site` 가 없으면 서버가 안 뜬다.
+          python3 - "$kit" <<'PY'
+          import sys, zipfile
+          kit = zipfile.ZipFile(sys.argv[1])
+          pth = [n for n in kit.namelist() if n.endswith("._pth") and "/python/" in n]
+          lines = kit.read(pth[0]).decode().split() if pth else []
+          missing = [want for want in ("Lib\\site-packages", "..", "site") if want not in lines]
+          if missing:
+              sys.exit(f"Windows 파이썬의 ._pth 에 {missing} 가 없습니다: {lines}")
+          PY
+
+      # **버전은 태그다.** `git describe` 에 맡기면 얕은 체크아웃에서 엉뚱한 값이
+      # 나오고, 그 값이 BUILD_INFO 를 거쳐 `/api/health` 까지 간다 — 「지금 서버에
+      # 뭐가 깔렸나」 를 묻는 유일한 자리다.
+      #
+      # 러너에는 subuid/subgid 매핑이 없어 비특권 빌드가 실패한다 — sudo 로 켠다.
+      - name: 번들 빌드
+        env:
+          USE_SUDO_APPTAINER: '1'
+        run: ./deploy/build_bundle.sh "${GITHUB_REF_NAME}"
+
+      # 나가기 전에 **번들이 자기 발로 서는지** 본다. 여기서 빠진 파일은 서버에서
+      # `deploy.sh` 가 멈추는 것으로 드러나고, 그때는 SSH 로 붙어 있는 자리다.
+      - name: 번들이 온전한가
+        run: |
+          set -euo pipefail
+          tar tzf release/*.tar.gz | sed 's|^[^/]*/||' | sort > /tmp/have.txt
+          cat /tmp/have.txt
+          for f in app.sif deploy.sh ha.sh pg-ha.sh backup.sh restore.sh \
+                   app.service.template worker.service.template sync.service.template backup.service.template \
+                   metrics.service.template metrics.timer.template \
+                   backup.timer.template .env.example BUILD_INFO README.md 쉬운-설치.md; do
+            grep -qx "$f" /tmp/have.txt || { echo "번들에 $f 가 없습니다"; exit 1; }
+          done
+          # 폐쇄망 서버가 깔 .deb — 빌드는 받지 못하면 경고만 하고 지나가므로 **여기서** 멈춘다.
+          for deb in 'apptainer_debs/apptainer_.*\.deb' 'pgvector_debs/postgresql-16-pgvector_.*\.deb'; do
+            grep -qx "$deb" /tmp/have.txt || { echo "번들에 $deb 가 없습니다(폐쇄망용 .deb)"; exit 1; }
+          done
+          info=$(find release -name BUILD_INFO | head -1)
+          for key in app_name app_slug port version; do
+            grep -q "^$key=" "$info" || { echo "BUILD_INFO 에 $key 가 없습니다"; exit 1; }
+          done
+          grep -q "^version=${GITHUB_REF_NAME}$" "$info" \
+            || { echo "BUILD_INFO 의 version 이 태그와 다릅니다"; exit 1; }
+          cat "$info"
+          # **크기를 잰다 — 어림하지 않는다.** 폐쇄망에는 이 tar 를 손으로 옮긴다. 분석의
+          # numpy · scipy(ADR 0014)처럼 의존성이 늘면 여기 숫자가 먼저 말한다.
+          ls -lh release/*.tar.gz
+          tar tvzf release/*.tar.gz | awk '$NF ~ /app\.sif$/ {printf "app.sif %.1f MB\n", $3/1e6}'
+
+      # **줄바꿈을 여기서 한 번 더 본다.** Windows 에서 만진 스크립트가 CRLF 로
+      # 들어오면 서버에서 `bad interpreter: /usr/bin/env bash^M` 로 죽는데, 그
+      # 메시지는 무엇을 고쳐야 하는지 말해 주지 않는다. `.gitattributes` 가 막지만,
+      # **막혔는지 확인하는 자리는 나가는 문**이어야 한다.
+      - name: 번들 스크립트가 LF 인가
+        run: |
+          set -euo pipefail
+          # 정제 도구 묶음(sp-pipeline-*)은 서버 번들이 아니다 — 집지 않는다.
+          dir=$(find release -maxdepth 1 -type d -name '*-*' ! -name 'sp-pipeline-*' | head -1)
+          [ -n "$dir" ] && ls "$dir"/*.sh >/dev/null 2>&1 || { echo "번들 폴더 · 스크립트를 찾지 못했습니다"; exit 1; }
+          for sh in "$dir"/*.sh; do
+            if grep -qU $'\r' "$sh"; then
+              echo "$sh 에 CRLF 가 있습니다 — 서버에서 bad interpreter 로 죽습니다"
+              exit 1
+            fi
+            [ -x "$sh" ] || { echo "$sh 에 실행 비트가 없습니다"; exit 1; }
+          done
+          echo "LF · 실행 비트 확인"
+
+      # 서드파티 액션을 안 쓴다. `gh` 는 러너에 이미 있다 — 의존을 하나 안 늘리는
+      # 쪽이, 그 액션이 어느 날 안 돌 때 여기를 들여다볼 일도 없앤다.
+      - name: 릴리스 게시
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tarball=$(ls release/*.tar.gz)
+          sha=$(ls release/*.tar.gz.sha256)
+          base=$(basename "$tarball")
+          dl="https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}"
+
+          # **절차를 여기 옮겨 적지 않는다.** 정본은 번들 안의 README 다. 두 벌이
+          # 되면 한쪽만 고쳐지고, 그때부터 사람마다 다른 순서를 밟는다. 여기 적는
+          # 것은 **이 릴리스에서만 다른 것**(주소와 파일 이름)뿐이다.
+          {
+            printf '설치 절차의 정본은 번들 안의 `README.md` 입니다.\n\n'
+            printf '```bash\n'
+            printf '# 저장소를 받는 PC 에서 (Windows PowerShell 도 같다)\n'
+            printf 'curl -LO %s/%s\n'        "$dl" "$base"
+            printf 'curl -LO %s/%s.sha256\n' "$dl" "$base"
+            printf 'scp %s <계정>@<서버>:~/\n' "$base"
+            printf '\n# 서버에서\n'
+            printf 'ssh <계정>@<서버>\n'
+            printf 'sha256sum -c %s.sha256\n' "$base"
+            printf 'tar xzf %s && cd %s\n'    "$base" "${base%.tar.gz}"
+            printf 'sudo ./deploy.sh prepare   # 최초 1회\n'
+            printf 'sudo ./deploy.sh install   # 이후로는 update\n'
+            printf '```\n\n'
+            printf '**푼 뒤가 아니라 옮긴 직후에 체크섬을 맞춥니다** — 절반만 받아진 tar 는\n'
+            printf '푸는 순간에야 드러나고, 그때는 배포하려고 서버에 붙어 있는 자리입니다.\n'
+          } > "$RUNNER_TEMP/notes.md"
+
+          kit=$(ls release/sp-pipeline-*.zip)
+          {
+            printf '\n## 정제 도구 묶음 (데이터를 정제하는 사람의 PC)\n\n'
+            printf '`%s` 를 풀고 안의 `README.md` 「Claude Desktop · Gemini CLI 에 붙이기」 를 따릅니다.\n' "$(basename "$kit")"
+          } >> "$RUNNER_TEMP/notes.md"
+
+          gh release create "${GITHUB_REF_NAME}" "$tarball" "$sha" "$kit" "$kit.sha256" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --notes-file "$RUNNER_TEMP/notes.md"
+          echo "게시 완료: ${GITHUB_REF_NAME}"

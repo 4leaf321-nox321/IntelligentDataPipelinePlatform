@@ -1,0 +1,12 @@
+[Unit]
+Description=@@APP_NAME@@ 데이터 소스 동기화 타이머
+
+[Timer]
+# 몇 분마다 「차례가 된 것」 을 묻는다. 소스마다의 간격은 화면에서 정한다 — 이 값은
+# 그 간격을 얼마나 촘촘히 확인하느냐일 뿐이다.
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

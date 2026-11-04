@@ -1,0 +1,11 @@
+[Unit]
+Description=@@APP_NAME@@ 백업 매일
+
+[Timer]
+OnCalendar=*-*-* @@AT@@:00
+# 그 시각에 꺼져 있었으면 켜진 뒤 바로 — 빼면 그날 백업이 통째로 없고 아무 데도 안 적힌다.
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

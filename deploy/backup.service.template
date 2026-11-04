@@ -1,0 +1,11 @@
+[Unit]
+Description=@@APP_NAME@@ 백업 (DB 덤프 + 첨부 미러 → 백업 폴더)
+
+[Service]
+Type=oneshot
+User=@@USER@@
+Group=@@USER@@
+# 호스트에서 돈다(컨테이너 아님) — pg_dump · rsync 는 OS 의 것. 두 서버가 다 걸려 있어도
+# 오늘 것이 이미 있으면 건너뛴다(SKIP_IF_FRESH_HOURS).
+Environment=SKIP_IF_FRESH_HOURS=20
+ExecStart=@@INSTALL_DIR@@/backup.sh -e @@ENV_FILE@@ -f @@FILESTORE_DIR@@ -o @@BACKUP_DIR@@

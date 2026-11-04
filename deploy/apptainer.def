@@ -1,0 +1,85 @@
+Bootstrap: docker
+From: ubuntu:24.04
+
+# 빌드 (저장소 루트에서):
+#   apptainer build deploy/app.sif deploy/apptainer.def
+#
+# %files 의 경로는 **빌드를 실행한 디렉터리 기준**으로 풀린다. 그래서 이 파일은
+# 저장소 루트에서 부르는 것을 전제한다 — deploy/ 안에서 부르면 backend 를 못 찾는다.
+#
+# frontend/dist 가 **미리 있어야 한다**(`npm run build`). 없으면 빌드는 성공하는데
+# 배포한 앱이 모든 페이지에 API 의 JSON 404 를 돌려준다 — 라우팅 버그처럼 보인다.
+# build_bundle.sh 가 순서를 지켜 준다.
+
+%files
+    backend /opt/app/backend
+    frontend/dist /opt/app/frontend/dist
+    # **이미지가 자기 버전을 들고 있어야 한다.** 없으면 `/api/health` 가
+    # `version: unknown` 을 돌려주고, 그러면 「지금 서버에 뭐가 깔렸나」 를 물을
+    # 자리가 아예 없어진다. build_bundle.sh 가 빌드 직전에 이 파일을 만든다 —
+    # `apptainer build` 를 직접 부르려면 그 파일을 먼저 만들어야 한다.
+    deploy/BUILD_INFO.txt /opt/app/BUILD_INFO.txt
+    # **정제 도구 키트** — 사용자 PC 에 푸는 zip. 앱이 화면(내 정보)에서 내려준다
+    # (`config.pipeline_kit` = `/opt/app/deploy/pipeline-kit.zip`). build_bundle.sh 가 같은
+    # 판을 이 이름으로 둔다 — `apptainer build` 를 직접 부르려면 그 파일을 먼저 만든다.
+    deploy/pipeline-kit.zip /opt/app/deploy/pipeline-kit.zip
+
+%post
+    set -eux
+    export DEBIAN_FRONTEND=noninteractive
+
+    apt-get update
+    apt-get install -y --no-install-recommends \
+        python3.12 \
+        python3.12-venv \
+        python3-pip \
+        libpq5 \
+        ca-certificates
+    rm -rf /var/lib/apt/lists/*
+
+    # **의존성을 여기서 전부 얼린다.** 런타임에 이미지 루트는 읽기 전용이라
+    # 첫 기동에 pip 을 부를 수 없다 — 부르면 그 자리에서 실패한다.
+    python3.12 -m venv /opt/app/venv
+    /opt/app/venv/bin/pip install --no-cache-dir --upgrade pip
+    /opt/app/venv/bin/pip install --no-cache-dir -r /opt/app/backend/requirements.txt
+
+    # **bind-mount 대상은 이미지 안에 미리 있어야 한다.** 없으면 마운트가 조용히
+    # 엉뚱한 데 붙거나 실패하고, 그 사실은 파일을 쓰는 순간에야 드러난다.
+    mkdir -p /data/filestore /data/logs /data/backup
+
+    # 개발 부산물이 이미지에 섞여 들어가면 크기만 늘고 좋을 것이 없다.
+    find /opt/app -type d -name __pycache__ -prune -exec rm -rf {} + || true
+    rm -rf /opt/app/backend/.venv /opt/app/backend/logs /opt/app/backend/filestore || true
+
+%environment
+    export APP_ENV=production
+    export PYTHONUNBUFFERED=1
+    export PATH=/opt/app/venv/bin:$PATH
+
+    # **이미지가 자기 배치를 스스로 안다.**
+    #
+    # 이 둘을 `.env` 가 기억하게 두면, 빠뜨린 날 앱이 이미지 안에 쓰려다
+    # `[Errno 30] Read-only file system` 으로 죽는다 — 그리고 그 메시지는
+    # "LOG_DIR 을 안 적었다" 라고 말해 주지 않는다. 실측으로 겪었다.
+    #
+    # 값은 systemd 유닛의 --bind 대상과 **같아야 한다.** 한쪽만 바꾸면 앱은
+    # 마운트 안 된 경로에 쓰게 된다.
+    export LOG_DIR=/data/logs
+    export FILESTORE_DIR=/data/filestore
+
+    # **선형대수 스레드는 하나.** 분석(ADR 0014)의 행렬은 작은데, OpenBLAS 가 프로세스마다 코어 수만큼
+    # 스레드를 띄우면 웹 워커 넷이 서로 CPU 를 빼앗는다 — 작은 행렬에서는 스레드가 더 느리다.
+    export OPENBLAS_NUM_THREADS=1
+    export OMP_NUM_THREADS=1
+
+%runscript
+    cd /opt/app/backend
+    exec /opt/app/venv/bin/python run.py
+
+%startscript
+    cd /opt/app/backend
+    exec /opt/app/venv/bin/python run.py
+
+%labels
+    BaseOS ubuntu-24.04
+    Python 3.12

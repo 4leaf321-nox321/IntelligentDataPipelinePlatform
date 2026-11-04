@@ -1,0 +1,34 @@
+# **apptainer 는 우분투 기본 저장소에 없다.** 공식 PPA 에서 온다.
+#
+# 기본 저장소에 있다고 적으면 `Unable to locate package apptainer` 로 죽는데
+# (apt 는 exit 100 을 낸다), 그 메시지는 「없다」 고만 말하지 **어디서 받아야
+# 하는지는 말하지 않는다.** 실측으로 겪었다 — 이 저장소의 첫 CI 가 그것으로
+# 실패했고, 그때까지 이미지 잡은 한 번도 성공한 적이 없었다.
+#
+# **두 워크플로(ci·release)가 같은 설치를 한다.** 두 벌로 적으면 한쪽만
+# 고쳐지고, 그때부터 「CI 는 도는데 릴리스는 안 되는」 상태가 된다 — 그리고
+# 그것은 배포하려는 날에 드러난다.
+#
+# 개발 기계도 같은 PPA 에서 받는다. 지형이 다르면 한쪽은 아무도 안 돌려 본
+# 쪽이 되고, 그 사실은 그쪽으로 배포하려는 날에야 보인다.
+
+name: apptainer 설치
+description: Apptainer 를 공식 PPA 에서 설치하고, 실제로 실행되는지 확인한다.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        sudo apt-get update
+        # add-apt-repository 를 주는 패키지. 러너에는 이미 있지만, 없는 이미지로
+        # 바뀌는 날 이 줄이 없으면 다음 줄이 「명령이 없다」 로 죽는다.
+        sudo apt-get install -y --no-install-recommends software-properties-common
+        sudo add-apt-repository -y ppa:apptainer/ppa
+        sudo apt-get update
+        # 여기서는 recommends 를 막지 않는다 — 빠진 조각은 **빌드할 때**
+        # 드러나고, 그 오류는 설치를 가리키지 않는다.
+        sudo apt-get install -y apptainer
+        # **깔린 것과 도는 것은 다른 일이다.** 확인하고 넘어간다.
+        apptainer --version

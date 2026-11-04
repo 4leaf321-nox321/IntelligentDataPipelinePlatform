@@ -1,0 +1,88 @@
+[project]
+name = "datarelay-backend"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+
+# 의존성 정본은 requirements.txt 다. 폐쇄망 배포가 `pip wheel -r requirements.txt`
+# 로 wheel 번들을 만들고 서버는 --no-index 로 설치하므로, 전이 의존성까지 고정된
+# 파일이 하나 있어야 한다.
+
+[tool.ruff]
+line-length = 95
+target-version = "py312"
+src = [".", "scripts"]
+# 연동 키트는 **상대 시스템에서 도는 코드**다. 이 저장소의 규칙(줄 길이 · import 정렬)이
+# 아니라 「의존성 하나로 복사해 쓰는 한 파일」 이 기준이라 검사에서 뺀다.
+extend-exclude = ["app/modules/coreapi/kit"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+# 「개발사 › 국가」 의 `›` 는 화면에 그대로 나가는 구분자다 — `>` 로 바꾸면 조건식처럼
+# 읽혀 「개발사 > 국가」(국가보다 크다)가 된다. `σ` · `ρ` · `α` 는 분석(ADR 0014)의
+# 통계 기호 — 관리도의 「2σ 밖」, 순차 검정의 「ρ 배」 · 「α」 는 화면에 그대로 나간다.
+allowed-confusables = ["›", "σ", "ρ", "α"]
+
+[tool.ruff.lint.isort]
+# `mcp_server/server.py` 는 패키지가 아니라 한 파일이라, 그 시험이 `import server`
+# 로 집어 온다. 여기 적지 않으면 ruff 가 그것을 남의 패키지로 보고 줄을 옮긴다.
+known-first-party = ["app", "tests", "server"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI 의 의존성 주입은 기본값 자리에 Depends() 를 쓰는 것이 정식 문법이라
+# B008(기본 인자에서 함수 호출)이 전부 오탐이 된다.
+extend-immutable-calls = [
+  "fastapi.Depends",
+  "fastapi.Query",
+  "fastapi.Path",
+  "fastapi.Body",
+  "fastapi.Header",
+  "fastapi.File",
+  "fastapi.Form",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Alembic 이 생성한 파일은 손대지 않는 한 그대로 둔다. 여기를 린트에 맞추려고
+# 생성 결과를 매번 손보면, 정작 사람이 쓴 부분의 변경이 묻힌다.
+"migrations/versions/*" = ["E501", "I001", "UP035", "UP007"]
+# 비교키 정규화는 **전각·유사 문자 자체가 소재**다. 그것을 "오타 아니냐" 고 묻는
+# 검사와는 맞지 않는다 — 여기서는 그 문자가 정답이다.
+"app/shared/text.py" = ["RUF002"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["app", "relay_core", "tests"]
+# 연동 키트는 상대 시스템에서 도는 코드다(의존성 requests 하나). 이 저장소의 strict 로
+# 보면 그쪽 환경에 없는 것까지 요구하게 된다 — 대신 시험이 「키트가 문법이 맞나」 를 본다.
+exclude = "app/modules/coreapi/kit/"
+# `mcp_server/server.py` 는 여기서 안 본다 — `mcp` 를 백엔드 환경에 깔지 않으므로
+# 그 데코레이터가 전부 Any 가 되어 strict 가 의미를 잃는다. ruff 는 본다(위).
+# 진짜 앱에 붙여 보는 시험은 `tests/api/test_mcp_tools.py` 가 가짜 `mcp` 로 한다.
+
+[[tool.mypy.overrides]]
+module = ["uvicorn.*"]
+ignore_missing_imports = true
+
+# openpyxl 은 타입 스텁을 따로 배포한다(types-openpyxl). 배포 이미지에 스텁을 넣을 이유가
+# 없고, 쓰는 자리가 함수 하나라 여기서만 모르는 것으로 둔다.
+[[tool.mypy.overrides]]
+module = ["openpyxl.*"]
+ignore_missing_imports = true
+
+# scipy 는 타입 표시(`py.typed`)가 없다. 부르는 자리가 `metrics/recipes/_numeric.py` 하나라(구조
+# 시험이 지킨다) 결과를 거기서 float · ndarray 로 바꿔 내보낸다 — Any 가 레시피로 번지지 않게.
+# 스텁 패키지(scipy-stubs)를 배포 이미지에 넣을 이유는 없다.
+[[tool.mypy.overrides]]
+module = ["scipy.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# **SQLAlchemy 의 경고를 오류로 올린다.**
+#
+# 교차곱(cartesian product) 경고가 특히 그렇다: 집계를 서브쿼리로 감싸면서 조인 조건을
+# 빠뜨리면 질의가 조용히 행 수의 제곱을 훑는다. 결과는 맞게 나오므로 시험은 통과하고,
+# **느려졌다는 사실만 화면에 안 뜬다** — 코어 카탈로그가 6천 행에서 2초가 걸렸다(실측
+# 2026-09-24). 경고로 두면 아무도 안 읽는다.
+filterwarnings = ["error::sqlalchemy.exc.SAWarning"]

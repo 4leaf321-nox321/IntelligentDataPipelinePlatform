@@ -1,0 +1,30 @@
+{
+  "format": "sp-table/1",
+  "title": "샘플 PLM 개발모델 → plm-core (시험용 — 지어낸 열 이름)",
+  "dictionaries": {"region": ["KR", "US", "EU"]},
+  "types": [
+    {"type_slug": "plm_project", "key": {"column": "PROJECT_CODE"}, "label": {"column": "PROJECT_NAME"}},
+    {"type_slug": "plm_test_site", "key": {"column": "SITE_CODE"}, "label": {"column": "SITE_NAME"},
+     "fields": {"region_text": {"column": "SITE_REGION"}}},
+    {"type_slug": "plm_task", "key": {"column": "TASK_CODE"}, "label": {"column": "TASK_NAME"},
+     "fields": {
+       "project": {"key_of": "plm_project"},
+       "task_status": {"column": "TASK_STATUS", "map": {"PL": "계획", "IP": "진행", "DN": "완료"}},
+       "sra_on": {"column": "SRA_DATE", "date": true, "blank": ["Skip", "-"]},
+       "sra_kind": {"column": "SRA_DATE", "map": {"<date>": "실적", "Skip": "면제", "-": "미도래"}},
+       "test_site": {"key_of": "plm_test_site"}
+     }},
+    {"type_slug": "plm_model", "key": {"column": "MODEL_ID"}, "label": {"column": "MODEL_NAME"},
+     "fields": {
+       "task": {"key_of": "plm_task"},
+       "model_kind": {"column": "KIND_CD", "map": {"01": "양산", "02": "선행", "03": "파생"}},
+       "region": {"column": "REGION"},
+       "model_revision": {"column": "REVISION"}
+     }}
+  ],
+  "relations": [
+    {"relation": "plm_derived_from", "type_slug": "plm_model",
+     "src": {"key_of": "plm_model"}, "dst": {"column": "BASE_MODEL"},
+     "evidence_note": {"value": "샘플 PLM 의 base_model_id"}}
+  ]
+}

@@ -1,0 +1,46 @@
+# 줄바꿈은 **저장소가 정한다.** 클라이언트 설정에 맡기지 않는다.
+#
+# Windows 의 Git 은 `core.autocrlf=true` 가 기본이다. 그 기계에서 클론하면 셸
+# 스크립트가 **CRLF 로 체크아웃되고**, 그 파일이 리눅스 서버에 닿는 순간:
+#
+#     -bash: ./deploy.sh: /usr/bin/env bash^M: bad interpreter: No such file or directory
+#
+# 증상이 원인을 안 가리키는 부류다 — 파일은 있고, 실행 비트도 있고, 눈으로 보면
+# 멀쩡하다. 그리고 이 저장소를 받는 기계가 Windows 라면 **반드시** 겪는다.
+# 개인의 `core.autocrlf` 설정에 맡기면 그것을 안 고친 사람이 언젠가 나온다.
+#
+# `deploy/` 가 특히 그렇다. 릴리스 번들 안의 스크립트는 리눅스에서 만들어지므로
+# 안전하지만, 소스를 Windows 로 클론해 만지는 순간 그 안전이 사라진다.
+
+* text=auto eol=lf
+
+# 실행돼야 하는 것들. 여기서 어긋나면 배포가 시작도 못 한다.
+*.sh          text eol=lf
+*.def         text eol=lf
+*.template    text eol=lf
+*.service     text eol=lf
+*.env         text eol=lf
+.env.*        text eol=lf
+
+# **Windows 배치 파일은 거꾸로 CRLF 다.** 사용자 PC 에서 더블클릭하는 정제 도구 키트의
+# `install.cmd` — LF 로 나가면 cmd.exe 가 `goto` 의 표를 엉뚱하게 찾는 일이 있다(줄 길이에 따라
+# 조용히 다른 줄로 뛴다). 리눅스에서 키트를 묶어도 이 줄바꿈이 그대로 간다.
+*.cmd         text eol=crlf
+*.bat         text eol=crlf
+
+# 손대면 안 되는 것들. text=auto 의 추측에 맡기면 **조용히 망가진다** —
+# SIF 한 바이트가 바뀌면 이미지가 안 뜨고, 그 오류는 무엇을 고쳐야 하는지
+# 말해 주지 않는다.
+*.sif         binary
+*.tar.gz      binary
+*.tgz         binary
+*.dump        binary
+*.png         binary
+*.jpg         binary
+*.jpeg        binary
+*.gif         binary
+*.ico         binary
+*.woff        binary
+*.woff2       binary
+*.pdf         binary
+*.xlsx        binary

@@ -1,0 +1,60 @@
+# 파이썬
+__pycache__/
+*.py[cod]
+# 만드는 것은 .venv 하나지만, 습관대로 만든 venv 가 커밋되지 않게 둘 다 적는다.
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# 백엔드 런타임 산출물
+backend/.env
+backend/logs/
+backend/filestore/
+
+# openapi.json 은 **커밋한다.** 프론트 타입의 입력이자 "API 가 바뀌었나" 를 보는
+# 기준 파일이라, 무시하면 생성물 최신성 검사가 조용히 아무것도 안 하게 된다.
+# 버전 도장은 지우고 저장한다(app/version.py 의 as_baseline).
+
+# 프론트
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# **생성된 API 타입.** 커밋하지 않는다 — openapi.json 이 정본이고 이것은 그것에서
+# 나온다. 두 벌을 커밋하면 한쪽만 갱신된 상태가 리뷰에서 안 보인다.
+frontend/src/shared/api/schema.d.ts
+
+# 편집기·OS
+.DS_Store
+Thumbs.db
+.idea/
+
+# .vscode 는 **커밋한다** — 통합 터미널의 venv 자동 활성화가 여기 있다. 개인
+# 취향(launch·task)은 빼고, 팀이 같아야 하는 둘만 남긴다.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# 배포 산출물 — build_bundle.sh 가 만든다.
+#
+# **`deploy/` 폴더 자체는 절대 무시하지 않는다.** 그 안에 apptainer.def ·
+# deploy.sh · app.service.template 이 있고 그것이 배포의 정본이다. 폴더째 빼면
+# 클론한 기계에서 배포할 방법이 사라지고, 그 사실은 **다른 기계에서 클론해 보기
+# 전까지 안 보인다.** 산출물 셋만 이름으로 집어 뺀다.
+/release/
+deploy/app.sif
+deploy/BUILD_INFO.txt
+# build_bundle.sh 가 이미지에 넣으려고 두는 정제 도구 키트(빌드 산출물).
+deploy/pipeline-kit.zip
+
+# 그래픽 드라이버가 작업 폴더에 만드는 로그. 우리 것이 아니다.
+"NVIDIA Corporation"/
+
+# **사내 데이터 · 사내 코드 체계가 담긴 문서.** 저장소는 공개라 커밋하지 않는다 —
+# 과제코드 형식 · 시험 Plan 코드 · 데이터 분포 같은 것이 여기 있다. 로컬에만 둔다.
+docs/사내/
+
+# relay 작업 폴더 · 개발 도구의 상태(시험 인스턴스의 토큰 · 샘플 PLM 데이터) — 커밋하지 않는다
+.work/
