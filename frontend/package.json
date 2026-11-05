@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run api:types",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",

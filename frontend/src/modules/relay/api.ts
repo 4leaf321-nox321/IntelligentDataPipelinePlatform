@@ -7,6 +7,8 @@
  */
 
 import { api } from '@/shared/api/client'
+// 생성물(`npm run api:types` — 커밋된 backend/openapi.json 에서). git 에 없으므로 `npm run build` 가
+// 먼저 만든다(`prebuild`) — 없으면 막 받은 저장소(CI · 번들)에서 tsc 가 멈춘다(2026-11-06 첫 CI).
 import type { components } from '@/shared/api/schema'
 
 type Schemas = components['schemas']
