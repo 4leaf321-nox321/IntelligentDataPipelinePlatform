@@ -4,6 +4,9 @@
  *
  * 실행은 원천을 받아 레시피로 바꾸고 대상 SP 에 **계획(미리 보기)** 만 올린다. 대상에 실제로
  * 넣는 것은 「적용」 이다 — 계획을 읽은 사람이 누른다.
+ *
+ * 초안(정의 판이 아직 안 켜진 파이프라인)에는 단추를 세우지 않는다 — 서버가 실행을 거절하므로
+ * 눌러 봐야 오류뿐이다. 무엇을 하면 서는지만 적는다.
  */
 
 import { useState } from 'react'
@@ -30,6 +33,17 @@ export function PipelineActions({
   const [failed, setFailed] = useState<Error | null>(null)
   const pending = stateOf(detail).pending
   const canApply = Boolean(pending?.ok)
+
+  if (detail.draft) {
+    return (
+      <section className="rounded-md border border-dashed p-3">
+        <p className="text-muted-foreground text-sm">
+          초안은 돌지 않습니다 — 아래 「정의 판」 에서 판을 시험하고 켜면 「지금 실행」 · 「적용」 이
+          섭니다.
+        </p>
+      </section>
+    )
+  }
 
   async function act(what: 'run' | 'apply') {
     setBusy(what)

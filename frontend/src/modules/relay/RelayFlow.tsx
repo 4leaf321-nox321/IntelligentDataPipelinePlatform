@@ -61,6 +61,8 @@ const EDGE_TONE: Record<Tone, string> = {
   bad: 'text-destructive',
 }
 
+const DASHED = new Set(['pending', 'draft'])
+
 function toFlowEdge(edge: FlowEdge, graph: RelayGraph, visible: Set<string> | null): Edge {
   const beyond = graph.byId.get(edge.target)?.kind === 'downstream'
   const tone = edge.status ? statusTone('relay_pipeline', edge.status) : 'neutral'
@@ -70,11 +72,11 @@ function toFlowEdge(edge: FlowEdge, graph: RelayGraph, visible: Set<string> | nu
     source: edge.source,
     target: edge.target,
     className: beyond ? 'text-muted-foreground/40' : EDGE_TONE[tone],
-    // 적용 대기 · 그 너머는 점선 — 아직 안 간 것, 이 플랫폼이 보내지 않는 것.
+    // 적용 대기 · 초안 · 그 너머는 점선 — 아직 안 간 것, 아직 안 도는 것, 이 플랫폼이 보내지 않는 것.
     style: {
       stroke: 'currentColor',
       strokeWidth: beyond ? 1 : edgeWidth(weight),
-      strokeDasharray: beyond || edge.status === 'pending' ? '5 4' : undefined,
+      strokeDasharray: beyond || DASHED.has(edge.status) ? '5 4' : undefined,
     },
     focusable: false,
     selectable: false,

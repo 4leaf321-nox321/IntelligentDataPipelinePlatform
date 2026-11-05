@@ -163,7 +163,76 @@ class ODataAdapter:
         first = f", 식별자 {as_text(value_at(items[0], source.key))}" if items else ""
         return f"응답 정상 — {len(items)}줄{first}"
 
-    def fetch(self, since: str | None) -> Fetched:
+    def metadata(self) -> list[dict[str, Any]]:
+        """`$metadata`(CSDL) — 엔티티 셋마다 타입 · 식별자 · 속성 · 탐색 속성. v2 · v4 같은
+        길."""
+        from lxml import etree
+
+        source = self.source
+        got = self._client.get(
+            f"{source.service_url.rstrip('/')}/$metadata", headers=source.auth.headers()
+        )
+        if got.status_code != 200:
+            raise SourceError(f"$metadata 를 못 읽었습니다: {got.status_code}")
+        parser = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)
+        root = etree.fromstring(got.content, parser=parser)
+        types: dict[str, Any] = {}
+        for one in root.xpath("//*[local-name()='EntityType']"):
+            name = str(one.get("Name"))
+            types[name] = {
+                "key": [k.get("Name") for k in one.xpath(".//*[local-name()='PropertyRef']")],
+                "properties": [
+                    {"name": p.get("Name"), "type": p.get("Type")}
+                    for p in one.xpath("./*[local-name()='Property']")
+                ],
+                "navigation": [
+                    n.get("Name") for n in one.xpath("./*[local-name()='NavigationProperty']")
+                ],
+            }
+        sets = []
+        for one in root.xpath("//*[local-name()='EntitySet']"):
+            type_name = str(one.get("EntityType") or "").rsplit(".", 1)[-1]
+            sets.append(
+                {
+                    "entity_set": one.get("Name"),
+                    "entity_type": type_name,
+                    **types.get(type_name, {}),
+                }
+            )
+        return sets
+
+    def discover(self) -> dict[str, Any]:
+        """엔티티 셋 목록(`$metadata`)과, 엔티티 셋을 정했으면 그 표본 몇 줄의 자리 · 열
+        제안."""
+        from relay_core.adapters.explore import suggest
+
+        out: dict[str, Any] = {}
+        try:
+            out["entity_sets"] = self.metadata()
+        except Exception as failure:
+            out["metadata_note"] = f"$metadata 를 못 읽었습니다: {failure}"
+        if self.source.entity_set:
+            source = self.source
+            version = source.version if source.version in ("2", "4") else "4"
+            body = _clean(
+                get_json(
+                    self._client,
+                    f"{source.service_url.rstrip('/')}/{source.entity_set}",
+                    params={**self._first_params(None, version), "$top": 5},
+                    headers=source.auth.headers(),
+                    retries=1,
+                    sleep=self._sleep,
+                )
+            )
+            items = body.get("value") if isinstance(body, dict) and "value" in body else None
+            if items is None and isinstance(body, dict) and "d" in body:
+                inner = body["d"]
+                items = inner if isinstance(inner, list) else inner.get("results", [])
+            out.update(suggest(items or []))
+        return out
+
+    def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
+        """`limit` 이면 그만큼만 받고 멈춘다(시험용 — `complete=False`)."""
         source = self.source
         version = source.version if source.version in ("2", "4") else "4"
         url = f"{source.service_url.rstrip('/')}/{source.entity_set}"
@@ -197,6 +266,8 @@ class ODataAdapter:
                 records.append(one)
                 if one.updated_at:
                     marks.append(one.updated_at)
+            if limit and len(records) >= limit:
+                return Fetched(records=records[:limit], complete=False)
             if nxt:
                 url, params = str(nxt), None
             elif len(items) >= source.page_size:

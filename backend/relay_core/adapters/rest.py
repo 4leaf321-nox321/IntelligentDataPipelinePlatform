@@ -206,8 +206,26 @@ class RestAdapter:
             f", 식별자 {as_text(value_at(items[0], source.key))}" if items else ""
         )
 
-    def fetch(self, since: str | None) -> Fetched:
-        """`since` 가 있으면 그 뒤에 바뀐 것만, 없으면 전량. 마지막 쪽까지 못 가면 예외다."""
+    def discover(self) -> dict[str, Any]:
+        """첫 쪽 몇 줄 → 칸의 자리 · 보기 값 · 열 이름 제안(MCP `source_discover`)."""
+        from relay_core.adapters.explore import suggest
+
+        source = self.source
+        params: dict[str, Any] = dict(source.params)
+        if source.paging in ("page", "offset", "cursor"):
+            params[source.size_param] = 5
+        body = self._get(params)
+        items = value_at(body, source.rows_path) if source.rows_path else body
+        if not isinstance(items, list):
+            top = sorted(body) if isinstance(body, dict) else []
+            raise SourceError(
+                f"행 자리({source.rows_path})에 목록이 없습니다 — 응답의 칸: {top}"
+            )
+        return suggest(items)
+
+    def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
+        """`since` 가 있으면 그 뒤에 바뀐 것만, 없으면 전량. 마지막 쪽까지 못 가면 예외다.
+        `limit` 이면 그만큼만 받고 멈춘다(시험용 — 덜 받은 것이라 `complete=False`)."""
         source = self.source
         records: list[SourceRecord] = []
         marks: list[str] = []
@@ -240,6 +258,8 @@ class RestAdapter:
                 records.append(one)
                 if one.updated_at:
                     marks.append(one.updated_at)
+            if limit and len(records) >= limit:
+                return Fetched(records=records[:limit], complete=False)
             if source.watermark_path:
                 given = value_at(body, source.watermark_path)
                 watermark = str(given) if given else watermark

@@ -34,6 +34,7 @@ const STATUS_RANK: Record<string, number> = {
   blocked: 4,
   pending: 3,
   never: 1,
+  draft: 1,
 }
 
 const rank = (status: string) => STATUS_RANK[status] ?? 0

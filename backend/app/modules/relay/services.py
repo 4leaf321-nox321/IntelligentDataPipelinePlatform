@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.config import BACKEND_DIR, get_settings
 from app.modules.accounts.models import User
 from app.modules.jobs.models import Job
+from app.modules.relay import guard
 from app.modules.relay.schemas import (
     LineageStep,
     MapEdge,
@@ -50,6 +52,7 @@ STATUS_LABEL = {
     "failed": "실패",
     "broken": "정의 오류",
     "never": "아직 안 돌았음",
+    "draft": "초안(꺼짐)",
 }
 
 
@@ -65,18 +68,43 @@ def secrets_env() -> Mapping[str, str]:
 
 
 def catalog(db: Session | None = None) -> list[Described]:
-    """정의 전부. `db` 를 주면 **켜진 레시피 판**으로 계보 · 타입을 다시 센다(실제로 도는
-    판)."""
-    root = get_settings().relay_pipelines_dir
-    found = [describe(path) for path in find(root)] if root.is_dir() else []
+    """정의 전부 — 정의 파일과 **DB 의 정의 판**(`definitions`). 같은 slug 면 켜진 판이 파일을
+    이긴다. 켜진 판이 없는 새 slug 는 초안으로 선다(돌지 않는다). `db` 를 주면 **켜진 레시피
+    판**으로 계보 · 타입을 다시 센다(실제로 도는 판)."""
+    settings = get_settings()
+    root = settings.relay_pipelines_dir
+    files = [describe(path) for path in find(root)] if root.is_dir() else []
+    found = list(files)
     if db is not None:
-        from app.modules.relay import recipes
+        from app.modules.relay import definitions, recipes
 
+        by_file = {one.slug: one for one in files}
+        for slug, row in definitions.current(db).items():
+            file = by_file.get(slug)
+            if row.status != "active" and file is not None:
+                continue  # 파일로 도는 파이프라인의 초안 — 켜기 전까지 파일이 돈다
+            one = definitions.describe_row(row, file)
+            found = [other for other in found if other.slug != slug] + [one]
         for one in found:
-            row = recipes.active(db, one.slug)
-            if row is not None:
-                recipes.with_recipe(one, row.body, f"판 {row.version}")
-    return found
+            recipe = recipes.active(db, one.slug)
+            if recipe is not None:
+                recipes.with_recipe(one, recipe.body, f"판 {recipe.version}")
+            elif one.recipe is None and one.origin != "파일" and not one.draft:
+                one.problems.append("레시피가 없습니다 — 레시피 판을 짓고 켜세요.")
+    roots = settings.relay_file_root_paths
+    for one in found:
+        if one.adapter_kind == "sql" and not settings.relay_allow_sql:
+            one.problems.append(
+                "DB 를 바로 읽는 파이프라인은 이 설치에서 꺼져 있습니다"
+                "(RELAY_ALLOW_SQL) — 보안 승인 뒤에 켭니다."
+            )
+        if one.adapter_kind == "file" and not one.endpoint.startswith(guard.REMOTE):
+            head = Path(re.split(r"[*?\[]", one.endpoint, maxsplit=1)[0] or ".").resolve()
+            if not any(head == r or head.is_relative_to(r) for r in roots):
+                one.problems.append(
+                    f"파일 자리가 읽어도 되는 폴더(RELAY_FILE_ROOTS) 밖입니다: {one.endpoint}"
+                )
+    return sorted(found, key=lambda one: one.slug)
 
 
 def by_slug(slug: str, db: Session | None = None) -> Described:
@@ -106,6 +134,8 @@ def recent_jobs(db: Session, slug: str, limit: int = 10) -> list[Job]:
 
 
 def status_of(found: Described, state: dict[str, Any] | None, last_job: Job | None) -> str:
+    if found.draft:
+        return "draft"
     if found.problems:
         return "broken"
     history = (state or {}).get("history") or []
@@ -141,7 +171,7 @@ def _sends(counts: dict[str, Any], type_slug: str | None = None) -> int:
     return total
 
 
-def _probe(server: str, token: str, path: str) -> tuple[int, Any]:
+def probe_http(server: str, token: str, path: str) -> tuple[int, Any]:
     headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
         answer = httpx.get(f"{server}{path}", headers=headers, timeout=PROBE_SECONDS)
@@ -233,7 +263,7 @@ def build_map(db: Session) -> RelayMap:
     # 대상이 지금 하는 말 — 판 · slug(엉뚱한 곳에 붙지 않았나) · 그 너머(코어 현황의 수신자).
     for target_id, (server, token) in targets.items():
         node = nodes[target_id]
-        status_code, health = _probe(server, "", "/api/health")
+        status_code, health = probe_http(server, "", "/api/health")
         if status_code != 200 or not isinstance(health, dict):
             node.status, node.status_label = "unreachable", "닿지 않음"
             problems.append(f"{node.label}({server})에 닿지 않습니다.")
@@ -247,7 +277,7 @@ def build_map(db: Session) -> RelayMap:
         }
         if not token:
             continue
-        status_code, core = _probe(server, token, "/api/ontology/core-status")
+        status_code, core = probe_http(server, token, "/api/ontology/core-status")
         if status_code != 200 or not isinstance(core, dict):
             continue
         for consumer in core.get("consumers") or []:
@@ -285,7 +315,7 @@ def target_schema(
             {},
             f"대상 토큰({found.target_token_env})을 못 풀어 대상의 정의와 견주지 못했습니다.",
         )
-    status_code, schema = _probe(found.target_server, token, "/api/ontology/schema")
+    status_code, schema = probe_http(found.target_server, token, "/api/ontology/schema")
     if status_code != 200 or not isinstance(schema, dict):
         return {}, f"대상의 정의를 못 읽었습니다({status_code or '닿지 않음'})."
     out: dict[str, dict[str, Any]] = {}
@@ -357,6 +387,9 @@ def detail(db: Session, slug: str) -> PipelineDetail:
         target_schema_note=note,
         recipe_label=found.recipe_label,
         schedule_label=found.schedule_label,
+        definition_label=found.origin,
+        auto_apply_label=found.auto_apply_label,
+        draft=found.draft,
     )
 
 
@@ -401,7 +434,7 @@ def enqueue_due(db: Session, now: datetime | None = None) -> list[str]:
     moment = now or datetime.now().astimezone()
     queued: list[str] = []
     for found in catalog(db):
-        if found.problems or not found.schedule:
+        if found.draft or found.problems or not found.schedule:
             continue
         jobs = [one for one in recent_jobs(db, found.slug, limit=5) if one.kind == RUN_KIND]
         if any(one.status in ("queued", "running") for one in jobs):

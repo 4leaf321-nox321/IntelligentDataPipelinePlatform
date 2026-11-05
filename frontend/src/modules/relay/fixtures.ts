@@ -90,3 +90,32 @@ export function sampleMap(): RelayMap {
     ],
   }
 }
+
+/**
+ * 위 지도에 초안 하나를 더한다 — AI(MCP)가 지은 정의 판이 아직 안 켜진 새 파이프라인. 돌지 않으므로
+ * 건수도 레시피(타입)도 없다.
+ */
+export function withDraft(map: RelayMap): RelayMap {
+  return {
+    ...map,
+    nodes: [
+      ...map.nodes,
+      node({ id: 'endpoint:parts', kind: 'endpoint', label: 'GET /parts · plm.local', sub: 'http://plm.local/parts' }),
+      node({
+        id: 'pipeline:plm-parts',
+        kind: 'pipeline',
+        label: 'plm-parts',
+        sub: 'source plm · rest',
+        status: 'draft',
+        status_label: '초안(꺼짐)',
+        link: '/relay/pipelines/plm-parts',
+      }),
+    ],
+    edges: [
+      ...map.edges,
+      edge('system:plm', 'endpoint:parts'),
+      edge('endpoint:parts', 'pipeline:plm-parts', 0, 'draft'),
+      edge('pipeline:plm-parts', 'target:hub', 0, 'draft'),
+    ],
+  }
+}

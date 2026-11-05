@@ -86,12 +86,18 @@ class PipelineDetail(BaseModel):
     """지금 도는 레시피 — 「파일」 또는 「판 N」."""
     schedule_label: str = "수동"
     """일정 — 「매일 01:00」 · 「60분마다」 · 「수동」."""
+    auto_apply_label: str = "끔"
+    """자동 적용 — 「끔」 또는 기준 한 줄(타이머 실행 · 사람 적용 N번 뒤 · 변경 M건 이하 …)."""
+    definition_label: str = "파일"
+    """지금 서 있는 정의 — 「파일」 · 「판 N」(켜진 판) · 「초안 N」(켜진 판이 없는 새 것)."""
+    draft: bool = False
+    """켜진 정의가 없다 — 돌지 않는다. 화면이 「켜기」 를 권한다."""
 
 
 class RecipeOut(BaseModel):
     version: int
     status: str
-    """draft · active · retired."""
+    """draft · active · retired · discarded."""
     note: str
     client: str
     created_at: str
@@ -108,3 +114,39 @@ class RecipeSaved(BaseModel):
     version: int
     problems: list[str]
     """저장은 했지만 알아야 할 것 — 어댑터가 안 내는 열 · 비어 있는 types …"""
+
+
+class DefinitionOut(BaseModel):
+    version: int
+    status: str
+    """draft · active · retired · discarded."""
+    note: str
+    client: str
+    created_at: str
+    activated_at: str | None = None
+    summary: str = ""
+    """한 줄 — 「odata DevModels → jvhubtest · source plm」."""
+
+
+class DefinitionIn(BaseModel):
+    body: dict[str, Any]
+    """`relay-pipeline/1` — `recipe` 칸은 없다(레시피는 레시피 판). 비밀은 환경 변수 이름만."""
+    note: str = ""
+
+
+class DefinitionSaved(BaseModel):
+    version: int
+    problems: list[str]
+    """저장은 했지만 알아야 할 것 — 울타리 밖 주소 · 다른 source · 등록 안 된 대상 …"""
+
+
+class DiscoverIn(BaseModel):
+    adapter: dict[str, Any]
+    """어댑터 설정 — 식별자(`key`) · 열(`columns`)은 아직 몰라도 된다."""
+
+
+class DefinitionTestIn(BaseModel):
+    recipe_version: int | None = None
+    """이 레시피 판으로 바꿔 본다 — 비우면 켜진 레시피 판, 없으면 같은 slug 의 정의 파일 것."""
+    limit: int = Field(default=10, ge=0, le=50)
+    """돌려줄 표본 줄 수."""

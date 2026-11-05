@@ -6,7 +6,7 @@ import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { sampleMap } from '@/modules/relay/fixtures'
+import { sampleMap, withDraft } from '@/modules/relay/fixtures'
 
 const relayApi = vi.hoisted(() => ({ map: vi.fn() }))
 vi.mock('@/modules/relay/api', async (importOriginal) => ({
@@ -46,6 +46,15 @@ describe('중계 표', () => {
     expect(row.getByText('GET /models · plm.local')).toBeInTheDocument()
     expect(row.getByText('자주검증 Datahub')).toBeInTheDocument()
     expect(row.getByText('적용 대기')).toBeInTheDocument()
+  })
+
+  it('파이프라인 — 초안은 「초안(꺼짐)」 회색 배지, 마지막 적용은 없다', async () => {
+    relayApi.map.mockResolvedValue(withDraft(sampleMap()))
+    await show('PipelinesPage')
+    const row = within((await screen.findByRole('link', { name: 'plm-parts' })).closest('tr')!)
+    const badge = row.getByText('초안(꺼짐)')
+    expect(badge).toHaveClass('bg-muted')
+    expect(row.getByText('—')).toBeInTheDocument()
   })
 
   it('원천 시스템 — API 마다 읽는 파이프라인', async () => {

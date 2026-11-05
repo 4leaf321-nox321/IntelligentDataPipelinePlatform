@@ -76,6 +76,11 @@ ignore_missing_imports = true
 module = ["scipy.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# lxml 은 타입 꼬리표를 안 싣는다 — XML 원천(`relay_core/adapters/xml.py`)이 쓴다.
+module = ["lxml", "lxml.*", "smbclient", "smbclient.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"

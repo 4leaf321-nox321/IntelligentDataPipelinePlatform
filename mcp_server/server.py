@@ -5,11 +5,15 @@
 - **사용자의 토큰으로** 동작한다 — 들어온 `Authorization` 을 백엔드(`DATARELAY_API`)로
   그대로 넘긴다. 서버에는 자격이 없다. 백엔드가 토큰 이름 · `X-Client: mcp` 를 감사 기록에
   남긴다.
-- 도구는 셋으로 갈린다: **보기**(지도 · 상세 · 원천 표본 · 대상 정의 · 레시피) ·
-  **짓기**(초안 저장 · 시험 — 대상에 아무것도 안 보낸다) · **미리 보기 실행**(대상 SP 에
+- 도구는 넷으로 갈린다: **보기**(지도 · 상세 · 원천 표본 · 대상 정의 · 레시피 · 정의) ·
+  **원천 탐색**(어댑터 설정으로 원천에 닿아 칸을 본다 — 저장 안 함) · **짓기**(레시피 ·
+  정의의 초안 저장 · 시험 — 대상에 아무것도 안 보낸다) · **미리 보기 실행**(대상 SP 에
   계획을 올린다, 적용은 아님).
-- **없는 도구가 뜻이다**: 레시피 켜기 · 계획 적용 · 정의 바꾸기. 켜기는 백엔드가 토큰 요청을
-  거절하고(`RELAY-0007`), 적용은 사람이 대상 SP 화면이나 datarelay 화면에서 한다.
+- **없는 도구가 뜻이다**: 레시피 켜기 · 정의 켜기 · 계획 적용. 켜기는 백엔드가 토큰 요청을
+  거절하고(`RELAY-0007` · `RELAY-0014`), 적용은 사람이 대상 SP 화면이나 datarelay 화면에서
+  한다.
+- 탐색 · 정의 시험은 서버가 바깥에 닿는 일이다 — 백엔드의 울타리(부를 수 있는 주소 · 읽을 수
+  있는 폴더 · DB 꺼짐 · 플랫폼 자신의 비밀 이름)를 지난다.
 """
 
 from __future__ import annotations
@@ -34,9 +38,11 @@ _JSON_RESPONSE = os.environ.get("MCP_JSON_RESPONSE", "") == "1"
 
 INSTRUCTIONS = (
     "datarelay — 레거시 시스템(PLM · MES)의 데이터를 Standard Platform 에 넣는 중계 플랫폼. "
-    "AI 는 레시피(sp-table/1)를 짓고 시험한다. 처음에 get_guide('start') 를 읽어라. "
-    "레시피 켜기 · 계획 적용은 사람이 화면에서 한다 — 깨끗한 시험 결과를 보이고 사람에게 "
-    "켜 달라고 말한다. 고를 값은 대상 정의(target_schema)의 값으로만 낸다. "
+    "AI 는 레시피(sp-table/1)와 파이프라인 정의(relay-pipeline/1 — 원천 어댑터 · 대상)를 "
+    "짓고 시험한다. 처음에 get_guide('start') 를 읽어라 — 새 원천을 붙이면 "
+    "get_guide('adapter'). 켜기 · 계획 적용은 사람이 화면에서 한다 — 깨끗한 시험 결과를 "
+    "보이고 사람에게 켜 달라고 말한다. 비밀은 정의에 적지 않고 환경 변수 이름만 적는다. "
+    "고를 값은 대상 정의(target_schema)의 값으로만 낸다. "
     "짐작으로 채우지 않는다."
 )
 
@@ -86,7 +92,8 @@ async def _call(
 
 @mcp.tool()
 def get_guide(topic: str = "start") -> str:
-    """사용 안내 — topic: start(차례 · 지킬 것) · recipe(sp-table/1 문법 전부)."""
+    """사용 안내 — topic: start(차례 · 지킬 것) · recipe(sp-table/1 문법 전부) ·
+    adapter(새 원천 붙이기 — 탐색 · 정의 초안 · 시험) · types(대상에 타입이 없을 때)."""
     text = GUIDE.read_text(encoding="utf-8")
     parts = re.split(r"(?m)^## ", text)
     for part in parts[1:]:
@@ -189,13 +196,94 @@ async def recipe_test(ctx: Context, slug: str, version: int) -> Any:
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/recipes/{version}/test")
 
 
+# --- 원천 · 정의 — 새 원천을 붙인다(어댑터 설정) -------------------------------------------
+
+
+@mcp.tool()
+async def adapter_kinds(ctx: Context) -> Any:
+    """어댑터 종류(rest · odata · file · xml · sql)마다 — 설명, 꼭 적을 칸(required), 모든 칸의
+    기본값 · 설명, auth 의 칸. 비밀 칸은 없다 — 비밀은 환경 변수의 이름(token_env · dsn_env)만
+    적는다. disabled 면 이 설치에서 꺼진 종류다."""
+    return await _call(ctx, "GET", "/relay/adapter-kinds")
+
+
+@mcp.tool()
+async def source_discover(ctx: Context, adapter: dict[str, Any] | str) -> Any:
+    """어댑터 설정으로 원천에 닿아 본다 — **저장하지 않는다.** 식별자(key) · 열(columns)은 아직
+    몰라도 된다. 돌려주는 found: 칸의 자리(paths)와 보기 값, 열 이름 제안(columns —
+    그대로 어댑터의 columns 로 쓸 수 있다), OData 면 엔티티 셋 목록(entity_sets), DB 면 표의
+    열. 부를 수 있는 주소 · 폴더 밖이면 403 이 까닭을 말한다 — 사람에게 전한다."""
+    body = json.loads(adapter) if isinstance(adapter, str) else adapter
+    return await _call(ctx, "POST", "/relay/discover", body={"adapter": body})
+
+
+@mcp.tool()
+async def pipeline_definitions(ctx: Context, slug: str) -> Any:
+    """정의의 판들 — draft · active · retired. 켜진 판이 같은 slug 의 정의 파일을 이긴다. 새
+    파이프라인이면 빈 목록이다."""
+    return await _call(ctx, "GET", f"/relay/pipelines/{slug}/definitions")
+
+
+@mcp.tool()
+async def pipeline_definition_get(ctx: Context, slug: str, version: int | None = None) -> Any:
+    """정의 본문 — version 을 안 주면 같은 slug 의 정의 파일(출발점, 없으면 body 가 null)."""
+    if version is None:
+        return await _call(ctx, "GET", f"/relay/pipelines/{slug}/definition-file")
+    return await _call(ctx, "GET", f"/relay/pipelines/{slug}/definitions/{version}")
+
+
+@mcp.tool()
+async def pipeline_draft_save(
+    ctx: Context, slug: str, definition: dict[str, Any] | str, note: str = ""
+) -> Any:
+    """파이프라인 정의(relay-pipeline/1) 초안을 저장한다 — 새 판 번호가 생긴다. 새 slug 면
+    새 파이프라인이 초안으로 선다(켜기 전까지 돌지 않는다). **켜진 판은 그대로다.**
+    `recipe` 칸은 적지 않는다(레시피는 recipe_draft_save). 비밀 값을 적으면 거절된다.
+    돌려준 problems(울타리 밖 주소 · 다른 source · 등록 안 된 대상 …)를 먼저 읽는다."""
+    body = json.loads(definition) if isinstance(definition, str) else definition
+    return await _call(
+        ctx, "POST", f"/relay/pipelines/{slug}/definitions", body={"body": body, "note": note}
+    )
+
+
+@mcp.tool()
+async def pipeline_test(
+    ctx: Context, slug: str, version: int, recipe_version: int | None = None, limit: int = 10
+) -> Any:
+    """그 정의 판으로 원천을 **받아 보고**(전량 · 저장 안 함) · 대상 SP(닿나 · 토큰 · 레시피가
+    만드는 타입이 있나 · 잠금 managed_by)를 보고 · 레시피로 바꿔 본다 — **대상에 아무것도 안
+    보낸다.** 레시피는 recipe_version › 켜진 레시피 판 › 정의 파일의 것. source.always_empty
+    (늘 빈 열) · target.types_missing · recipe.unresolved 를 읽고 고친다. 원천이 크면 앞
+    줄만 받는다(source.capped — 그때 「켜면 보낼 것」 은 세지 않는다)."""
+    return await _call(
+        ctx,
+        "POST",
+        f"/relay/pipelines/{slug}/definitions/{version}/test",
+        body={"recipe_version": recipe_version, "limit": limit},
+    )
+
+
+@mcp.tool()
+async def pipeline_draft_discard(ctx: Context, slug: str, version: int) -> Any:
+    """정의 초안을 버린다 — **초안만**(켜진 · 지난 판은 못 버린다). 시험하다 만 초안을
+    치운다. 새 파이프라인의 초안을 다 버리면 지도에서 빠진다."""
+    return await _call(ctx, "POST", f"/relay/pipelines/{slug}/definitions/{version}/discard")
+
+
+@mcp.tool()
+async def recipe_draft_discard(ctx: Context, slug: str, version: int) -> Any:
+    """레시피 초안을 버린다 — **초안만**."""
+    return await _call(ctx, "POST", f"/relay/pipelines/{slug}/recipes/{version}/discard")
+
+
 # --- 미리 보기 실행 — 적용은 사람이 ----------------------------------------------------------
 
 
 @mcp.tool()
 async def pipeline_run(ctx: Context, slug: str) -> Any:
     """원천을 받아 대상 SP 에 **미리 보기 계획**을 올린다(작업). 적용하지 않는다 — 계획은
-    사람이 대상 SP 화면이나 datarelay 화면에서 적용한다. 진행은 job_status 로."""
+    사람이 대상 SP 화면이나 datarelay 화면에서 적용한다(자동 적용은 타이머의 실행에만).
+    진행은 job_status 로."""
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/run", body={})
 
 

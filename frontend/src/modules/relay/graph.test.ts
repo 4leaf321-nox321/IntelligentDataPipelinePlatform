@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest'
 
 import { countsLine } from '@/modules/relay/api'
 import type { RelayMap } from '@/modules/relay/api'
-import { sampleMap } from '@/modules/relay/fixtures'
+import { sampleMap, withDraft } from '@/modules/relay/fixtures'
 import {
   NO_FILTER,
   buildGraph,
@@ -84,6 +84,18 @@ describe('지도 읽기', () => {
     expect(hub.types.map((one) => one.label)).toEqual(['plm_task', 'plm_project', 'plm_model'])
     expect(hub.downstream.map((one) => one.label)).toEqual(['리포트 아카이브'])
     expect(statusOptions(graph).map((one) => one.label)).toEqual(['정상', '적용 대기', '실패'])
+  })
+
+  it('초안도 상태 거르기에 서버의 말로 서고, 거르면 그 길만 남는다', () => {
+    const drafted = buildGraph(withDraft(sampleMap()))
+    expect(statusOptions(drafted)).toContainEqual({ value: 'draft', label: '초안(꺼짐)' })
+    const visible = visibleIds(drafted, { ...NO_FILTER, status: 'draft' })!
+    expect(visible.has('pipeline:plm-parts')).toBe(true)
+    expect(visible.has('endpoint:parts')).toBe(true)
+    expect(visible.has('target:hub')).toBe(true)
+    expect(visible.has('pipeline:plm-tasks')).toBe(false)
+    // 초안은 아직 아무것도 안 보낸다 — 같은 대상의 남의 타입은 안 남는다.
+    expect(visible.has('type:hub:plm_task')).toBe(false)
   })
 
   it('건수 한 줄 — 관계가 움직였을 때만 뒤에 붙는다', () => {

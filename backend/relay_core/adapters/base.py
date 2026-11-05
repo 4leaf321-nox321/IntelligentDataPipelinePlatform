@@ -7,7 +7,7 @@ PLM 에서 직접 받든, 중간 시스템(데이터레이크 · DB 뷰 · 파�
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 from relay_core.records import SourceRecord
 
@@ -27,3 +27,20 @@ class Fetched:
 
 class Adapter(Protocol):
     def fetch(self, since: str | None) -> Fetched: ...
+
+
+class SourceAdapter(Adapter, Protocol):
+    """어댑터 넷(REST · OData · 파일 · XML · SQL)이 다 지키는 것 — 받기 · 닿나 · 탐색.
+
+    `source` 는 그 어댑터의 설정(실행기가 `full_every` · `deleted` 를 본다)."""
+
+    source: Any
+
+    def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
+        """`limit` 이면 그만큼만 받고 멈춘다 — 정의 시험이 큰 원천을 끝까지 받지 않게.
+        덜 받은 것이라 `complete=False`(부재 대조 · 워터마크 저장을 하지 않는다)."""
+        ...
+
+    def probe(self) -> str: ...
+
+    def discover(self) -> dict[str, Any]: ...

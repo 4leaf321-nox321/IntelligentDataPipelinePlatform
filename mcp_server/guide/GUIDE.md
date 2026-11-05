@@ -5,7 +5,9 @@
 ## start
 
 **datarelay 는 레거시 시스템(PLM · MES)의 데이터를 받아 Standard Platform(SP) 인스턴스에 넣는다.**
-AI 의 자리는 **레시피(`sp-table/1`)를 짓고 시험하는 것**이다 — 실행 · 적용 · 레시피 켜기는 사람이 한다.
+AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipeline/1` — 원천 어댑터 · 대상)를 짓고
+시험하는 것**이다 — 켜기 · 적용은 사람이 한다. 새 원천(MES 의 새 API · 파일 · DB 뷰)을 붙이는 일은
+`get_guide('adapter')`, 대상 SP 에 타입이 없으면 `get_guide('types')`.
 
 레시피를 지을 때의 차례:
 
@@ -30,6 +32,84 @@ AI 의 자리는 **레시피(`sp-table/1`)를 짓고 시험하는 것**이다 �
 - 행마다 값이 갈리는 칸은 미해결이 된다 — 그 칸이 윗단계(과제)가 아니라 행(모델)의 것이라는 신호다.
   정의를 고치거나 `collect` · `join` 으로 적는다.
 - 짐작으로 채우지 않는다. 모르면 사람에게 묻는다.
+
+## adapter
+
+**새 원천을 붙인다** — 파이프라인 정의(`relay-pipeline/1`) 하나가 「어디서 받아 · 무엇을 열로 내어 · 어느 SP 에
+· 어떤 `source` 로」 다. 레시피(무엇을 만드나)는 따로 짓는다(`recipe`).
+
+차례:
+
+1. `adapter_kinds()` — 종류마다 꼭 적을 칸 · 모든 칸의 기본값 · 설명. 고르는 법:
+
+   | 원천이 주는 것 | kind | 핵심 칸 |
+   | --- | --- | --- |
+   | OData(v4 · v2) | `odata` | `service_url` · `entity_set` · `expand` · `modified_field`(증분) · `deleted` |
+   | JSON REST(쪽 넘김) | `rest` | `base_url` · `path` · `rows_path` · `paging` · `since_param` |
+   | CSV · Excel(xlsx) · JSON 파일 | `file` | `location` — 서버 폴더(`/data/relay/drop/…`) · 공유 폴더(`smb://서버/공유/폴더/lots-*.csv`, 계정은 `auth: {"kind": "basic", "user": "CORP\\svc", "token_env": …}`) · URL. `*` 면 가장 늦게 바뀐 것 · `sheet` · `header_row` · `encoding` |
+   | XML · SOAP | `xml` | `url` · `rows_xpath` · `namespaces` · `envelope`(SOAP, `{since}` 자리) · `soap_action` |
+   | DB 뷰(읽기 전용 — Oracle · MSSQL · PostgreSQL) | `sql` | `dsn_env`(값은 `oracle+oracledb://…?service_name=…` · `mssql+pymssql://…/<DB>`) · `table`(`스키마.뷰`) 또는 `query`(SELECT 하나) · `modified_column` |
+
+2. `source_discover(adapter)` — 주소 · 인증만 적고 불러 본다(`key` · `columns` 는 아직 몰라도 된다). 돌려준
+   `found.paths`(칸의 자리 · 보기 값)와 `found.columns`(열 이름 제안)를 본다. OData 는 `entity_set` 없이 부르면
+   `entity_sets`(엔티티 셋 · 키 · 탐색 속성)부터 보인다.
+3. 정의를 짓는다 — `columns` 는 `{레시피가 읽을 열 이름: 원천의 자리}`. 이름은 대문자 · `_`(`TASK_CODE`), 자리는
+   점으로 잇는다(`Task.Code`) · XML 은 행 기준 XPath. `key` 는 **원천의 안 바뀌는 ID**, `deleted` 는 지움 표시 칸.
+4. `pipeline_draft_save(slug, definition, note)` → 판 번호와 `problems`.
+5. `pipeline_test(slug, version)` — 원천을 받아 보고 대상을 본다. **대상에 아무것도 안 보낸다.**
+   `source.rows` · `source.always_empty`(늘 빈 열 — 자리가 틀렸다는 신호) · `target.token` ·
+   `target.types_missing` 을 읽고 고친다 → 4 로.
+6. 레시피를 짓는다(`get_guide('recipe')`, `recipe_draft_save`) → `pipeline_test(slug, version, recipe_version=N)`
+   이 받은 원천을 그 레시피로 바꿔 본다(`recipe.rows` · `recipe.unresolved` · `recipe.would_send`).
+7. 깨끗해지면 사람에게: **「화면 › 파이프라인 › 정의 판 에서 판 N, 레시피 판 에서 판 M 을 켜 주세요」.**
+   켜는 도구는 없다. 시험하다 만 초안은 `pipeline_draft_discard` · `recipe_draft_discard` 로 치운다.
+
+원천이 크면 시험은 앞 줄만 받는다(`source.capped` — 기본 5,000줄). 그때 `recipe.would_send` 는 없다 — 덜 받은 채
+견주면 나머지가 다 지움으로 보인다. 행 수 · 미해결 · 늘 빈 열로 판단한다.
+
+정의의 모양:
+
+```json
+{
+  "format": "relay-pipeline/1",
+  "slug": "mes-lot",
+  "source": "mes",
+  "system": "MES",
+  "schedule": {"daily_at": "02:00"},
+  "adapter": {"kind": "file", "location": "/data/relay/drop/mes/lots-*.csv", "key": "LOT_ID",
+              "encoding": "auto", "deleted": "DEL_YN"},
+  "target": {"name": "제조 데이터허브", "server": "http://…:8040", "token_env": "MFG_HUB_TOKEN"}
+}
+```
+
+지킬 것:
+
+- **비밀은 적지 않는다** — 토큰 · 비밀번호 · DSN 은 환경 변수의 **이름**(`auth.token_env` · `dsn_env` ·
+  `target.token_env`)만. 값을 적으면 저장이 거절된다. 그 변수를 서버에 넣는 일은 관리자에게 부탁한다.
+- `source` 는 **원천 시스템의 이름**(plm · mes) — 대상 타입의 잠금(`managed_by`)과 같아야 적재된다.
+  이미 도는 정의와 다르면 `problems` 가 말한다.
+- `target.server` 는 **등록된 SP 인스턴스**만 — PLM 은 자주검증 Datahub, MES 는 제조 데이터허브. 다른 플랫폼에
+  뿌리지 않는다(허브가 한다). 기준정보를 만들지 않는다(대표 플랫폼이 뿌린다).
+- 탐색 · 시험은 울타리 안만 닿는다 — 부를 수 있는 주소(`RELAY_SOURCE_HOSTS` · 켜진 정의의 주소) · 읽을 수 있는
+  폴더(`RELAY_FILE_ROOTS`) · DB(`RELAY_ALLOW_SQL`). 403 이면 까닭을 사람에게 그대로 전한다 — 돌아갈 길을
+  찾지 않는다.
+- **자동 적용(`auto_apply`)은 사람이 정할 일이다 — 사람이 말하지 않았으면 적지 않는다.** 적으면 타이머의 실행이
+  기준(`after_manual` 번 사람이 적용한 뒤 · 생성 + 고침 `max_changes` 이하 · 지움 없음, `allow_gone`)을 넘은 계획을
+  사람 없이 적용한다. 정의를 켜는 사람이 확인 창에서 본다. MCP 의 `pipeline_run` 은 자동 적용하지 않는다.
+- 일정(`schedule`)은 `{"daily_at": "HH:MM"}` 또는 `{"every_minutes": N}`. 지움 표시가 없는 원천은 몇 번에 한 번
+  전량을 받아야 지워진 것을 안다(OData `full_every`).
+
+## types
+
+**대상 SP 에 레시피가 만들 타입이 없을 때**(`pipeline_test` 의 `target.types_missing`). datarelay 는 타입을 만들지
+않는다 — 타입은 **대상 SP 의 정의**이고 그 SP 의 MCP(또는 화면)로 들인다.
+
+1. 무엇이 있는지 먼저 본다 — 대상 SP MCP 의 `ontology_schema`. 비슷한 타입이 있으면 새로 만들지 않고 그것을
+   쓴다. 기준정보(조직 · 공통 코드 …)는 **대표 플랫폼이 뿌린다** — 만들지 않고 참조만 한다.
+2. 정의를 지어 **`source` 를 단 묶음으로** 미리 본다 — 대상 SP MCP 의 `bundle_import({"source": "mes",
+   "ontology": {...}})`. 계획만 나온다. `source` 를 달아야 그 타입이 `managed_by=mes` 로 **잠긴다**(SP 화면에서
+   사람이 못 고친다 — 정본은 원천). `ontology_import` 로 넣으면 잠기지 않는다.
+3. 계획을 사람에게 보이고 **적용은 사람이**(대상 SP 의 「작업」 화면). 그다음 `pipeline_test` 를 다시 부른다.
 
 ## recipe
 

@@ -25,7 +25,7 @@ import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
 const NO_PIPELINES_HINT =
-  '정의 파일(relay-pipeline/1)은 서버의 파이프라인 폴더(RELAY_PIPELINES_DIR)에 둡니다 — 넣으면 다음 읽기부터 보입니다.'
+  '정의 파일(relay-pipeline/1)은 서버의 파이프라인 폴더(RELAY_PIPELINES_DIR)에 둡니다 — 넣으면 다음 읽기부터 보입니다. AI(MCP)가 정의 판 초안을 지어도 「초안(꺼짐)」 으로 보입니다.'
 
 export default function PipelinesPage() {
   const map = useResource(() => relayApi.map(), [])

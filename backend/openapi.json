@@ -4087,6 +4087,58 @@
         }
       }
     },
+    "/api/relay/pipelines/{slug}/recipes/{version}/discard": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Recipe Discard",
+        "description": "초안을 버린다 — 초안만(켜진 · 지난 판은 그대로). 토큰도 된다.",
+        "operationId": "recipe_discard_api_relay_pipelines__slug__recipes__version__discard_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/relay/pipelines/{slug}/recipe-file": {
       "get": {
         "tags": [
@@ -4323,6 +4375,445 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Target Schema Api Relay Pipelines  Slug  Target Schema Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/adapter-kinds": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Adapter Kinds",
+        "description": "어댑터 종류마다 적을 칸 · 기본값 · 설명 — 코드의 설명을 그대로.",
+        "operationId": "adapter_kinds_api_relay_adapter_kinds_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Adapter Kinds Api Relay Adapter Kinds Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/discover": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Source Discover",
+        "description": "어댑터 설정으로 원천에 닿아 칸의 자리 · 보기 값 · 열 제안을 받는다 — 저장하지 않는다.\n부를 수 있는 주소 · 파일 폴더는 울타리 안만(`guard`).",
+        "operationId": "source_discover_api_relay_discover_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Source Discover Api Relay Discover Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/definitions": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Definition Versions",
+        "description": "그 slug 의 정의 판 — 새 파이프라인이면 아직 없을 수 있다(빈 목록).",
+        "operationId": "definition_versions_api_relay_pipelines__slug__definitions_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DefinitionOut"
+                  },
+                  "title": "Response Definition Versions Api Relay Pipelines  Slug  Definitions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Definition Draft",
+        "description": "초안 — 새 slug 면 새 파이프라인(켜기 전까지 돌지 않는다). 비밀은 거절한다.",
+        "operationId": "definition_draft_api_relay_pipelines__slug__definitions_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DefinitionIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefinitionSaved"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/definitions/{version}": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Definition Body",
+        "operationId": "definition_body_api_relay_pipelines__slug__definitions__version__get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Definition Body Api Relay Pipelines  Slug  Definitions  Version  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/definition-file": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Definition File",
+        "description": "같은 slug 의 정의 파일 — 켜진 판이 없을 때 도는 것. 초안을 지을 출발점이다.",
+        "operationId": "definition_file_api_relay_pipelines__slug__definition_file_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Definition File Api Relay Pipelines  Slug  Definition File Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/definitions/{version}/test": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Definition Test",
+        "description": "그 판으로 원천을 받아 보고 · 대상(판 · 토큰 · 타입)을 보고 · 레시피로 바꿔 본다 —\n**대상에 아무것도 안 보낸다.**",
+        "operationId": "definition_test_api_relay_pipelines__slug__definitions__version__test_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/DefinitionTestIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Definition Test Api Relay Pipelines  Slug  Definitions  Version  Test Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/definitions/{version}/activate": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Definition Activate",
+        "description": "켠다 — **화면에서 사람만**(토큰이면 거절). 다음 실행부터 이 판이 돈다.",
+        "operationId": "definition_activate_api_relay_pipelines__slug__definitions__version__activate_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefinitionOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/definitions/{version}/discard": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Definition Discard",
+        "description": "초안을 버린다 — 초안만. 새 파이프라인의 초안을 다 버리면 지도에서 빠진다. 토큰도\n된다.",
+        "operationId": "definition_discard_api_relay_pipelines__slug__definitions__version__discard_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DefinitionOut"
                 }
               }
             }
@@ -5213,6 +5704,119 @@
         ],
         "title": "CutQuestionsOut"
       },
+      "DefinitionIn": {
+        "properties": {
+          "body": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Body"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "body"
+        ],
+        "title": "DefinitionIn"
+      },
+      "DefinitionOut": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "client": {
+            "type": "string",
+            "title": "Client"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          },
+          "activated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activated At"
+          },
+          "summary": {
+            "type": "string",
+            "title": "Summary",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "status",
+          "note",
+          "client",
+          "created_at"
+        ],
+        "title": "DefinitionOut"
+      },
+      "DefinitionSaved": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "problems"
+        ],
+        "title": "DefinitionSaved"
+      },
+      "DefinitionTestIn": {
+        "properties": {
+          "recipe_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe Version"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 50.0,
+            "minimum": 0.0,
+            "title": "Limit",
+            "default": 10
+          }
+        },
+        "type": "object",
+        "title": "DefinitionTestIn"
+      },
       "DelegatedTokenOut": {
         "properties": {
           "access_token": {
@@ -5251,6 +5855,20 @@
         ],
         "title": "DelegationRevokeOut",
         "description": "위임 회수(`POST /api/auth/sso/revoke`) — 그 사람의 그 client 토큰을 몇 개 끊었나."
+      },
+      "DiscoverIn": {
+        "properties": {
+          "adapter": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Adapter"
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter"
+        ],
+        "title": "DiscoverIn"
       },
       "DiskOut": {
         "properties": {
@@ -6872,6 +7490,26 @@
             "type": "string",
             "title": "Recipe Label",
             "default": "파일"
+          },
+          "schedule_label": {
+            "type": "string",
+            "title": "Schedule Label",
+            "default": "수동"
+          },
+          "auto_apply_label": {
+            "type": "string",
+            "title": "Auto Apply Label",
+            "default": "끔"
+          },
+          "definition_label": {
+            "type": "string",
+            "title": "Definition Label",
+            "default": "파일"
+          },
+          "draft": {
+            "type": "boolean",
+            "title": "Draft",
+            "default": false
           }
         },
         "type": "object",

@@ -3,6 +3,8 @@
  *
  * 서버는 토큰으로 온 「켜기」 를 거절한다. 그래서 켜기 전에 여기서 한 번 더 시험해 「켜면 무엇이
  * 바뀌나」 를 사람이 읽게 한다 — 시험하지 않았거나 막힌 판이면 확인 창이 그렇다고 먼저 말한다.
+ *
+ * 초안은 버릴 수 있다(되돌릴 수 없다 · 번호는 다시 안 쓴다). 버린 판은 목록에 흐리게 남는다.
  */
 
 import { Fragment, useState } from 'react'
@@ -30,8 +32,9 @@ import {
   TableHeader,
   TableRow,
 } from '@/shared/components/ui/table'
-import { useResource } from '@/shared/hooks/useResource'
+import type { Resource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
+import { cn } from '@/shared/lib/utils'
 
 /** 확인 창의 첫 말 — 이 화면에서 한 시험이 무엇을 보였나. */
 function TrialNote({ trial }: { trial: RecipeTrial | undefined }) {
@@ -56,14 +59,16 @@ function TrialNote({ trial }: { trial: RecipeTrial | undefined }) {
 export function RecipeVersions({
   slug,
   recipeLabel,
+  versions,
   onActivated,
 }: {
   slug: string
   /** 지금 도는 레시피 — 「파일」 이거나 「판 N」. */
   recipeLabel: string
+  /** 판 목록 — 정의 판의 「시험에 쓸 레시피」 도 같은 목록을 쓰므로 위에서 한 번 읽어 준다. */
+  versions: Resource<RecipeVersion[]>
   onActivated: () => void
 }) {
-  const versions = useResource(() => relayApi.recipes(slug), [slug])
   const [trials, setTrials] = useState<Record<number, RecipeTrial>>({})
   const [opened, setOpened] = useState<number | null>(null)
   const [busy, setBusy] = useState<number | null>(null)
@@ -71,6 +76,9 @@ export function RecipeVersions({
   // 고른 판은 창을 닫아도 든 채로 — 닫히는 동안 제목이 「판  을 켭니다」 로 비지 않게.
   const [confirming, setConfirming] = useState<RecipeVersion | null>(null)
   const [asking, setAsking] = useState(false)
+  // 버릴 판도 같은 까닭으로 창을 닫아도 든 채로.
+  const [discarding, setDiscarding] = useState<RecipeVersion | null>(null)
+  const [askingDiscard, setAskingDiscard] = useState(false)
   const [body, setBody] = useState<RecipeBody | null>(null)
 
   async function act(version: number, run: () => Promise<void>) {
@@ -99,6 +107,12 @@ export function RecipeVersions({
     await relayApi.activateRecipe(slug, version)
     versions.reload()
     onActivated()
+  }
+
+  /** 초안을 버린다 — 켜진 판이 그대로 돌므로 상세는 다시 읽지 않는다. */
+  async function discard(version: number) {
+    await relayApi.discardRecipe(slug, version)
+    versions.reload()
   }
 
   const list = versions.data ?? []
@@ -135,9 +149,10 @@ export function RecipeVersions({
           <TableBody>
             {list.map((one) => {
               const trial = trials[one.version]
+              const discarded = one.status === 'discarded'
               return (
                 <Fragment key={one.version}>
-                  <TableRow>
+                  <TableRow className={cn(discarded && 'text-muted-foreground')}>
                     <TableCell className="font-mono">판 {one.version}</TableCell>
                     <TableCell>
                       <StatusBadge kind="relay_recipe" value={one.status} />
@@ -156,17 +171,20 @@ export function RecipeVersions({
                     <TableCell className="whitespace-nowrap">{shownDateTime(one.created_at)}</TableCell>
                     <TableCell className="whitespace-nowrap">{shownDateTime(one.activated_at)}</TableCell>
                     <TableCell className="space-x-1 text-right">
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        aria-label={`판 ${one.version} 시험`}
-                        disabled={busy !== null}
-                        onClick={() => void test(one.version)}
-                      >
-                        {busy === one.version && <Loader2 className="animate-spin" />}
-                        시험
-                      </Button>
-                      {one.status !== 'active' && (
+                      {/* 버린 판은 본문만 — 다시 켜지 않는다(번호도 다시 안 쓴다). */}
+                      {!discarded && (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          aria-label={`판 ${one.version} 시험`}
+                          disabled={busy !== null}
+                          onClick={() => void test(one.version)}
+                        >
+                          {busy === one.version && <Loader2 className="animate-spin" />}
+                          시험
+                        </Button>
+                      )}
+                      {one.status !== 'active' && !discarded && (
                         <Button
                           size="xs"
                           aria-label={`판 ${one.version} 켜기`}
@@ -177,6 +195,20 @@ export function RecipeVersions({
                           }}
                         >
                           켜기
+                        </Button>
+                      )}
+                      {one.status === 'draft' && (
+                        <Button
+                          size="xs"
+                          variant="ghost"
+                          aria-label={`판 ${one.version} 버리기`}
+                          disabled={busy !== null}
+                          onClick={() => {
+                            setDiscarding(one)
+                            setAskingDiscard(true)
+                          }}
+                        >
+                          버리기
                         </Button>
                       )}
                       <Button
@@ -228,6 +260,24 @@ export function RecipeVersions({
         confirmLabel="켜기"
         onConfirm={() => activate(confirming!.version)}
         onClose={() => setAsking(false)}
+      />
+
+      <ConfirmDialog
+        open={askingDiscard}
+        title={`판 ${discarding?.version ?? ''} 을 버립니다`}
+        description={
+          <div className="space-y-2">
+            <p>
+              초안 판 {discarding?.version} 을 버립니다 — 되돌릴 수 없습니다. 판 번호는 다시 쓰지
+              않습니다. 버린 판은 목록에 「버림」 으로 남고 본문은 볼 수 있습니다.
+            </p>
+            <p>지금 도는 것({recipeLabel})은 그대로 돕니다.</p>
+          </div>
+        }
+        confirmLabel="버리기"
+        destructive
+        onConfirm={() => discard(discarding!.version)}
+        onClose={() => setAskingDiscard(false)}
       />
 
       <Dialog open={body !== null} onOpenChange={(next) => !next && setBody(null)}>

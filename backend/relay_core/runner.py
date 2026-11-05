@@ -164,9 +164,15 @@ def run(
     return Outcome(status, note + plan.summary, link=plan.link, counts=counts)
 
 
-def apply(pipeline: Pipeline, work: Workdir, submit: Submitter | None = None) -> Outcome:
+def apply(
+    pipeline: Pipeline,
+    work: Workdir,
+    submit: Submitter | None = None,
+    *,
+    by: str | None = None,
+) -> Outcome:
     """대기 중인 계획을 적용한다 — 사람이 계획을 본 뒤에 부른다(또는 자동 적용 기준을 넘었을
-    때)."""
+    때 — `by="auto"`, 이력에 남는다. `autoapply`)."""
     submit = submit or Submitter(pipeline.target)
     state = work.load_state()
     pending = state.pending
@@ -182,7 +188,10 @@ def apply(pipeline: Pipeline, work: Workdir, submit: Submitter | None = None) ->
         result = submit.apply(pending.job_id)
         note = f"적용했습니다 — {result.get('summary') or summarize(result)} "
     state.applied_run, state.applied_at = pending.run, _now()
-    state.history.append({"at": _now(), "event": "applied", "job_id": pending.job_id})
+    event: dict[str, Any] = {"at": _now(), "event": "applied", "job_id": pending.job_id}
+    if by:
+        event["by"] = by
+    state.history.append(event)
     state.pending = None
     work.save_state(state)
     return Outcome("applied", note.strip())

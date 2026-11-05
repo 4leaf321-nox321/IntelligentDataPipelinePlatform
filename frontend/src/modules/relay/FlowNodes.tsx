@@ -2,7 +2,8 @@
  * 흐름도의 마디 — 이름 · 작은 글 · 상태. **색은 `StatusBadge` 의 판정을 따른다**(`statusTone`).
  *
  * 파이프라인 마디는 통째로 눌러 상세로 간다. 적용을 기다리면 「계획 보기」 가 대상 SP 의 작업
- * 화면을 새 탭으로 연다 — 계획은 거기서 읽고 거기서(또는 상세의 「적용」 으로) 넣는다.
+ * 화면을 새 탭으로 연다 — 계획은 거기서 읽고 거기서(또는 상세의 「적용」 으로) 넣는다. 초안(꺼짐)은
+ * 점선 테두리다 — 상세의 「정의 판」 에서 켜기 전까지 안 돈다.
  */
 
 import { Handle, Position } from '@xyflow/react'
@@ -56,6 +57,8 @@ export function RelayNodeCard({ data }: NodeProps<RelayFlowNode>) {
         'bg-card text-card-foreground pointer-events-auto relative flex h-full w-full flex-col justify-between rounded-md border px-2.5 py-1.5 shadow-xs',
         BORDER[toneOf(node)],
         node.kind === 'pipeline' && 'hover:bg-muted/50 border-2',
+        // 초안은 아직 안 돈다 — 선처럼 테두리도 점선으로.
+        node.kind === 'pipeline' && node.status === 'draft' && 'border-dashed',
         beyond && 'bg-muted/30 text-muted-foreground border-dashed shadow-none',
       )}
       title={node.sub ? `${node.label}\n${node.sub}` : node.label}

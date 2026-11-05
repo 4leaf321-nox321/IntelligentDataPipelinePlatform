@@ -90,8 +90,13 @@ cd backend
 화면의 「지금 실행」 · 「적용」 과 타이머가 같은 함수를 작업으로 부른다. 정의는 `RELAY_PIPELINES_DIR`(운영
 `<DATA_DIR>/relay/pipelines`), 비밀은 정의에 적지 않고 `token_env` 의 환경 변수로.
 
-**MCP(8082)** — `mcp_server/`(별도 venv). AI(Claude Desktop)가 사용자의 PAT 로 붙어 레시피를 **짓고
-시험**한다. 켜기 · 적용은 사람이 화면에서. 붙이는 법은 화면 「내 정보 › AI 도구 연결」.
+**MCP(8082)** — `mcp_server/`(별도 venv). AI(Claude Desktop)가 사용자의 PAT 로 붙어 **원천을 탐색하고**
+(어댑터 — REST · OData · 파일(서버 폴더 · 공유 폴더 `smb://` · URL) · XML/SOAP · DB 뷰(Oracle · MSSQL · PostgreSQL)), 파이프라인 정의와 레시피를 **짓고 시험**한다. 켜기 · 적용은
+사람이 화면에서. 붙이는 법은 화면 「내 정보 › AI 도구 연결」.
+
+정의는 두 곳에 있을 수 있다 — `RELAY_PIPELINES_DIR` 의 파일, 그리고 DB 의 **정의 판**(MCP 가 지은 것). 같은
+slug 면 켜진 판이 이긴다. AI 요청이 닿을 수 있는 곳은 `RELAY_SOURCE_HOSTS`(주소) · `RELAY_FILE_ROOTS`(파일
+폴더, 운영 `<DATA_DIR>/relay/drop`) · `RELAY_ALLOW_SQL`(DB, 기본 꺼짐)로 막는다.
 
 ## SP 정제 도구의 판 올리기
 

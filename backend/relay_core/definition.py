@@ -22,13 +22,17 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
 
+from relay_core.adapters.base import SourceAdapter
+from relay_core.adapters.file import FileAdapter, FileSource
 from relay_core.adapters.odata import ODataAdapter, ODataSource
 from relay_core.adapters.rest import Auth, RestAdapter, RestSource
+from relay_core.adapters.sql import SqlAdapter, SqlSource
+from relay_core.adapters.xml import XmlAdapter, XmlSource
 
 FORMAT = "relay-pipeline/1"
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
@@ -51,7 +55,7 @@ class Target:
 class Pipeline:
     slug: str
     source: str
-    adapter: RestAdapter | ODataAdapter
+    adapter: SourceAdapter
     recipe: Path
     target: Target
     path: Path
@@ -84,42 +88,103 @@ def _auth(spec: dict[str, Any], env: Mapping[str, str]) -> Auth:
 ADAPTERS: dict[str, tuple[type[Any], type[Any], tuple[str, ...]]] = {
     "rest": (RestSource, RestAdapter, ("base_url", "path", "key", "columns")),
     "odata": (ODataSource, ODataAdapter, ("service_url", "entity_set", "key", "columns")),
+    "file": (FileSource, FileAdapter, ("location", "key")),
+    "xml": (XmlSource, XmlAdapter, ("url", "rows_xpath", "key", "columns")),
+    "sql": (SqlSource, SqlAdapter, ("dsn_env", "key")),
 }
 
 
-def check_adapter(spec: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+def column_default(kind: str) -> Any:
+    """그 어댑터가 `columns` 를 안 적었을 때 — 파일 · DB 는 `"*"`(머리글 그대로)."""
+    shape = ADAPTERS.get(kind, (None, None, ()))[0]
+    for one in fields(shape) if shape is not None else ():
+        if one.name == "columns":
+            return one.default if isinstance(one.default, str) else {}
+    return {}
+
+
+#: 정의에 적으면 안 되는 칸 — 비밀은 환경 변수의 **이름**으로만(`token_env` · `dsn_env`).
+SECRET_FIELDS = {"dsn", "password", "token", "secret"}
+
+
+#: 탐색(`partial`)에서는 없어도 되는 칸 — 무엇이 있는지 보려고 부르는 것이라 아직 모른다.
+DISCOVER_DEFAULTS: dict[str, Any] = {
+    "key": "",
+    "columns": {},
+    "rows_xpath": "/*/*",
+    "entity_set": "",
+}
+
+
+def check_adapter(
+    spec: dict[str, Any], *, partial: bool = False
+) -> tuple[str, dict[str, Any]]:
     """종류와 그 칸들 — **모르는 키는 거절한다**(조용히 무시하면 적은 사람은 적었다고
-    믿는다)."""
+    믿는다). `partial` 이면 탐색용 — 식별자 · 열처럼 아직 모르는 칸은 비워도 된다."""
     body = dict(spec)
     kind = str(body.pop("kind", "rest"))
     if kind not in ADAPTERS:
         raise DefinitionError(f"모르는 어댑터입니다: {kind} (되는 것: {', '.join(ADAPTERS)})")
     shape, _adapter, need = ADAPTERS[kind]
-    known = {one.name for one in fields(shape)}
+    leaked = sorted(SECRET_FIELDS & set(body))
+    if leaked:
+        raise DefinitionError(
+            f"adapter: 비밀({', '.join(leaked)})은 정의에 적지 않습니다 — 환경 변수 이름"
+            "(`dsn_env` · `auth.token_env`)을 적으세요."
+        )
+    known = {one.name for one in fields(shape)} - SECRET_FIELDS
     unknown = sorted(set(body) - known)
     if unknown:
         raise DefinitionError(f"adapter: 모르는 칸입니다: {', '.join(unknown)}")
     for one in need:
-        if not body.get(one):
+        if partial and one in DISCOVER_DEFAULTS:
+            body.setdefault(one, DISCOVER_DEFAULTS[one])
+        elif not body.get(one):
             raise DefinitionError(f"adapter.{one} 가 필요합니다.")
     return kind, body
 
 
-def _adapter(spec: dict[str, Any], env: Mapping[str, str]) -> RestAdapter | ODataAdapter:
-    kind, body = check_adapter(spec)
+def build_adapter(
+    spec: dict[str, Any],
+    env: Mapping[str, str],
+    *,
+    partial: bool = False,
+    file_roots: Sequence[Path] | None = None,
+) -> SourceAdapter:
+    """어댑터 설정 → 어댑터 — 비밀(`auth.token_env` · `dsn_env`)은 `env` 에서 푼다.
+    `file_roots` 를 주면 파일 어댑터가 그 폴더 밖을 읽지 않는다(앱이 준다)."""
+    kind, body = check_adapter(spec, partial=partial)
     shape, adapter, _need = ADAPTERS[kind]
-    auth = _auth(dict(body.pop("auth", None) or {}), env)
-    built: RestAdapter | ODataAdapter = adapter(shape(**body, auth=auth))
+    names = {one.name for one in fields(shape)}
+    if "auth" in names:
+        body["auth"] = _auth(dict(body.pop("auth", None) or {}), env)
+    if kind == "sql":
+        body["dsn"] = _secret({"token_env": body["dsn_env"]}, "adapter.dsn_env", env)
+    if kind == "file":
+        return FileAdapter(shape(**body), roots=file_roots)
+    built: SourceAdapter = adapter(shape(**body))
     return built
 
 
-def load(path: Path, env: Mapping[str, str] | None = None) -> Pipeline:
-    """달릴 수 있게 읽는다 — 비밀(`token_env`)까지 푼다. `env` 를 안 주면 프로세스의 환경
-    변수."""
-    env = os.environ if env is None else env
-    body = json.loads(path.read_text(encoding="utf-8"))
+def env_names(body: Any) -> list[str]:
+    """정의가 푸는 환경 변수의 이름 전부(`token_env` · `dsn_env`) — 어디에 있든."""
+    found: list[str] = []
+    if isinstance(body, dict):
+        for key, value in body.items():
+            if key in ("token_env", "dsn_env") and isinstance(value, str) and value:
+                found.append(value)
+            else:
+                found.extend(env_names(value))
+    elif isinstance(body, list):
+        for one in body:
+            found.extend(env_names(one))
+    return found
+
+
+def check_body(body: dict[str, Any]) -> tuple[str, str]:
+    """정의의 머리 — (slug, source). 비밀 없이 볼 수 있는 것만 본다(초안 저장 · 지도)."""
     if body.get("format") != FORMAT:
-        raise DefinitionError(f"{path}: format 이 {FORMAT} 이어야 합니다.")
+        raise DefinitionError(f"format 이 {FORMAT} 이어야 합니다.")
     slug = str(body.get("slug") or "")
     if not _SLUG.match(slug):
         raise DefinitionError(
@@ -128,7 +193,41 @@ def load(path: Path, env: Mapping[str, str] | None = None) -> Pipeline:
     source = str(body.get("source") or "")
     if not _SOURCE.match(source):
         raise DefinitionError(f"source(원천 이름 — plm · mes …)가 맞지 않습니다: {source!r}")
-    recipe = (path.parent / str(body.get("recipe") or "")).resolve()
+    check_adapter(dict(body.get("adapter") or {}))
+    target = dict(body.get("target") or {})
+    if "token" in target:
+        raise DefinitionError("target: 비밀은 정의에 적지 않습니다 — token_env 를 쓰세요.")
+    if not target.get("server") or not target.get("token_env"):
+        raise DefinitionError("target 의 server · token_env 가 필요합니다.")
+    from relay_core.autoapply import AutoApplyError, check
+
+    try:
+        check(body.get("auto_apply"))
+    except AutoApplyError as failure:
+        raise DefinitionError(str(failure)) from failure
+    return slug, source
+
+
+def load_body(
+    body: dict[str, Any],
+    *,
+    base: Path | None,
+    env: Mapping[str, str] | None = None,
+    recipe: Path | None = None,
+    path: Path | None = None,
+    file_roots: Sequence[Path] | None = None,
+) -> Pipeline:
+    """달릴 수 있게 — 비밀(`token_env` · `dsn_env`)까지 푼다. 레시피는 `recipe` 가 이기고,
+    없으면 정의의 `recipe`(그 자리는 `base` 기준). DB 의 정의(판)는 `base` 가 없다 — 켜진
+    레시피 판을 준다."""
+    env = os.environ if env is None else env
+    slug, source = check_body(body)
+    if recipe is None:
+        if base is None or not body.get("recipe"):
+            raise DefinitionError(
+                "레시피가 없습니다 — 레시피 판을 짓고 켜거나 정의에 recipe 를 적으세요."
+            )
+        recipe = (base / str(body["recipe"])).resolve()
     if not recipe.is_file():
         raise DefinitionError(f"레시피가 없습니다: {recipe}")
     target_spec = dict(body.get("target") or {})
@@ -137,13 +236,19 @@ def load(path: Path, env: Mapping[str, str] | None = None) -> Pipeline:
         server=str(target_spec.get("server") or "").rstrip("/"),
         token=_secret(target_spec, "target", env),
     )
-    if not target.server or not target.token:
-        raise DefinitionError("target 의 server · token_env 가 필요합니다.")
+    if not target.token:
+        raise DefinitionError("target 의 token_env 가 비었습니다.")
     return Pipeline(
         slug=slug,
         source=source,
-        adapter=_adapter(dict(body.get("adapter") or {}), env),
+        adapter=build_adapter(dict(body.get("adapter") or {}), env, file_roots=file_roots),
         recipe=recipe,
         target=target,
-        path=path,
+        path=path or Path(f"<판:{slug}>"),
     )
+
+
+def load(path: Path, env: Mapping[str, str] | None = None) -> Pipeline:
+    """정의 파일에서 — `load_body` 와 같고 레시피 자리는 파일 기준."""
+    body = json.loads(path.read_text(encoding="utf-8"))
+    return load_body(body, base=path.parent, env=env, path=path)

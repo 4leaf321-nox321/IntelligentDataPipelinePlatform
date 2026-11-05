@@ -4,6 +4,9 @@
  *
  * 계획은 **대상 SP 의 작업 화면**에서 읽는다(새 탭). 이 플랫폼의 작업(실행 · 적용)은 여기
  * 작업 화면에서 본다.
+ *
+ * 이력은 자동 적용이 한 적용(「자동 적용」)을 사람의 적용과 가른다. 타이머의 실행이 기준을 못 넘어
+ * 계획이 사람을 기다리면(「자동 적용 안 함」) 그 까닭을 줄 아래에 늘어놓는다.
  */
 
 import type { ReactNode } from 'react'
@@ -11,7 +14,7 @@ import { ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { countsLine, historyOf, jobLink, stateOf, targetJobLink } from '@/modules/relay/api'
-import type { PipelineDetail } from '@/modules/relay/api'
+import type { HistoryEvent, PipelineDetail } from '@/modules/relay/api'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import {
   Table,
@@ -28,6 +31,13 @@ const EVENT_LABEL: Record<string, string> = {
   applied: '적용',
   blocked: '멈춤',
   nothing: '보낼 것 없음',
+  auto_skipped: '자동 적용 안 함',
+}
+
+/** 이력 한 줄의 이름 — 자동 적용이 한 적용은 사람의 적용과 다른 이름을 쓴다. */
+function eventLabel(one: HistoryEvent): string {
+  if (one.event === 'applied' && one.by === 'auto') return '자동 적용'
+  return EVENT_LABEL[one.event ?? ''] ?? one.event ?? '—'
 }
 
 const JOB_KIND: Record<string, string> = { relay_run: '실행', relay_apply: '적용' }
@@ -104,7 +114,7 @@ export function PipelineHistory({ detail }: { detail: PipelineDetail }) {
           <li key={`${one.at}:${index}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2 text-sm">
             <span className="text-muted-foreground w-36 shrink-0 text-xs">{shownDateTime(one.at)}</span>
             <span className="font-medium">
-              {EVENT_LABEL[one.event ?? ''] ?? one.event ?? '—'}
+              {eventLabel(one)}
               {one.event === 'planned' && one.ok === false && (
                 <span className="text-destructive ml-1 text-xs">(계획 오류)</span>
               )}
@@ -112,6 +122,13 @@ export function PipelineHistory({ detail }: { detail: PipelineDetail }) {
             {line && <span className="text-muted-foreground text-xs">{line}</span>}
             {one.job_id && (
               <span className="text-muted-foreground font-mono text-xs">{one.job_id.slice(0, 8)}</span>
+            )}
+            {(one.reasons ?? []).length > 0 && (
+              <ul className="text-muted-foreground w-full list-disc pl-4 text-xs sm:pl-40">
+                {one.reasons!.map((reason) => (
+                  <li key={reason}>{reason}</li>
+                ))}
+              </ul>
             )}
           </li>
         )

@@ -14,7 +14,9 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from relay_core.definition import FORMAT, DefinitionError, check_adapter
+from relay_core import autoapply
+from relay_core.autoapply import Policy
+from relay_core.definition import FORMAT, DefinitionError, check_adapter, column_default
 from relay_core.schedule import ScheduleError, check, label
 
 
@@ -44,6 +46,8 @@ class Described:
     endpoint: str = ""
     endpoint_label: str = ""
     columns: dict[str, str] = field(default_factory=dict)
+    columns_all: bool = False
+    """어댑터가 `columns: "*"` — 원천의 머리글 그대로(열 이름을 정의만으로는 모른다)."""
     recipe: Path | None = None
     target_name: str = ""
     target_server: str = ""
@@ -53,6 +57,15 @@ class Described:
     lineage: list[Step] = field(default_factory=list)
     schedule: dict[str, Any] | None = None
     schedule_label: str = "수동"
+    auto_apply: Policy | None = None
+    auto_apply_label: str = "끔"
+    """자동 적용 — 「끔」 또는 기준 한 줄(`relay_core.autoapply`)."""
+    origin: str = "파일"
+    """정의가 어디서 왔나 — 「파일」 · 「판 N」(켜진 판) · 「초안 N」(켜진 판이 없는 새
+    파이프라인)."""
+    body: dict[str, Any] = field(default_factory=dict)
+    draft: bool = False
+    """켜진 판이 없는 새 파이프라인(초안만) — 지도에 서지만 돌지 않는다."""
     recipe_label: str = "파일"
     """지금 도는 레시피 — 「파일」(정의의 `recipe`) 또는 「판 N」(켜진 판,
     `app/modules/relay`)."""
@@ -105,8 +118,11 @@ def _columns_of(
     return []
 
 
-def lineage(recipe: dict[str, Any], columns: dict[str, str]) -> list[Step]:
-    """레시피(`sp-table/1`)의 칸마다 — 열 · 원천 자리 · 변환."""
+def lineage(
+    recipe: dict[str, Any], columns: dict[str, str], *, same: bool = False
+) -> list[Step]:
+    """레시피(`sp-table/1`)의 칸마다 — 열 · 원천 자리 · 변환. `same` 이면 열 이름이 곧 원천의
+    자리다(어댑터 `columns: "*"` — 머리글 그대로)."""
     types = {
         str(one["type_slug"]): one for one in recipe.get("types") or [] if "type_slug" in one
     }
@@ -119,7 +135,7 @@ def lineage(recipe: dict[str, Any], columns: dict[str, str]) -> list[Step]:
                 target_type=type_slug,
                 target_field=name,
                 columns=cols,
-                source_paths=[columns.get(one, "") for one in cols],
+                source_paths=[columns.get(one, one if same else "") for one in cols],
                 transform=_transform(spec) if isinstance(spec, dict) else "그대로",
             )
         )
@@ -135,12 +151,21 @@ def lineage(recipe: dict[str, Any], columns: dict[str, str]) -> list[Step]:
 
 
 def describe(path: Path) -> Described:
-    out = Described(path=path)
     try:
         body = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as failure:
+        out = Described(path=path)
         out.problems.append(f"정의를 못 읽었습니다: {failure}")
         return out
+    return describe_body(body, path=path, base=path.parent)
+
+
+def describe_body(
+    body: dict[str, Any], *, path: Path, base: Path | None, origin: str = "파일"
+) -> Described:
+    """정의(JSON)를 비밀 없이 — 파일이면 `base` 가 그 폴더, DB 의 판이면 `base` 가 없다
+    (레시피는 레시피 판에서)."""
+    out = Described(path=path, origin=origin, body=body)
     if body.get("format") != FORMAT:
         out.problems.append(f"format 이 {FORMAT} 가 아닙니다")
     out.slug = str(body.get("slug") or path.stem)
@@ -151,29 +176,54 @@ def describe(path: Path) -> Described:
         out.schedule_label = label(out.schedule)
     except ScheduleError as failure:
         out.problems.append(str(failure))
+    try:
+        out.auto_apply = autoapply.check(body.get("auto_apply"))
+        out.auto_apply_label = autoapply.label(out.auto_apply)
+    except autoapply.AutoApplyError as failure:
+        out.problems.append(str(failure))
     adapter = dict(body.get("adapter") or {})
     try:
         out.adapter_kind, checked = check_adapter(adapter)
     except DefinitionError as failure:
         out.problems.append(str(failure))
         out.adapter_kind, checked = str(adapter.get("kind") or "?"), adapter
-    out.columns = {str(k): str(v) for k, v in dict(checked.get("columns") or {}).items()}
+    columns = checked.get("columns", column_default(out.adapter_kind)) or {}
+    out.columns = (
+        {} if isinstance(columns, str) else {str(k): str(v) for k, v in dict(columns).items()}
+    )
+    out.columns_all = isinstance(columns, str)
     if out.adapter_kind == "odata":
-        base = str(checked.get("service_url") or "")
-        out.endpoint = f"{base.rstrip('/')}/{checked.get('entity_set', '')}"
+        where = str(checked.get("service_url") or "")
+        out.endpoint = f"{where.rstrip('/')}/{checked.get('entity_set', '')}"
         out.endpoint_label = f"OData {checked.get('entity_set', '')}"
+    elif out.adapter_kind == "file":
+        where = str(checked.get("location") or "")
+        out.endpoint = where
+        out.endpoint_label = f"파일 {where.rsplit('/', 1)[-1]}"
+    elif out.adapter_kind == "xml":
+        where = str(checked.get("url") or "")
+        out.endpoint = where
+        soap = checked.get("envelope") or checked.get("soap_action")
+        out.endpoint_label = ("SOAP " if soap else "XML ") + where.rsplit("/", 1)[-1]
+    elif out.adapter_kind == "sql":
+        where = ""
+        what = checked.get("table") or "쿼리"
+        out.endpoint = f"{checked.get('dsn_env', '')} · {what}"
+        out.endpoint_label = f"DB {what}"
     else:
-        base = str(checked.get("base_url") or "")
-        out.endpoint = f"{base.rstrip('/')}{checked.get('path', '')}"
+        where = str(checked.get("base_url") or "")
+        out.endpoint = f"{where.rstrip('/')}{checked.get('path', '')}"
         out.endpoint_label = f"GET {checked.get('path', '')}"
-    host = urlsplit(base).netloc
+    host = urlsplit(where).netloc
     if host:
         out.endpoint_label += f" · {host}"
     target = dict(body.get("target") or {})
     out.target_name = str(target.get("name") or "")
     out.target_server = str(target.get("server") or "").rstrip("/")
     out.target_token_env = str(target.get("token_env") or "")
-    recipe_path = (path.parent / str(body.get("recipe") or "")).resolve()
+    if base is None or not body.get("recipe"):
+        return out  # 레시피는 판에서 — 부르는 쪽이 `with_recipe` 로 채운다
+    recipe_path = (base / str(body.get("recipe") or "")).resolve()
     if not recipe_path.is_file():
         out.problems.append(f"레시피가 없습니다: {recipe_path}")
         return out
@@ -193,9 +243,9 @@ def describe(path: Path) -> Described:
             if one.get("relation")
         }
     )
-    out.lineage = lineage(recipe, out.columns)
+    out.lineage = lineage(recipe, out.columns, same=out.columns_all)
     unknown = sorted({c for step in out.lineage for c in step.columns} - set(out.columns))
-    if unknown:
+    if unknown and not out.columns_all:
         out.problems.append(f"레시피가 읽는 열을 어댑터가 안 냅니다: {', '.join(unknown)}")
     return out
 

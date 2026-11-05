@@ -162,6 +162,8 @@ const RELAY_PIPELINE: Record<string, { label: string; tone: Tone }> = {
   broken: { label: '정의 오류', tone: 'bad' },
   // 아직 안 돈 것은 사고가 아니다 — 처음 「지금 실행」 을 누르면 된다.
   never: { label: '아직 안 돌았음', tone: 'neutral' },
+  // 초안도 사고가 아니다 — 정의 판을 켜기 전까지 안 돌 뿐이다(실행도 서버가 거절한다).
+  draft: { label: '초안(꺼짐)', tone: 'neutral' },
 }
 
 /** 중계의 대상 SP — 지금 닿나. */
@@ -172,20 +174,30 @@ const RELAY_TARGET: Record<string, { label: string; tone: Tone }> = {
   mismatch: { label: '다른 인스턴스', tone: 'warn' },
 }
 
-/** 중계 레시피의 판 — AI(MCP)가 초안을 짓고 사람이 켠다. */
-const RELAY_RECIPE: Record<string, { label: string; tone: Tone }> = {
+/** 중계 레시피 · 정의의 판 — AI(MCP)가 초안을 짓고 사람이 켠다. 둘이 같은 말을 쓴다. */
+const RELAY_VERSION: Record<string, { label: string; tone: Tone }> = {
   // 초안은 나쁨이 아니다 — 시험해 보고 켜면 된다.
   draft: { label: '초안', tone: 'neutral' },
   active: { label: '켜짐', tone: 'good' },
   // 내려 둔 판은 이력이다 — 다시 켤 수 있다.
   retired: { label: '내려 둠', tone: 'neutral' },
+  // 버린 초안도 사고가 아니다 — 치운 것이다. 목록에는 남되 다시 켜지 않는다.
+  discarded: { label: '버림', tone: 'neutral' },
 }
 
-/** 레시피 판의 시험 — 미해결 없이 다 바뀌었나. */
+/** 레시피 · 정의 판의 시험 — 미해결 없이 다 바뀌었나, 원천 · 대상에 닿았나. */
 const RELAY_TRIAL: Record<string, { label: string; tone: Tone }> = {
   clean: { label: '깨끗함', tone: 'good' },
   // 켜면 그 실행이 멈춘다 — 멎은 것의 색.
   blocked: { label: '막힘', tone: 'bad' },
+  // 정의는 닿는데 바꿔 볼 레시피가 없다 — 켜도 레시피 판을 켜기 전에는 안 돈다. 사고는 아니다.
+  no_recipe: { label: '레시피 없음', tone: 'warn' },
+}
+
+/** 정의 판 시험의 원천 — 그 판의 어댑터로 받아 봤나. */
+const RELAY_SOURCE: Record<string, { label: string; tone: Tone }> = {
+  ok: { label: '받음', tone: 'good' },
+  failed: { label: '못 받음', tone: 'bad' },
 }
 
 /** 작업(`jobs`)의 상태 — 말은 `modules/jobs/api` 의 STATUS_LABEL 과 같다. */
@@ -201,7 +213,9 @@ const TABLES = {
   account: ACCOUNT,
   job: JOB,
   relay_pipeline: RELAY_PIPELINE,
-  relay_recipe: RELAY_RECIPE,
+  relay_definition: RELAY_VERSION,
+  relay_recipe: RELAY_VERSION,
+  relay_source: RELAY_SOURCE,
   relay_target: RELAY_TARGET,
   relay_trial: RELAY_TRIAL,
   delegation: DELEGATION,
@@ -228,6 +242,11 @@ export type StatusKind = keyof typeof TABLES
  */
 export function statusTone(kind: StatusKind, value: string): Tone {
   return TABLES[kind][value]?.tone ?? 'neutral'
+}
+
+/** 그 상태의 말 — 배지가 아닌 자리(고를 것의 글 따위)도 같은 말을 쓰게. 모르는 값은 그대로. */
+export function statusLabel(kind: StatusKind, value: string): string {
+  return TABLES[kind][value]?.label ?? value
 }
 
 export function StatusBadge({

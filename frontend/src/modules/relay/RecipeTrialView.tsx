@@ -3,6 +3,10 @@
  *
  * 보낼 것 표는 움직이는 줄(새 · 바뀜 · 무덤)만 싣는다 — 그대로인 타입까지 늘어놓으면 바뀌는 것이
  * 그 사이에 묻힌다.
+ *
+ * 정의 판 시험의 레시피 쪽도 같은 모양이라 이것으로 그린다 — 거기엔 판 번호 대신 무엇을
+ * 썼나(`used`)가 오므로 제목을 따로 준다. 그 시험이 원천을 앞부분만 받았으면 보낼 것(`would_send`)이
+ * 없다 — 그때는 표 대신 왜 안 셌나(`against`)를 싣는다.
  */
 
 import type { RecipeTrial } from '@/modules/relay/api'
@@ -20,8 +24,11 @@ import {
 const KIND_LABEL: Record<string, string> = { objects: '객체', relations: '관계' }
 const UNRESOLVED_SHOWN = 5
 
+/** 판 번호가 없을 수 있다 — 정의 판 시험의 레시피 쪽. */
+type TrialShape = Omit<RecipeTrial, 'version'> & { version?: number }
+
 /** 보낼 것 중 움직이는 줄 — `[종류, 타입, 건수]`. */
-export function movingRows(trial: RecipeTrial) {
+export function movingRows(trial: Pick<RecipeTrial, 'would_send'>) {
   const out: { kind: string; type: string; created: number; changed: number; gone: number }[] = []
   for (const [kind, group] of Object.entries(trial.would_send ?? {})) {
     for (const [type, one] of Object.entries(group ?? {})) {
@@ -34,7 +41,13 @@ export function movingRows(trial: RecipeTrial) {
   return out
 }
 
-export function RecipeTrialView({ trial }: { trial: RecipeTrial }) {
+export function RecipeTrialView({
+  trial,
+  title = `판 ${trial.version} 시험`,
+}: {
+  trial: TrialShape
+  title?: string
+}) {
   const moving = movingRows(trial)
   const rows = Object.entries(trial.rows ?? {})
   const unresolved = trial.unresolved ?? []
@@ -42,7 +55,7 @@ export function RecipeTrialView({ trial }: { trial: RecipeTrial }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-medium">판 {trial.version} 시험</span>
+        <span className="font-medium">{title}</span>
         <StatusBadge kind="relay_trial" value={trial.clean ? 'clean' : 'blocked'} />
         <span className="text-muted-foreground text-xs">대상에는 아무것도 보내지 않았습니다.</span>
       </div>
@@ -73,7 +86,7 @@ export function RecipeTrialView({ trial }: { trial: RecipeTrial }) {
         </p>
       )}
 
-      {trial.would_send && (
+      {trial.would_send ? (
         <div className="space-y-1">
           <p className="text-sm font-medium">
             켜면 보낼 것
@@ -110,6 +123,8 @@ export function RecipeTrialView({ trial }: { trial: RecipeTrial }) {
             </Table>
           )}
         </div>
+      ) : (
+        trial.against && <p className="text-muted-foreground text-sm">{trial.against}.</p>
       )}
 
       {(trial.unresolved_count ?? 0) > 0 && (

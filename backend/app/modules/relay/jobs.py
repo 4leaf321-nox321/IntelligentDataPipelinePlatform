@@ -7,26 +7,36 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 
 from app.config import get_settings
 from app.modules.jobs import kinds
 from app.modules.relay import recipes, services
-from relay_core import runner
-from relay_core.definition import load
+from relay_core import autoapply, runner
+from relay_core.definition import DefinitionError, load_body
 from relay_core.state import Workdir
 
 
 def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
     slug = str(work.params.get("slug") or "")
-    found = services.by_slug(slug)
     work.progress("정의 읽기", 0, 0)
-    pipeline = load(found.path, env=services.secrets_env())
-    # **켜진 레시피 판이 있으면 그것이 돈다** — 없으면 정의 파일의 `recipe`.
-    active = recipes.materialize(work.db, pipeline.slug)
-    if active is not None:
-        pipeline = replace(pipeline, recipe=active)
+    found = services.by_slug(slug, work.db)
+    if found.draft:
+        raise DefinitionError(f"{slug} 의 정의가 아직 초안입니다 — 화면에서 켜야 돕니다.")
+    if found.problems:
+        raise DefinitionError(
+            "정의에 문제가 있어 돌지 않습니다: " + " / ".join(found.problems)
+        )
+    # **켜진 레시피 판이 있으면 그것이 돈다** — 없으면 정의 파일의 `recipe`. 정의도 같다 —
+    # 켜진 정의 판이 있으면 그것(`found.body`), 없으면 정의 파일.
+    pipeline = load_body(
+        found.body,
+        base=None,
+        env=services.secrets_env(),
+        recipe=recipes.materialize(work.db, slug) or found.recipe,
+        path=found.path,
+        file_roots=get_settings().relay_file_root_paths,
+    )
     folder = Workdir(get_settings().relay_work_dir, pipeline.slug)
     work.progress("적용" if apply else "받기 · 변환 · 비교 · 미리보기", 0, 0)
     if apply:
@@ -35,6 +45,11 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
         human = str(work.params.get("human_edits") or "")
         options = {"human_edits": human} if human in ("keep", "overwrite") else None
         outcome = runner.run(pipeline, folder, options=options)
+        # **자동 적용은 타이머의 실행에만** — 사람의 「지금 실행」 · MCP 의 실행은 계획만
+        # 올린다.
+        if work.params.get("by") == "timer" and found.auto_apply is not None:
+            work.progress("자동 적용 기준 보기", 0, 0)
+            outcome = autoapply.after_run(pipeline, folder, outcome, found.auto_apply)
     return {
         "ok": outcome.status != "blocked",
         "status": outcome.status,

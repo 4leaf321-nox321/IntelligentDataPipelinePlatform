@@ -26,7 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response
 
 TOKEN = os.environ.get("MOCK_PLM_TOKEN", "mock-plm-token")
 DATA = Path(os.environ.get("MOCK_PLM_DATA", ".work/mock_plm/data.json"))
@@ -198,6 +198,58 @@ def _odata(one: dict[str, Any]) -> dict[str, Any]:
             },
         },
     }
+
+
+#: 서비스 문서(CSDL) — `source_discover` 가 엔티티 셋 · 키 · 탐색 속성을 여기서 읽는다.
+METADATA = """<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+ <edmx:DataServices>
+  <Schema Namespace="Plm" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+   <EntityType Name="DevModel">
+    <Key><PropertyRef Name="ModelId"/></Key>
+    <Property Name="ModelId" Type="Edm.String" Nullable="false"/>
+    <Property Name="ModelName" Type="Edm.String"/>
+    <Property Name="KindCode" Type="Edm.String"/>
+    <Property Name="Region" Type="Edm.String"/>
+    <Property Name="Revision" Type="Edm.String"/>
+    <Property Name="BaseModelId" Type="Edm.String"/>
+    <Property Name="IsDeleted" Type="Edm.Boolean"/>
+    <Property Name="UpdatedAt" Type="Edm.DateTimeOffset"/>
+    <NavigationProperty Name="Task" Type="Plm.Task"/>
+   </EntityType>
+   <EntityType Name="Task">
+    <Key><PropertyRef Name="Code"/></Key>
+    <Property Name="Code" Type="Edm.String" Nullable="false"/>
+    <Property Name="Name" Type="Edm.String"/>
+    <Property Name="StatusCode" Type="Edm.String"/>
+    <Property Name="SraDate" Type="Edm.Date"/>
+    <NavigationProperty Name="Project" Type="Plm.Project"/>
+    <NavigationProperty Name="TestSite" Type="Plm.TestSite"/>
+   </EntityType>
+   <EntityType Name="Project">
+    <Key><PropertyRef Name="Code"/></Key>
+    <Property Name="Code" Type="Edm.String" Nullable="false"/>
+    <Property Name="Name" Type="Edm.String"/>
+   </EntityType>
+   <EntityType Name="TestSite">
+    <Key><PropertyRef Name="Code"/></Key>
+    <Property Name="Code" Type="Edm.String" Nullable="false"/>
+    <Property Name="Name" Type="Edm.String"/>
+    <Property Name="Region" Type="Edm.String"/>
+   </EntityType>
+   <EntityContainer Name="Container">
+    <EntitySet Name="DevModels" EntityType="Plm.DevModel"/>
+   </EntityContainer>
+  </Schema>
+ </edmx:DataServices>
+</edmx:Edmx>
+"""
+
+
+@app.get("/odata/v4/plm/$metadata")
+def odata_metadata(authorization: str | None = Header(default=None)) -> Response:
+    _authorized(authorization)
+    return Response(content=METADATA, media_type="application/xml")
 
 
 @app.get("/odata/v4/plm/DevModels")

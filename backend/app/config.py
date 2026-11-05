@@ -296,9 +296,43 @@ class Settings(BaseSettings):
     relay_work_dir: Path = REPO_DIR / ".work" / "relay"
     """파이프라인마다의 작업 폴더 — 미러 · 워터마크 · 지난번 적용된 출력 · 대기
     계획(`relay_core.state`)."""
+    relay_allow_sql: bool = False
+    """DB 를 바로 읽는 파이프라인(`kind: "sql"`)을 돌려도 되나. **기본은 꺼짐** — 원천 DB 를
+    바로 읽는 일은 사내 보안 승인이 필요하다. 켜도 정의는 읽기 전용(SELECT)만 받는다."""
     relay_secrets_file: Path | None = None
     """정의의 `token_env` 를 풀 곳 — 프로세스 환경 변수가 먼저, 없으면 이 파일(dotenv 모양),
     그다음 `backend/.env`. 비밀은 정의에 적지 않는다."""
+    relay_file_roots: str = ""
+    """파일 어댑터(`kind: "file"`)가 읽어도 되는 로컬 폴더 — 쉼표로 여럿. 그 밖의 파일은 정의가
+    가리켜도 읽지 않는다(AI 가 탐색으로 서버의 아무 파일이나 열지 못하게). 비우면 운영은
+    `<RELAY_PIPELINES_DIR 의 부모>/drop`(배포: `/data/relay/drop`), 그 밖은 `devtools/`."""
+    relay_trial_rows: int = 5000
+    """정의 시험(`pipeline_test`)이 원천에서 받아 볼 줄 수의 상한 — 큰 원천(MES)을 끝까지 받지
+    않게. 넘으면 앞 그만큼만 받고 「켜면 보낼 것」 은 세지 않는다(덜 받은 채 견주면 나머지가
+    다 지움으로 보인다). 0 이면 끝까지."""
+    relay_source_hosts: str = ""
+    """AI(MCP)의 **탐색 · 정의 초안 시험**이 부를 수 있는 주소(`host` 또는 `host:port`, 쉼표로
+    여럿) — 원천과 대상 둘 다. **켜진 정의가 쓰는 주소는 적지 않아도 된다**(사람이 켠 것).
+    비우면 운영은 켜진 정의의 주소만, 그 밖은 `127.0.0.1` · `localhost` 도. 비밀(`token_env`)이
+    엉뚱한 곳으로 나가지 않게 하는 울타리다."""
+
+    @property
+    def relay_file_root_paths(self) -> tuple[Path, ...]:
+        named = [one.strip() for one in self.relay_file_roots.split(",") if one.strip()]
+        if named:
+            return tuple(Path(one).resolve() for one in named)
+        if self.app_env == "production":
+            return ((self.relay_pipelines_dir.parent / "drop").resolve(),)
+        return ((REPO_DIR / "devtools").resolve(),)
+
+    @property
+    def relay_source_host_list(self) -> tuple[str, ...]:
+        named = [
+            one.strip().lower() for one in self.relay_source_hosts.split(",") if one.strip()
+        ]
+        if not named and self.app_env != "production":
+            named = ["127.0.0.1", "localhost"]
+        return tuple(named)
 
     filestore_gc_hours: int = 24
     """첨부 저장소의 **고아 파일 정리**를 워커가 몇 시간마다 하나(`files/gc.py`). 0 이면 안

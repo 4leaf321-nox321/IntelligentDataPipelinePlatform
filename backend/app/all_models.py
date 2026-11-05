@@ -24,7 +24,7 @@ from app.modules.files.models import Attachment, AttachmentTicket
 from app.modules.jobs.models import Job, JobFile, WorkerHeartbeat
 from app.modules.notices.models import Notice, NoticeRead
 from app.modules.notifications.models import Notification
-from app.modules.relay.models import RelayRecipe
+from app.modules.relay.models import RelayDefinition, RelayRecipe
 from app.modules.server.models import ExtensionState, PlatformProfile
 from app.modules.workspaces.models import Workspace, WorkspaceMember
 
@@ -45,6 +45,7 @@ __all__ = [
     "PlatformProfile",
     "PortalLaunchJti",
     "RefreshToken",
+    "RelayDefinition",
     "RelayRecipe",
     "RequestTiming",
     "User",

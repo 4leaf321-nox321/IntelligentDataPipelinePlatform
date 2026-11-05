@@ -4,7 +4,7 @@
 
 | 것 | 자리 | 포트 |
 | --- | --- | --- |
-| 샘플 PLM API | `mock_plm/` — **OData v4**(`/odata/v4/plm/DevModels`, `$filter` · `$expand` · `nextLink`)와 같은 데이터의 REST 판. 개발모델 행 안에 과제 · 프로젝트 · 시험 주체가 중첩, 삭제 표시, Bearer | 8088 |
+| 샘플 PLM API | `mock_plm/` — **OData v4**(`/odata/v4/plm/DevModels`, `$metadata` · `$filter` · `$expand` · `nextLink`)와 같은 데이터의 REST 판. 개발모델 행 안에 과제 · 프로젝트 · 시험 주체가 중첩, 삭제 표시, Bearer | 8088 |
 | SP 시험 인스턴스 「자주검증 Datahub(시험)」 | `sandbox_sp/` — **SP 저장소의 코드를 그대로** slug `jvhubtest` · 별도 DB 로 띄운다 | 8087 |
 
 **SP 개발 DB(`standardplatform`)는 건드리지 않는다** — 거기에는 분석 실험 데이터가 있다. 시험
@@ -68,3 +68,11 @@ devtools/sandbox_sp/down.sh
 **겪은 것 — 잠금은 타입에 걸린다.** 정의를 `source` 없는 정의 가져오기로 넣었을 때는 SP 화면 · API 에서
 객체를 손으로 고칠 수 있었다(200). `source: plm` 묶음으로 정의를 넣으면 타입이 `managed_by=plm` 이 되고
 손 수정이 409(「plm 가 관리하는 타입이라 여기서 수정하지 않습니다」)로 막힌다. `setup.py` 가 그렇게 넣는다.
+
+## MCP 로 새 원천 붙이기(정의의 판)
+
+datarelay(8081) · MCP(8082) · 샘플 PLM 이 떠 있으면, Claude Desktop(또는 MCP 클라이언트)이 시스템 관리자의
+PAT 로 붙어 `get_guide('adapter')` 의 차례를 돈다: `source_discover`(OData 면 `$metadata` 의 엔티티 셋부터) →
+`pipeline_draft_save` → `pipeline_test` → `recipe_draft_save` → `pipeline_test(recipe_version=N)`. 켜기는 화면
+「파이프라인 › 정의 판」 에서 사람이. 개발에서 AI 요청이 닿는 곳은 `127.0.0.1` · `localhost` · 켜진 정의의 주소,
+읽을 수 있는 파일 폴더는 `devtools/` 다(`RELAY_SOURCE_HOSTS` · `RELAY_FILE_ROOTS` 로 바꾼다).

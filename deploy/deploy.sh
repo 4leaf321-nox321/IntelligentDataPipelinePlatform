@@ -325,11 +325,12 @@ ensure_dirs() {
     if [[ -n "$DATA_DIR" ]]; then
         [[ -d "$(dirname "$DATA_DIR")" ]] || err "공용 폴더가 없습니다: $(dirname "$DATA_DIR") — /data 가 마운트됐는지 확인하세요"
         mkdir -p "$DATA_DIR" "$FILESTORE_HOST_DIR" "$BACKUP_HOST_DIR" "$DATA_DIR/tls" "$DATA_DIR/db" \
-            "$RELAY_HOST_DIR/pipelines" "$RELAY_HOST_DIR/work"
+            "$RELAY_HOST_DIR/pipelines" "$RELAY_HOST_DIR/work" "$RELAY_HOST_DIR/drop"
         chown "$OPERATOR:$OPERATOR" "$DATA_DIR" "$FILESTORE_HOST_DIR" "$BACKUP_HOST_DIR"
         chown -R "$OPERATOR:$OPERATOR" "$RELAY_HOST_DIR"
     else
-        as_op mkdir -p "$FILESTORE_HOST_DIR" "$RELAY_HOST_DIR/pipelines" "$RELAY_HOST_DIR/work"
+        as_op mkdir -p "$FILESTORE_HOST_DIR" "$RELAY_HOST_DIR/pipelines" "$RELAY_HOST_DIR/work" \
+            "$RELAY_HOST_DIR/drop"
     fi
     instance_save
     ha_save

@@ -6,7 +6,8 @@
            패턴 보고서와 함께.
     켜기   **사람이 화면에서만**(PAT 를 거절한다) — 다음 실행부터 그 판이 돈다.
 
-켜진 판이 없으면 정의 파일의 `recipe` 가 돈다(개발 · 처음 들일 때).
+켜진 판이 없으면 정의 파일의 `recipe` 가 돈다(개발 · 처음 들일 때). 정의가 DB 의 판뿐이면
+켜진 레시피 판이 있어야 돈다.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from relay_core import sp
 from relay_core.convert import convert
 from relay_core.describe import Described, lineage
 from relay_core.diff import delta
+from relay_core.mirror import Mirror
 from relay_core.runner import counts_of
 from relay_core.state import Workdir
 
@@ -74,9 +76,13 @@ def problems_of(found: Described, body: dict[str, Any]) -> list[str]:
         out.append("format 이 sp-table/1 이 아닙니다.")
     if not body.get("types"):
         out.append("types 가 비었습니다 — 무엇을 만들지 적어야 합니다.")
-    read = {column for step in lineage(body, found.columns) for column in step.columns}
+    read = {
+        column
+        for step in lineage(body, found.columns, same=found.columns_all)
+        for column in step.columns
+    }
     unknown = sorted(read - set(found.columns))
-    if unknown:
+    if unknown and not found.columns_all:
         out.append(f"어댑터가 안 내는 열을 읽습니다: {', '.join(unknown)}")
     return out
 
@@ -93,7 +99,7 @@ def with_recipe(found: Described, body: dict[str, Any], label: str) -> Described
             if one.get("relation")
         }
     )
-    found.lineage = lineage(body, found.columns)
+    found.lineage = lineage(body, found.columns, same=found.columns_all)
     found.problems = [one for one in found.problems if not one.startswith("레시피")]
     found.problems += problems_of(found, body)
     found.recipe_label = label
@@ -154,6 +160,8 @@ def activate(
     row = get(db, found.slug, version)
     if row.status == "active":
         return row
+    if row.status == "discarded":
+        raise Conflict(code("RELAY", 17), f"버린 초안은 켜지 않습니다 — 판 {version}.")
     before = active(db, found.slug)
     db.execute(
         update(RelayRecipe)
@@ -190,27 +198,20 @@ def materialize(db: Session, slug: str) -> Path | None:
     return path
 
 
-def trial(db: Session, found: Described, version: int) -> dict[str, Any]:
-    """미러에 그 판을 돌려 본다 — **대상에 아무것도 안 보낸다.**"""
-    row = get(db, found.slug, version)
-    work = Workdir(get_settings().relay_work_dir, found.slug)
-    mirror = work.load_mirror()
-    if len(mirror) == 0:
-        raise Conflict(
-            code("RELAY", 8),
-            "아직 받은 것이 없습니다 — 먼저 「지금 실행」 으로 원천을 한 번 받으세요"
-            "(미러가 생깁니다).",
-        )
-    out: dict[str, Any] = {"version": row.version, "problems": problems_of(found, row.body)}
+def dry_run(
+    mirror: Mirror, body: dict[str, Any], work: Workdir, source: str, *, compare: bool = True
+) -> dict[str, Any]:
+    """`mirror` 를 레시피 `body` 로 바꿔 보고 지난번 적용된 출력과 견준다 — **아무것도 안
+    보낸다.** 레시피 시험 · 정의 초안 시험이 같이 쓴다."""
     state = work.load_state()
     with tempfile.TemporaryDirectory(dir=work.root) as scratch:
         root = Path(scratch)
         recipe = root / "recipe.table.json"
-        recipe.write_text(json.dumps(row.body, ensure_ascii=False), encoding="utf-8")
+        recipe.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
         try:
             made = convert(mirror, recipe, root / "run", work=root / "work")
         except sp.pipeline.Stop as stop:
-            return {**out, "clean": False, "error": str(stop)}
+            return {"clean": False, "error": str(stop)}
         report = root / "run" / "table-report.txt"
         unresolved_file = made.run / sp.pipeline.UNRESOLVED
         unresolved = (
@@ -222,15 +223,61 @@ def trial(db: Session, found: Described, version: int) -> dict[str, Any]:
         rows: dict[str, int] = {}
         for batch in loaded.objects:
             rows[batch.type_slug] = rows.get(batch.type_slug, 0) + len(batch.rows)
+        out: dict[str, Any] = {
+            "clean": made.clean,
+            "rows": rows,
+            "unresolved_count": len(unresolved),
+            "unresolved": unresolved[:20],
+            "report": report.read_text(encoding="utf-8")[:REPORT_MAX]
+            if report.exists()
+            else "",
+        }
+        if not compare:  # 덜 받은 채 견주면 나머지가 다 지움(무덤)으로 보인다
+            out["against"] = "앞부분만 받아 「켜면 보낼 것」 은 세지 않았습니다"
+            return out
         baseline = work.path(state.applied_run) if state.applied_run else None
-        found_delta = delta(baseline, made.run, root / "send", source=found.source)
-        out.update(
-            clean=made.clean,
-            rows=rows,
-            unresolved_count=len(unresolved),
-            unresolved=unresolved[:20],
-            would_send=counts_of(found_delta),
-            against="지난번 적용된 출력" if baseline else "대상이 비었다고 보고(첫 적재)",
-            report=report.read_text(encoding="utf-8")[:REPORT_MAX] if report.exists() else "",
+        found_delta = delta(baseline, made.run, root / "send", source=source)
+        out["would_send"] = counts_of(found_delta)
+        out["against"] = "지난번 적용된 출력" if baseline else "대상이 비었다고 보고(첫 적재)"
+        return out
+
+
+def trial(db: Session, found: Described, version: int) -> dict[str, Any]:
+    """미러에 그 판을 돌려 본다 — **대상에 아무것도 안 보낸다.**"""
+    row = get(db, found.slug, version)
+    work = Workdir(get_settings().relay_work_dir, found.slug)
+    mirror = work.load_mirror()
+    if len(mirror) == 0:
+        hint = (
+            "정의가 아직 초안이라 받은 것이 없습니다 — 정의 시험(pipeline_test)에 "
+            "recipe_version 을 주면 원천을 받아 이 레시피로 바꿔 봅니다."
+            if found.draft
+            else "아직 받은 것이 없습니다 — 먼저 「지금 실행」 으로 원천을 한 번 받으세요"
+            "(미러가 생깁니다)."
         )
+        raise Conflict(code("RELAY", 8), hint)
+    out: dict[str, Any] = {"version": row.version, "problems": problems_of(found, row.body)}
+    out.update(dry_run(mirror, row.body, work, found.source))
     return out
+
+
+def discard(db: Session, user: User, slug: str, version: int) -> RelayRecipe:
+    """초안을 버린다 — 초안만. 판 번호는 남는다(다시 쓰지 않는다). 토큰도 된다(켜는 일이
+    아니다)."""
+    row = get(db, slug, version)
+    if row.status != "draft":
+        raise Conflict(
+            code("RELAY", 17), f"초안만 버립니다 — 판 {version} 은 {row.status} 입니다."
+        )
+    row.status = "discarded"
+    audit.record(
+        db,
+        action="relay.recipe.discard",
+        actor=user,
+        target_table="relay_recipes",
+        target_id=row.id,
+        target_label=f"{slug} 판 {row.version}",
+    )
+    db.commit()
+    db.refresh(row)
+    return row

@@ -56,6 +56,9 @@ function Legend() {
       </li>
       <li className="flex items-center gap-1">{line('text-destructive')}실패 · 정의 오류</li>
       <li className="flex items-center gap-1">
+        {line('text-muted-foreground/60', true)}초안(꺼짐 — 정의 판을 켜야 돕니다)
+      </li>
+      <li className="flex items-center gap-1">
         {line('text-muted-foreground/40', true)}그 너머(이 플랫폼이 보내지 않음)
       </li>
       <li>선 굵기 = 지난 실행에서 그 길로 보낸 건수</li>
@@ -131,7 +134,7 @@ export default function RelayMapPage() {
               정의 파일(<span className="font-mono">relay-pipeline/1</span>)은 서버의 파이프라인
               폴더(<span className="font-mono">RELAY_PIPELINES_DIR</span>)에 둡니다. 거기 넣고{' '}
               「다시 읽기」 를 누르면 여기 그려집니다 — <span className="font-mono">*.example.json</span>{' '}
-              은 본보기라 빠집니다.
+              은 본보기라 빠집니다. AI(MCP)가 정의 판 초안을 지어도 여기 「초안(꺼짐)」 으로 그려집니다.
             </>
           }
         />

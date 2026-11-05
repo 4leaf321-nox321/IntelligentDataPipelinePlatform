@@ -9,7 +9,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { sampleMap } from '@/modules/relay/fixtures'
+import { sampleMap, withDraft } from '@/modules/relay/fixtures'
 
 const relayApi = vi.hoisted(() => ({ map: vi.fn() }))
 vi.mock('@/modules/relay/api', async (importOriginal) => ({
@@ -54,6 +54,20 @@ describe('연결 지도', () => {
     expect(plan).toHaveAttribute('href', 'http://hub/jobs?job=j-1')
     expect(plan).toHaveAttribute('target', '_blank')
     expect(screen.getAllByText('계획 보기')).toHaveLength(1)
+  })
+
+  it('초안 마디는 점선 테두리에 회색 배지 — 범례도 그렇게 말한다', async () => {
+    relayApi.map.mockResolvedValue(withDraft(sampleMap()))
+    await mount()
+    await screen.findByText('plm-parts')
+    const flow = within(document.querySelector<HTMLElement>('.react-flow')!)
+    const card = flow.getByText('plm-parts').closest('[data-testid="relay-node-pipeline"]')!
+    expect(card).toHaveClass('border-dashed')
+    expect(within(card as HTMLElement).getByText('초안(꺼짐)')).toHaveClass('bg-muted')
+    // 정상 마디는 점선이 아니다.
+    const ok = flow.getByText('plm-tasks').closest('[data-testid="relay-node-pipeline"]')!
+    expect(ok).not.toHaveClass('border-dashed')
+    expect(screen.getByText('초안(꺼짐 — 정의 판을 켜야 돕니다)')).toBeInTheDocument()
   })
 
   it('원천으로 거르면 다른 원천의 길이 사라진다', async () => {
