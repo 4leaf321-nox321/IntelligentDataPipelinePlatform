@@ -39,6 +39,24 @@ kinds.register(kinds.Kind("test_echo", "시험 — 세기", False, True, _echo, 
 kinds.register(kinds.Kind("test_boom", "시험 — 실패", False, False, _boom, public=True))
 kinds.register(kinds.Kind("test_private", "시험 — 전용 경로", False, False, _echo))
 
+_AFTER: list[tuple[str, str]] = []
+
+
+def _after(db: Session, job: Job) -> None:
+    _AFTER.append((job.kind, job.status))
+    if (job.params or {}).get("break_after"):
+        raise RuntimeError("뒤처리가 일부러 낸 실패")
+
+
+kinds.register(
+    kinds.Kind("test_after", "시험 — 뒤처리", False, False, _echo, public=True, after=_after)
+)
+kinds.register(
+    kinds.Kind(
+        "test_after_boom", "시험 — 실패 뒤", False, False, _boom, after=_after, public=True
+    )
+)
+
 
 def _submit(
     client: TestClient, who: Signed, kind: str, params: dict[str, Any] | None = None
@@ -109,6 +127,20 @@ def test_실패하면_이유를_남긴다(client: TestClient, admin: Signed) -> 
     failed = finish_job(client, admin, _submit(client, admin, "test_boom"))
     assert failed["status"] == "failed", failed
     assert failed["error"]
+
+
+def test_끝난_뒤처리는_실패한_작업에도_돌고_그_오류는_결과를_바꾸지_않는다(
+    client: TestClient, admin: Signed
+) -> None:
+    """`Kind.after` — 실패를 알리는 일(중계의 알림)이 가장 필요한 때가 실패한 작업이다. 본
+    트랜잭션의 롤백에 쓸려 가지 않게 끝난 상태를 적은 뒤에 돈다."""
+    _AFTER.clear()
+    failed = finish_job(client, admin, _submit(client, admin, "test_after_boom"))
+    assert failed["status"] == "failed", failed
+    params = {"n": 1, "break_after": True}
+    done = finish_job(client, admin, _submit(client, admin, "test_after", params))
+    assert done["status"] == "done" and done["result"]["summary"] == "할 일 1건", done
+    assert _AFTER == [("test_after_boom", "failed"), ("test_after", "done")]
 
 
 def test_대기_중인_작업은_취소하면_바로_끝난다(

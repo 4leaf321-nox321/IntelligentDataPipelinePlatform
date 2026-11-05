@@ -8,15 +8,18 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from app.config import get_settings
 from app.modules.jobs import kinds
-from app.modules.relay import recipes, services
+from app.modules.relay import alerts, recipes, services
 from relay_core import autoapply, reconcile, runner
 from relay_core.definition import DefinitionError, Pipeline, load_body
 from relay_core.describe import Described
 from relay_core.state import Workdir
+
+log = logging.getLogger(__name__)
 
 
 def _load(work: kinds.Work) -> tuple[Described, Pipeline, Workdir]:
@@ -42,9 +45,21 @@ def _load(work: kinds.Work) -> tuple[Described, Pipeline, Workdir]:
     return found, pipeline, Workdir(get_settings().relay_work_dir, pipeline.slug)
 
 
+def _tidy(folder: Workdir) -> int:
+    """지난 실행을 정리한다(`RELAY_KEEP_RUNS`) — 실행마다 `runs/` · `sends/` · `work/` 가
+    하나씩 늘어 안 지우면 디스크가 찬다. **정리가 실패해도 작업은 실패가 아니다** — 할 일은
+    했다."""
+    try:
+        return len(folder.prune(get_settings().relay_keep_runs))
+    except OSError:
+        log.warning("작업 폴더 정리 실패: %s", folder.root, exc_info=True)
+        return 0
+
+
 def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
     found, pipeline, folder = _load(work)
     work.progress("적용" if apply else "받기 · 변환 · 비교 · 미리보기", 0, 0)
+    reconciled = False
     if apply:
         pending = folder.load_state().pending
         outcome = runner.apply(pipeline, folder)
@@ -54,6 +69,7 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
             work.progress("다시 대조", 0, 0)
             again = reconcile.compare(pipeline, folder)
             outcome.message += f" · 다시 대조: {again.summary()}"
+            reconciled = True
     else:
         human = str(work.params.get("human_edits") or "")
         options = {"human_edits": human} if human in ("keep", "overwrite") else None
@@ -69,6 +85,9 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
         "summary": f"[{outcome.status}] {outcome.message}",
         "link": outcome.link,
         "counts": outcome.counts,
+        # 대조 보고서를 새로 썼다 — 알림(`alerts`)이 대조 갈래도 본다.
+        "reconciled": reconciled,
+        "pruned": _tidy(folder),
     }
 
 
@@ -88,6 +107,7 @@ def reconcile_job(work: kinds.Work) -> dict[str, Any]:
             "summary": f"[{outcome.status}] {outcome.message}",
             "link": outcome.link,
             "counts": outcome.counts,
+            "pruned": _tidy(folder),
         }
     work.progress("대상 읽기 · 견주기", 0, 0)
     report = reconcile.compare(pipeline, folder)
@@ -113,6 +133,7 @@ kinds.register(
         run_job,
         allow_system=True,
         admin_only=True,
+        after=alerts.after_job,
     )
 )
 kinds.register(
@@ -124,6 +145,7 @@ kinds.register(
         reconcile_job,
         allow_system=True,
         admin_only=True,
+        after=alerts.after_job,
     )
 )
 kinds.register(
@@ -135,5 +157,6 @@ kinds.register(
         apply_job,
         allow_system=True,
         admin_only=True,
+        after=alerts.after_job,
     )
 )

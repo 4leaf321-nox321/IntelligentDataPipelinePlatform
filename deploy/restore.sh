@@ -4,6 +4,7 @@
 #   ./restore.sh -b ~/backup/<slug> -d <slug>_restore_check          확인용 (기본)
 #   ./restore.sh -b ~/backup/<slug> -d <slug> -i ~/apps/<slug> -f    실제 복구
 #   ./restore.sh -b <백업> -d <slug> -F /data/<공통>/<slug>/filestore -f   첨부가 공용 스토리지에 있을 때
+#   … -R ~/apps/<slug>/relay                                         중계 폴더도(덤프와 같은 시각의 묶음)
 #
 # `backup.sh` 의 마지막 줄은 "한 번은 실제로 복구해 보세요" 라고 말한다. 그런데 그
 # 「복구」 가 사람이 손으로 치는 명령 두 줄이면, 치다 틀렸을 때 **절반만 돌아온
@@ -22,24 +23,27 @@
 #
 # 다른 이름의 DB 로 풀어 "이 백업이 살아 있는가" 를 본다. 운영을 덮어쓰려면 `-f` 를
 # 의식적으로 준다. **첨부는 `-i` 를 줄 때만 되돌린다** — DB 만 확인하는데 운영
-# 파일을 건드리면 그 자체가 사고다.
+# 파일을 건드리면 그 자체가 사고다. 중계 폴더도 같다 — `-R` 을 줄 때만 되돌리고, 안 주면
+# 덤프와 짝인 묶음이 읽히는지만 본다. 되돌릴 때는 앱 · 워커를 먼저 멈춘다(도는 실행이 상태를
+# 다시 쓴다).
 
 set -euo pipefail
 
 err()  { echo "오류: $*" >&2; exit 1; }
 info() { echo "==> $*"; }
 
-BACKUP_ROOT=""; DB_NAME=""; INSTALL_DIR=""; FILESTORE=""; DUMP_FILE=""; FORCE=0
+BACKUP_ROOT=""; DB_NAME=""; INSTALL_DIR=""; FILESTORE=""; DUMP_FILE=""; RELAY_DIR=""; FORCE=0
 
-while getopts ":b:d:i:F:D:fh" opt; do
+while getopts ":b:d:i:F:D:R:fh" opt; do
     case "$opt" in
         b) BACKUP_ROOT="$OPTARG" ;;
         d) DB_NAME="$OPTARG" ;;
         i) INSTALL_DIR="$OPTARG" ;;
         F) FILESTORE="$OPTARG" ;;
         D) DUMP_FILE="$OPTARG" ;;
+        R) RELAY_DIR="$OPTARG" ;;
         f) FORCE=1 ;;
-        h) sed -n '2,30p' "$0"; exit 0 ;;
+        h) sed -n '2,29p' "$0"; exit 0 ;;
         *) err "쓰지 않는 옵션입니다. -h 로 사용법을 보세요." ;;
     esac
 done
@@ -71,6 +75,11 @@ if [[ -z "$DUMP_FILE" ]]; then
 fi
 [[ -f "$DUMP_FILE" ]] || err "덤프를 찾을 수 없습니다: $DUMP_FILE"
 info "덤프: $DUMP_FILE ($(du -m "$DUMP_FILE" | cut -f1)MB)"
+# 중계 묶음은 **덤프와 같은 시각의 것** — 다른 시각의 것을 섞으면 DB 의 정의 판과 작업 폴더의
+# 기준이 어긋난다.
+STAMP="$(basename "$DUMP_FILE")"; STAMP="${STAMP#db-}"; STAMP="${STAMP%.dump}"
+RELAY_TAR="$BACKUP_ROOT/relay/relay-$STAMP.tar.gz"
+if [[ ! -f "$RELAY_TAR" ]]; then RELAY_TAR=""; fi
 
 export PGPASSWORD="$DB_PW"
 psql_() { psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -tAc "$1" "${2:-postgres}"; }
@@ -116,6 +125,22 @@ else
     info "첨부는 건드리지 않았습니다 (-i 를 주지 않음)."
 fi
 
+# ── 중계 폴더 ─────────────────────────────────────────────────────────────────
+RELAY_COUNT=0
+if [[ -n "$RELAY_TAR" ]]; then
+    RELAY_COUNT=$(tar -tzf "$RELAY_TAR" | wc -l)
+    if [[ -n "$RELAY_DIR" ]]; then
+        info "중계 폴더 복구: $RELAY_TAR -> $RELAY_DIR"
+        mkdir -p "$RELAY_DIR"
+        tar -xzf "$RELAY_TAR" -C "$RELAY_DIR"
+    else
+        info "중계 묶음이 읽힙니다(파일 $RELAY_COUNT 개) — 되돌리려면 -R <중계 폴더>."
+    fi
+elif [[ -n "$RELAY_DIR" ]]; then
+    echo "경고: 이 덤프와 같은 시각의 중계 묶음이 없습니다($BACKUP_ROOT/relay/relay-$STAMP.tar.gz)." >&2
+    echo "      중계 폴더는 그대로 둡니다 — 작업 폴더가 없으면 다음 실행이 첫 적재처럼 전부 보냅니다." >&2
+fi
+
 # ── DB 가 가리키는 파일이 실제로 있나 ─────────────────────────────────────────
 #
 # **이 검사가 이 스크립트의 절반이다.** 표 이름을 손으로 적지 않고 카탈로그에
@@ -155,7 +180,7 @@ else
 fi
 
 echo
-info "복구 완료: $DB_NAME (표 $TABLES 개, 파일 $CHECKED 개 확인)"
+info "복구 완료: $DB_NAME (표 $TABLES 개, 파일 $CHECKED 개 확인, 중계 $RELAY_COUNT 개)"
 if [[ "$DB_NAME" != "$SOURCE_DB" ]]; then
     echo
     echo "  확인용 DB 입니다. 다 봤으면 지우세요:"

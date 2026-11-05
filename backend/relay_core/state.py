@@ -6,6 +6,9 @@
     sends/<때>/    대상에 보낸 것(바뀐 줄 · 무덤)
     work/          변환에 넣은 원천 표(CSV)
 
+`runs/` · `sends/` · `work/` 는 실행마다 하나씩 는다 — 최근 몇 개와 상태가 가리키는 것만 남기고
+정리한다(`Workdir.prune`).
+
 1차는 파일이다 — 3단계에서 화면과 함께 DB 로 옮긴다. **쓸 때는 임시 파일에 쓰고 바꿔 끼운다** —
 도중에 죽어도 반쯤 쓴 상태 파일이 남지 않는다.
 """
@@ -14,6 +17,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shutil
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -45,6 +50,14 @@ class State:
     incrementals: int = 0
     """마지막 전량 뒤 증분을 몇 번 받았나 — `full_every` 가 그 수로 전량 날을 정한다."""
     history: list[dict[str, Any]] = field(default_factory=list)
+
+
+#: 실행마다 생기는 이름 — `stamp()` 모양(보정 계획의 묶음은 `-resync` 가 붙는다). 정리는
+#: **이 모양만** 지운다 — 시험의 임시 폴더(`tmp…`)나 사람이 둔 파일은 건드리지 않는다.
+_RUN_NAME = re.compile(r"^(\d{8}T\d{12}Z)(-resync)?$")
+_SOURCE_NAME = re.compile(r"^(\d{8}T\d{12}Z)\.source\.csv$")
+#: 정리하는 곳 — (폴더, 이름 모양).
+_PRUNED = (("runs", _RUN_NAME), ("sends", _RUN_NAME), ("work", _SOURCE_NAME))
 
 
 def stamp() -> str:
@@ -84,6 +97,46 @@ class Workdir:
         body = asdict(state)
         body["history"] = body["history"][-50:]
         self._write("state.json", body)
+
+    def prune(self, keep: int) -> list[str]:
+        """지난 실행의 출력 · 보낸 묶음 · 변환 중간 표를 정리한다 — 폴더마다 **최근 `keep` 개와
+        상태가 가리키는 것**(기준 출력, 대기 계획의 출력 · 묶음)만 남긴다. 지운 것의 상대
+        경로를 돌려준다. `keep` 이 0 이면 안 지운다.
+
+        최근 것을 남기는 까닭은 둘이다 — 「멈춤」 안내가 사람에게 가장 최근 실행의
+        `unresolved.json` 을 열어 보라고 하고, 이중화의 다른 워커가 같은 파이프라인을 지금
+        돌리는 중이면 그 폴더(가장 최근)를 만들고 있다."""
+        if keep <= 0:
+            return []
+        state = self.load_state()
+        held = {state.applied_run}
+        if state.pending:
+            held |= {state.pending.run, state.pending.send}
+        removed: list[str] = []
+        for folder, shape in _PRUNED:
+            base = self.root / folder
+            if not base.is_dir():
+                continue
+            found = sorted(
+                (one.name, matched.group(1))
+                for one in base.iterdir()
+                if (matched := shape.match(one.name))
+            )
+            for name, when in found[:-keep]:
+                relative = f"{folder}/{name}"
+                # 원천 표(work/)는 그 실행이 남으면 같이 남는다 — 기준이 무엇에서 나왔나.
+                if relative in held or (folder == "work" and f"runs/{when}" in held):
+                    continue
+                target = base / name
+                try:
+                    if target.is_dir():
+                        shutil.rmtree(target)
+                    else:
+                        target.unlink()
+                except FileNotFoundError:
+                    continue  # 다른 워커가 방금 지웠다
+                removed.append(relative)
+        return removed
 
     def read_json(self, name: str) -> Any:
         """작업 폴더의 JSON 하나(`reconcile.json` …) — 없으면 None."""

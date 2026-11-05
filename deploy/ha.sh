@@ -221,25 +221,6 @@ location $prefix/ {
     proxy_next_upstream_tries 2;
 }
 
-# 사진 일괄 업로드(zip) — 2GB 까지(앱의 JOB_PHOTOS_MAX_BYTES). 다른 경로는 위의 512m 그대로다 —
-# 여기만 넓힌다(아무 경로나 2GB 를 받으면 그만큼이 앱의 임시 폴더에 먼저 쌓인다). 본문은 nginx 에
-# 모으지 않고 흘려 넘긴다(proxy_request_buffering off — 다 받은 뒤 넘기면 nginx 디스크에 2GB 가
-# 한 벌 더 생기고 그동안 앱은 아무것도 못 본다). 정규식 location 이라 proxy_pass 에 주소를 못
-# 붙인다 — 접두어째 넘기고 앱이 받는다(PrefixMiddleware). JOB_PHOTOS_MAX_BYTES 를 올리면 여기도.
-location ~ ^$prefix/api/objects/[^/]+/photos/import\$ {
-    proxy_pass http://${APP_SLUG}_app;
-    proxy_http_version 1.1;
-    proxy_set_header Connection "";
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_set_header X-Forwarded-Prefix $prefix;
-    client_max_body_size 2100m;
-    proxy_request_buffering off;
-    proxy_read_timeout 600s;
-    proxy_send_timeout 600s;
-}
 
 # 화면 조각(이름에 해시) — **한 서버에 없으면 다른 서버에서.** 이중화를 한 대씩 올리는 동안
 # 두 서버의 판이 다르다: 새 판에서 받은 화면이 조각을 옛 판 서버에 물으면 404 가 난다(위의
@@ -316,25 +297,6 @@ location $prefix/ {
     proxy_next_upstream_tries 2;
 }
 
-# 사진 일괄 업로드(zip) — 2GB 까지(앱의 JOB_PHOTOS_MAX_BYTES). 다른 경로는 위의 512m 그대로다 —
-# 여기만 넓힌다(아무 경로나 2GB 를 받으면 그만큼이 앱의 임시 폴더에 먼저 쌓인다). 본문은 nginx 에
-# 모으지 않고 흘려 넘긴다(proxy_request_buffering off — 다 받은 뒤 넘기면 nginx 디스크에 2GB 가
-# 한 벌 더 생기고 그동안 앱은 아무것도 못 본다). 정규식 location 이라 proxy_pass 에 주소를 못
-# 붙인다 — 접두어째 넘기고 앱이 받는다(PrefixMiddleware). JOB_PHOTOS_MAX_BYTES 를 올리면 여기도.
-location ~ ^$prefix/api/objects/[^/]+/photos/import\$ {
-    proxy_pass http://${APP_SLUG}_app;
-    proxy_http_version 1.1;
-    proxy_set_header Connection "";
-    proxy_set_header Host \$host;
-    proxy_set_header X-Real-IP \$remote_addr;
-    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto \$scheme;
-    proxy_set_header X-Forwarded-Prefix $prefix;
-    client_max_body_size 2100m;
-    proxy_request_buffering off;
-    proxy_read_timeout 600s;
-    proxy_send_timeout 600s;
-}
 
 # 화면 조각(이름에 해시) — **한 서버에 없으면 다른 서버에서.** 이중화를 한 대씩 올리는 동안
 # 두 서버의 판이 다르다: 새 판에서 받은 화면이 조각을 옛 판 서버에 물으면 404 가 난다(위의

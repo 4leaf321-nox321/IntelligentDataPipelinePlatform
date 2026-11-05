@@ -330,8 +330,7 @@ def register_error_handlers(app: FastAPI) -> None:
                 content=_body(
                     code("COMMON", 507),
                     f"이 물음이 서버의 임시 공간 상한({limit})을 넘어 멈췄습니다 — 디스크를 "
-                    "지키려고 끊은 것이고 바뀐 것은 없습니다. 범위를 좁혀(타입 · 조건 · 단계) "
-                    "다시 물어 주세요.",
+                    "지키려고 끊은 것이고 바뀐 것은 없습니다. 범위를 좁혀 다시 조회하세요.",
                     {"temp_limit": limit},
                 ),
                 headers={REQUEST_ID_HEADER: get_request_id()},
@@ -342,7 +341,7 @@ def register_error_handlers(app: FastAPI) -> None:
         logger.warning(
             "%s %s -> 504 질의 시간 상한(%ss)", request.method, request.url.path, seconds
         )
-        # 끊긴 질문으로 남긴다 — 무엇을 지표로 미리 세어 둘지 실제 물음으로 가른다(ADR 0031).
+        # 끊긴 질문으로 남긴다 — 어느 경로가 상한에 걸리는지 실제 물음으로 본다(ADR 0031).
         await run_in_threadpool(
             cut_questions.note,
             request,
@@ -355,9 +354,7 @@ def register_error_handlers(app: FastAPI) -> None:
             content=_body(
                 code("COMMON", 504),
                 f"질의가 {seconds:g}초를 넘겨 멈췄습니다 — 서버를 붙잡지 않게 끊은 것이고 "
-                "바뀐 것은 없습니다. 이어진 것 너머로 많은 기록을 지나가는 기준 · 조건이면 "
-                "끝이 좁은 조건(특정 부품 · 모델 같은 것)을 먼저 걸어 범위를 줄이고, 자주 "
-                "보는 물음이면 지표로 미리 세어 두세요.",
+                "바뀐 것은 없습니다. 기간 · 조건으로 범위를 좁혀 다시 조회하세요.",
                 {"seconds": seconds},
             ),
             headers={REQUEST_ID_HEADER: get_request_id()},

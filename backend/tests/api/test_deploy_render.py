@@ -128,7 +128,7 @@ def test_이중화는_공용_폴더와_로컬을_가른다(bundle: Path, tmp_pat
     backup = read(etc, "systemd/system/testplatform-backup.service")
     assert (
         "backup.sh -e /data/common/testplatform/.env -f /data/common/testplatform/filestore"
-        " -o /data/common/testplatform/backup" in backup
+        " -r /data/common/testplatform/relay -o /data/common/testplatform/backup" in backup
     )
 
 
@@ -145,18 +145,10 @@ def _assets_try_other_server(conf: str) -> None:
     assert "http_404" not in app
 
 
-def _photo_zip_streams(conf: str) -> None:
-    """사진 zip(2GB, `JOB_PHOTOS_MAX_BYTES`)의 경로만 본문 상한을 넓히고 흘려 넘긴다 — 다른
-    경로는 512m 그대로(아무 경로나 2GB 를 받으면 앱의 임시 폴더에 먼저 쌓인다, 2026-10-10)."""
-    at = conf.index("location ~ ^/testplatform/api/objects/[^/]+/photos/import$ {")
-    block = conf[at : conf.index("}", at)]
-    assert "client_max_body_size 2100m;" in block
-    assert "proxy_request_buffering off;" in block
-    # 정규식 location 은 주소를 못 붙인다 — 접두어째 넘긴다(앱이 둘 다 받는다).
-    assert "proxy_pass http://testplatform_app;" in block
-    assert "proxy_set_header X-Forwarded-Proto $scheme;" in block
-    app = conf[conf.index("location /testplatform/ {") :]
-    assert "client_max_body_size 2100m;" not in app[: app.index("}")]
+def _no_photo_route(conf: str) -> None:
+    """틀의 사진 zip 경로(2GB 로 넓힌 location)는 없다 — 그 기능을 걷어냈다(ADR 0001).
+    남겨 두면 없는 경로가 2GB 를 받아 앱의 임시 폴더에 먼저 쌓을 문이 된다."""
+    assert "photos/import" not in conf and "client_max_body_size 2100m;" not in conf
 
 
 def test_메인_서버에_넘길_nginx_조각(bundle: Path, tmp_path: Path) -> None:
@@ -175,7 +167,7 @@ def test_메인_서버에_넘길_nginx_조각(bundle: Path, tmp_path: Path) -> N
     assert "proxy_pass http://testplatform_mcp/mcp;" in snippet
     assert "proxy_buffering off;" in snippet
     _assets_try_other_server(snippet)
-    _photo_zip_streams(snippet)
+    _no_photo_route(snippet)
     # keepalived 는 DB VIP 만.
     conf = read(etc, "keepalived/keepalived.conf")
     assert "VI_DB" in conf and "VI_WEB" not in conf and "chk_nginx" not in conf
@@ -199,7 +191,7 @@ def test_로컬_LB_는_접두어를_떼고_두_앱에_나눈다(bundle: Path, tm
     assert "proxy_buffering off;" in site
     assert "X-Forwarded-Proto $scheme" in site
     _assets_try_other_server(site)
-    _photo_zip_streams(site)
+    _no_photo_route(site)
 
     host = (etc / "etc/nginx/sites-available/platform-ha").read_text(encoding="utf-8")
     assert "server_name portal.example.local 10.0.0.10 10.0.0.1 10.0.0.2 _;" in host

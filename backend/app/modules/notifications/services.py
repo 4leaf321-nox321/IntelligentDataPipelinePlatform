@@ -23,30 +23,21 @@ ACCOUNT_REJECTED = "account.rejected"
 ACCOUNT_TOKEN_REVOKED = "account.token_revoked"
 """시스템 관리자가 내 액세스 토큰을 폐기했다. **연동 담당자는 그 토큰의 주인이다** — 알리지
 않으면 연동이 401 을 받기 시작한 까닭을 토큰 · 서버 · 네트워크에서 차례로 찾는다."""
-DATASOURCE_FAILED = "datasource.failed"
-"""외부 소스에서 읽어 오는 일이 **처음으로** 실패했다. 타이머가 5분마다 도니까 매번
-알리면 하루에 288개가 쌓이고, 그러면 사람은 이 종류를 통째로 안 읽게 된다."""
-DATASOURCE_RECOVERED = "datasource.recovered"
-"""다시 된다. **복구도 알린다** — 안 알리면 사람은 실패 알림 하나를 들고 「아직도
-안 되나」 를 손으로 확인하러 간다."""
-OBJECT_CHANGED = "object.changed"
-"""지켜보는 객체가 바뀌었다. **내가 한 일은 나에게 안 온다** — 자기 행동을 돌려받으면
-그 종은 곧 잡음이 되고, 잡음이 된 종은 진짜 하나가 울려도 안 읽힌다."""
 JOB_DONE = "job.done"
 """내가 시킨 작업이 끝났다. **짧게 끝난 것은 안 알린다** — 그때 사람은 아직 그 화면을 보고
 있었고, 본 것을 한 번 더 말하면 그 종은 잡음이 된다."""
 JOB_FAILED = "job.failed"
 """내가 시킨 작업이 실패했다. 같은 이유로 짧게 끝난 것은 안 알린다 — 그 오류는 화면에 떴다."""
-WEBHOOK_FAILED = "webhook.failed"
-"""보내기를 세 번 다 실패해 포기했다. 받는 쪽이 조용히 못 받고 있는 상태다."""
-METRIC_ALERT = "metric.alert"
-"""내 경보에 새 결과가 나왔다(ADR 0016). **처음 보는 결론만** — 순차 검정의 「나쁨」 은 한 번
-서면 계속 서 있어서, 그것을 계산마다 알리면 같은 알림이 날마다 온다."""
-METRIC_ALERT_FAILED = "metric.alert.failed"
-"""내 경보를 돌리지 못했다(지표 정의가 바뀌어 기준이 사라졌다 등). 처음 한 번만 — 다시 되면
-조용히 돌아온다."""
-BOARD_COMMENT = "board.comment"
-"""내 게시글에 남이 댓글을 작성했다(ADR 0033). 내가 단 댓글은 안 알린다."""
+RELAY_RUN_FAILED = "relay.run.failed"
+"""파이프라인의 실행 · 적용이 실패하거나 멈췄다(`app.modules.relay.alerts`). **나빠질 때
+한 번만** — 타이머가 밤마다 돌므로 매번 알리면 같은 알림이 날마다 쌓인다."""
+RELAY_RUN_RECOVERED = "relay.run.recovered"
+"""실패 · 멈춤 뒤 실행이 다시 된다."""
+RELAY_DRIFT = "relay.drift"
+"""대조에서 대상 SP 가 지난번 적용한 것과 어긋났거나, 대조를 하지 못했다. 어긋난 건수만 바뀐
+것은 새 알림이 아니다."""
+RELAY_DRIFT_RESOLVED = "relay.drift.resolved"
+"""어긋남 · 대조 실패 뒤 대상이 다시 같다."""
 
 
 def notify(
@@ -72,11 +63,14 @@ def notify_system_admins(
     title: str,
     body: str | None = None,
     link: str | None = None,
+    skip: uuid.UUID | None = None,
 ) -> int:
-    """설치 전체가 걸린 일(동기화·웹훅이 멎은 것)을 **고칠 수 있는 사람들에게.**
+    """설치 전체가 걸린 일(파이프라인이 멎거나 대상과 어긋난 것)을 **고칠 수 있는 사람들에게.**
 
-    부서 관리자에게 보내지 않는 이유: 데이터 소스와 웹훅 화면은 시스템 관리자만
-    연다. 못 여는 사람에게 알리면 그 알림은 읽고 나서 할 일이 없는 알림이 되고,
+    `skip` — 그 일을 한 사람. 화면에서 결과를 이미 봤다(내가 한 일은 나에게 안 온다).
+
+    부서 관리자에게 보내지 않는 이유: 중계를 실행 · 적용 · 대조하는 것은 시스템 관리자만
+    한다. 못 여는 사람에게 알리면 그 알림은 읽고 나서 할 일이 없는 알림이 되고,
     그런 것이 몇 번 오면 종 자체를 안 보게 된다.
     """
     admins = list(
@@ -84,9 +78,10 @@ def notify_system_admins(
             select(User.id).where(User.is_system_admin.is_(True), User.status == "active")
         )
     )
-    for user_id in admins:
+    sent = [one for one in admins if one != skip]
+    for user_id in sent:
         notify(db, user_id=user_id, kind=kind, title=title, body=body, link=link)
-    return len(admins)
+    return len(sent)
 
 
 def unread_count(db: Session, user_id: uuid.UUID) -> int:

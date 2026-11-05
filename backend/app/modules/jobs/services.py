@@ -842,6 +842,14 @@ def settle(job_id: uuid.UUID, outcome: Outcome, *, worker_id: str) -> None:
         row = db.get(Job, job_id)
         if row is not None:
             announce(db, row)
+            spec = kinds.get(row.kind)
+            after = spec.after if spec is not None else None
+            if after is not None and row.status in ("done", "failed"):
+                try:
+                    with db.begin_nested():
+                        after(db, row)
+                except Exception:  # 뒤처리가 실패했다고 작업의 결과가 바뀌면 안 된다
+                    log.exception("작업 %s (%s) 의 뒤처리가 실패했습니다", row.id, row.kind)
             db.commit()
 
 

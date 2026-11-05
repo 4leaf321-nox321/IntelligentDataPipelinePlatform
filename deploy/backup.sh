@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# 백업 — 데이터베이스와 첨부를 **같은 시각에 함께** 받는다.
+# 백업 — 데이터베이스 · 첨부 · 중계 폴더를 **같은 시각에 함께** 받는다.
 #
 #   ./backup.sh                                  .env 를 읽어 알아서
 #   ./backup.sh -i ~/apps/<slug> -o ~/backup/<slug>
-#   ./backup.sh -e /data/<공통>/<slug>/.env -f /data/<공통>/<slug>/filestore -o /data/<공통>/<slug>/backup
+#   ./backup.sh -e /data/<공통>/<slug>/.env -f /data/<공통>/<slug>/filestore -r /data/<공통>/<slug>/relay \
+#               -o /data/<공통>/<slug>/backup
 #                                                공용 스토리지를 쓸 때(이중화) — deploy.sh 가 타이머에 이렇게 건다
 #
 # **둘 중 하나만 받으면 복구되지 않는다.** DB 에는 첨부의 경로와 해시가,
@@ -15,6 +16,7 @@
 #   <BackupRoot>/db/db-<시각>.dump   pg_dump 커스텀 포맷 — 일 7벌 + 일요일분 4벌
 #                                   (작업 파일 내용 job_files.data 는 뺀다 — 임시물)
 #   <BackupRoot>/filestore/          첨부 미러 1벌
+#   <BackupRoot>/relay/relay-<시각>.tar.gz   중계 폴더(-r, 기본 .env 옆) — 덤프와 같은 세대
 #   <BackupRoot>/env/.env            접속 정보·JWT 비밀키
 #   <BackupRoot>/LAST_BACKUP.txt     무엇을 언제 받았는지
 #
@@ -61,17 +63,19 @@ INSTALL_DIR=""
 BACKUP_ROOT=""
 ENV_FILE=""
 FILESTORE=""
+RELAY_DIR=""
 KEEP_DAILY="${KEEP_DAILY:-7}"
 KEEP_WEEKLY="${KEEP_WEEKLY:-4}"
 SKIP_IF_FRESH_HOURS="${SKIP_IF_FRESH_HOURS:-0}"
 
-while getopts ":i:o:e:f:h" opt; do
+while getopts ":i:o:e:f:r:h" opt; do
     case "$opt" in
         i) INSTALL_DIR="$OPTARG" ;;
         o) BACKUP_ROOT="$OPTARG" ;;
         e) ENV_FILE="$OPTARG" ;;
         f) FILESTORE="$OPTARG" ;;
-        h) sed -n '2,46p' "$0"; exit 0 ;;
+        r) RELAY_DIR="$OPTARG" ;;
+        h) sed -n '2,55p' "$0"; exit 0 ;;
         *) err "쓰지 않는 옵션입니다. -h 로 사용법을 보세요." ;;
     esac
 done
@@ -80,6 +84,8 @@ done
 [[ -n "$ENV_FILE" ]]  || ENV_FILE="$INSTALL_DIR/.env"
 [[ -n "$FILESTORE" ]] || FILESTORE="$INSTALL_DIR/filestore"
 [[ -f "$ENV_FILE" ]] || err "$ENV_FILE 가 없습니다. -i 로 설치 폴더를, 또는 -e 로 .env 를 주세요."
+# 중계 폴더는 .env 옆에 있다 — 단독은 설치 폴더, 이중화는 공용 폴더(deploy.sh 의 배치).
+[[ -n "$RELAY_DIR" ]] || RELAY_DIR="$(dirname "$ENV_FILE")/relay"
 
 # **접속 정보는 .env 에서 읽는다.** 백업이 자기 설정을 따로 갖게 하면 앱과 다른
 # DB 를 받는 사고가 나고, 그때 받은 것이 무엇인지 알 방법이 없다.
@@ -131,6 +137,44 @@ else
     echo "경고: filestore 가 없습니다 — 아직 첨부가 없다면 정상입니다." >&2
 fi
 
+# ── 중계 폴더 ─────────────────────────────────────────────────────────────────
+# **덤프와 함께 세대를 둔다.** 운영자가 둔 정의 파일은 DB 에 없다(DB 의 정의 판 · 레시피 판은
+# 덤프에 있다). 작업 폴더의 기준 출력을 잃으면 다음 실행이 첫 적재처럼 전부 보낸다 — 대상은
+# 「그대로」 라 해는 없지만 대조의 기준 · 대기 계획 · 자동 적용의 이력이 사라진다.
+#
+# 담는 것: 정의 파일(pipelines/) 전부, 그리고 작업 폴더(work/<파이프라인>/)의 이어 돌 몫 — 맨 위의
+# *.json(상태 · 미러 · 대조 보고서 · 알림 상태)과 **기준 출력**(state.json 의 applied_run 이
+# 가리키는 실행 하나). 지난 실행 · 보낸 묶음(runs/ · sends/)의 나머지는 쌓이기만 하는 기록이라
+# 뺀다. 파일마다 바꿔 끼우며 쓰므로(os.replace) 반쪽 파일은 담기지 않는다.
+#
+# `[[ … ]] && …` 를 반복문의 끝에 두지 않는다 — 거짓이면 서브셸이 1 로 끝나 set -e 가 백업을
+# 통째로 멈춘다.
+RELAY_FILES=0
+RELAY_TAR=""
+if [[ -d "$RELAY_DIR" ]]; then
+    info "중계 폴더: $RELAY_DIR"
+    mkdir -p "$BACKUP_ROOT/relay"
+    RELAY_TAR="$BACKUP_ROOT/relay/relay-$STAMP.tar.gz"
+    LIST="$(mktemp)"
+    (
+        cd "$RELAY_DIR"
+        if [[ -d pipelines ]]; then find pipelines -type f; fi
+        for state in work/*/state.json; do
+            if [[ ! -f "$state" ]]; then continue; fi
+            dir="${state%/state.json}"
+            find "$dir" -maxdepth 1 -type f -name '*.json'
+            run="$(sed -n 's|.*"applied_run": *"\([^"]*\)".*|\1|p' "$state" | head -n1)"
+            if [[ -n "$run" && -d "$dir/$run" ]]; then find "$dir/$run" -type f; fi
+        done
+    ) > "$LIST"
+    tar -czf "$RELAY_TAR.part" -C "$RELAY_DIR" -T "$LIST"
+    mv "$RELAY_TAR.part" "$RELAY_TAR"
+    RELAY_FILES=$(wc -l < "$LIST")
+    rm -f "$LIST"
+else
+    echo "경고: 중계 폴더가 없습니다($RELAY_DIR) — 다른 곳이면 -r 로 주세요." >&2
+fi
+
 # .env 에 JWT 비밀키가 있다. **이게 없으면 복구해도 전원이 다시 로그인한다.**
 install -m 600 "$ENV_FILE" "$BACKUP_ROOT/env/.env"
 
@@ -156,6 +200,18 @@ for name in "${DUMPS[@]}"; do
     fi
 done
 rm -f "$BACKUP_ROOT"/db/*.part 2>/dev/null || true
+# 중계 묶음은 **덤프와 같은 세대만** 남긴다 — 짝이 없는 묶음은 복구에 쓸 데가 없다.
+if [[ -d "$BACKUP_ROOT/relay" ]]; then
+    for tarball in "$BACKUP_ROOT"/relay/relay-*.tar.gz; do
+        if [[ ! -f "$tarball" ]]; then continue; fi
+        stamp="${tarball##*/relay-}"; stamp="${stamp%.tar.gz}"
+        if [[ ! " ${KEEP[*]} " =~ \ db-${stamp}\.dump\  ]]; then
+            info "오래된 중계 묶음 삭제: ${tarball##*/}"
+            rm -f "$tarball"
+        fi
+    done
+    rm -f "$BACKUP_ROOT"/relay/*.part 2>/dev/null || true
+fi
 
 # ── 기록 ──────────────────────────────────────────────────────────────────────
 MB=$(du -m "$DUMP" | cut -f1)
@@ -164,18 +220,19 @@ cat > "$BACKUP_ROOT/LAST_BACKUP.txt" <<TXT
 설치 경로    : $INSTALL_DIR  (.env $ENV_FILE · 첨부 $FILESTORE)
 데이터베이스 : $DB_NAME @ $DB_HOST:$DB_PORT  ($(basename "$DUMP"), ${MB}MB)
 첨부         : $FILES 개 (미러: $BACKUP_ROOT/filestore)
+중계         : $RELAY_FILES 개 (${RELAY_TAR:-없음} ← $RELAY_DIR)
 보관         : 일 ${KEEP_DAILY}벌 + 일요일분 ${KEEP_WEEKLY}벌
 
 복구:
   ./restore.sh -b '$BACKUP_ROOT' -d ${DB_NAME}_restore_check          # 확인만
-  ./restore.sh -b '$BACKUP_ROOT' -d $DB_NAME -F '$FILESTORE' -f       # 실제 복구
+  ./restore.sh -b '$BACKUP_ROOT' -d $DB_NAME -F '$FILESTORE' -R '$RELAY_DIR' -f   # 실제 복구
 
 주의: DB 와 첨부는 같은 시점의 것이어야 한다. 첨부는 미러 한 벌이라 옛 덤프로
       되돌리면 그 뒤에 올린 파일이 「DB 에는 없는데 파일은 있는」 상태가 된다 —
       그것은 무해하다. 반대는 아니다.
 TXT
 
-info "백업 완료: $DUMP (DB ${MB}MB, 첨부 $FILES 개)"
+info "백업 완료: $DUMP (DB ${MB}MB, 첨부 $FILES 개, 중계 $RELAY_FILES 개)"
 echo
 echo "  **한 번은 실제로 복구해 보세요.** 받아만 두고 복구를 해 본 적이 없는"
 echo "  백업은 백업이 아닙니다 — restore.sh 가 확인용 DB 로 그것을 해 봅니다."

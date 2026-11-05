@@ -447,9 +447,9 @@ function CutQuestionsSection({ period }: { period: PerformancePeriod }) {
     <section className="space-y-3">
       <h2 className="text-base font-semibold">끊긴 질문</h2>
       <p className="text-muted-foreground text-sm">
-        시간 상한(<span className="font-mono">READ_QUERY_SECONDS</span>)에 걸리거나 SPARQL 이 너무
-        커서 답을 못 받은 물음입니다. 같은 모양끼리 묶어 많이 끊긴 것부터 보입니다 — 자주 끊기는
-        물음은 지표로 미리 세어 둘 후보입니다. 조건의 값과 검색어는 남기지 않습니다.
+        시간 상한(<span className="font-mono">READ_QUERY_SECONDS</span>)에 걸려 답을 못 받은
+        물음입니다. 같은 모양끼리 묶어 많이 끊긴 것부터 표시합니다. 조건의 값과 검색어는 남기지
+        않습니다.
       </p>
       <ErrorNotice error={cut.error} />
       {cut.data && cut.data.items.length === 0 ? (
