@@ -26,7 +26,7 @@ import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
 const NO_PIPELINES_HINT =
-  '정의 파일(relay-pipeline/1)은 서버의 파이프라인 폴더(RELAY_PIPELINES_DIR)에 둡니다 — 넣으면 다음 읽기부터 보입니다. AI(MCP)가 정의 판 초안을 지어도 「초안(꺼짐)」 으로 보입니다.'
+  '정의 파일(relay-pipeline/1)은 서버의 파이프라인 폴더(RELAY_PIPELINES_DIR)에 둡니다 — 추가하면 다음 읽기부터 표시됩니다. AI(MCP)가 정의 판 초안을 작성해도 「초안(미사용)」 으로 표시됩니다.'
 
 export default function PipelinesPage() {
   const map = useResource(() => relayApi.map(), [])
@@ -36,7 +36,7 @@ export default function PipelinesPage() {
     <div className="space-y-4">
       <PageHeader
         title="파이프라인"
-        description="원천의 API 하나를 레시피로 바꿔 대상 SP 에 보내는 단위입니다. 눌러서 칸 대응 표 · 실행 이력을 보고, 지금 실행합니다."
+        description="원천의 API 하나를 레시피로 바꿔 대상 SP 에 보내는 단위입니다. 클릭하면 칸 대응 표 · 실행 이력을 보고 지금 실행할 수 있습니다."
       />
       <ErrorNotice error={map.error} />
       {map.loading && !map.data && <p className="text-muted-foreground text-sm">읽는 중…</p>}

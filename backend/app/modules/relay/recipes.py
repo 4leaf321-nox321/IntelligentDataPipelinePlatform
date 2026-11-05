@@ -83,7 +83,7 @@ def problems_of(found: Described, body: dict[str, Any]) -> list[str]:
     }
     unknown = sorted(read - set(found.columns))
     if unknown and not found.columns_all:
-        out.append(f"어댑터가 안 내는 열을 읽습니다: {', '.join(unknown)}")
+        out.append(f"어댑터가 내지 않는 열을 읽습니다: {', '.join(unknown)}")
     return out
 
 
@@ -154,14 +154,14 @@ def activate(
     if getattr(request.state, "token_scopes", None) is not None:
         raise Forbidden(
             code("RELAY", 7),
-            "레시피를 켜는 일은 화면에서 사람이 합니다 — 토큰(MCP)으로는 켜지 않습니다. "
-            "시험 결과를 화면에서 보고 「켜기」 를 누르세요.",
+            "레시피 판의 사용은 화면에서 사람이 정합니다 — 토큰(MCP)으로는 사용할 수 "
+            "없습니다. 시험 결과를 화면에서 확인하고 「사용」 을 클릭하세요.",
         )
     row = get(db, found.slug, version)
     if row.status == "active":
         return row
     if row.status == "discarded":
-        raise Conflict(code("RELAY", 17), f"버린 초안은 켜지 않습니다 — 판 {version}.")
+        raise Conflict(code("RELAY", 17), f"폐기한 초안은 사용할 수 없습니다 — 판 {version}.")
     before = active(db, found.slug)
     db.execute(
         update(RelayRecipe)
@@ -233,7 +233,7 @@ def dry_run(
             else "",
         }
         if not compare:  # 덜 받은 채 견주면 나머지가 다 지움(무덤)으로 보인다
-            out["against"] = "앞부분만 받아 「켜면 보낼 것」 은 세지 않았습니다"
+            out["against"] = "앞부분만 받아 「사용하면 보낼 것」 은 세지 않았습니다"
             return out
         baseline = work.path(state.applied_run) if state.applied_run else None
         found_delta = delta(baseline, made.run, root / "send", source=source)
@@ -250,7 +250,7 @@ def trial(db: Session, found: Described, version: int) -> dict[str, Any]:
     if len(mirror) == 0:
         hint = (
             "정의가 아직 초안이라 받은 것이 없습니다 — 정의 시험(pipeline_test)에 "
-            "recipe_version 을 주면 원천을 받아 이 레시피로 바꿔 봅니다."
+            "recipe_version 을 지정하면 원천을 받아 이 레시피로 바꿔 봅니다."
             if found.draft
             else "아직 받은 것이 없습니다 — 먼저 「지금 실행」 으로 원천을 한 번 받으세요"
             "(미러가 생깁니다)."
@@ -267,7 +267,8 @@ def discard(db: Session, user: User, slug: str, version: int) -> RelayRecipe:
     row = get(db, slug, version)
     if row.status != "draft":
         raise Conflict(
-            code("RELAY", 17), f"초안만 버립니다 — 판 {version} 은 {row.status} 입니다."
+            code("RELAY", 17),
+            f"초안만 폐기할 수 있습니다 — 판 {version} 은 {row.status} 입니다.",
         )
     row.status = "discarded"
     audit.record(

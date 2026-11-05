@@ -104,18 +104,18 @@ export default function PipelineDetailPage() {
 
       {data.draft && (
         <Alert className="border-dashed">
-          <AlertTitle>이 파이프라인은 아직 초안입니다 — 정의 판을 켜야 돕니다</AlertTitle>
+          <AlertTitle>이 파이프라인은 아직 초안입니다 — 정의 판을 사용해야 실행됩니다</AlertTitle>
           <AlertDescription>
             {admin
-              ? 'AI(MCP)가 지은 정의 판 초안입니다. 아래 「정의 판」 에서 시험해 원천 · 대상에 ' +
-                '닿는지 보고 「켜기」 를 누르면 그때부터 「지금 실행」 이 섭니다.'
-              : '시스템 관리자가 정의 판을 시험하고 켜면 그때부터 돕니다.'}
+              ? 'AI(MCP)가 작성한 정의 판 초안입니다. 아래 「정의 판」 에서 시험해 원천 · 대상에 ' +
+                '닿는지 확인하고 「사용」 을 클릭하면 그때부터 「지금 실행」 이 표시됩니다.'
+              : '시스템 관리자가 정의 판을 시험하고 사용하면 그때부터 실행됩니다.'}
           </AlertDescription>
         </Alert>
       )}
       {data.problems.length > 0 && (
         <Alert variant="destructive">
-          <AlertTitle>정의에 문제가 있습니다 — 고치기 전에는 돌지 않습니다</AlertTitle>
+          <AlertTitle>정의에 문제가 있습니다 — 수정하기 전에는 실행되지 않습니다</AlertTitle>
           <AlertDescription>
             <ul className="list-disc pl-4">
               {data.problems.map((one) => (
@@ -171,7 +171,7 @@ export default function PipelineDetailPage() {
             )}
           </Fact>
           <Fact label="자동 적용">
-            <span className={cn(data.auto_apply_label === '끔' && 'text-muted-foreground')}>
+            <span className={cn(data.auto_apply_label === '미사용' && 'text-muted-foreground')}>
               {data.auto_apply_label}
             </span>
           </Fact>

@@ -89,7 +89,7 @@ export function RecipeTrialView({
       {trial.would_send ? (
         <div className="space-y-1">
           <p className="text-sm font-medium">
-            켜면 보낼 것
+            사용하면 보낼 것
             {trial.against && (
               <span className="text-muted-foreground ml-1 text-xs font-normal">
                 — 견준 것: {trial.against}
@@ -104,9 +104,9 @@ export function RecipeTrialView({
                 <TableRow>
                   <TableHead>종류</TableHead>
                   <TableHead>타입</TableHead>
-                  <TableHead className="text-right">새</TableHead>
-                  <TableHead className="text-right">바뀜</TableHead>
-                  <TableHead className="text-right">무덤</TableHead>
+                  <TableHead className="text-right">생성</TableHead>
+                  <TableHead className="text-right">변경</TableHead>
+                  <TableHead className="text-right">삭제</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -130,7 +130,7 @@ export function RecipeTrialView({
       {(trial.unresolved_count ?? 0) > 0 && (
         <div className="space-y-1">
           <p className="text-destructive text-sm">
-            미해결 {trial.unresolved_count?.toLocaleString()}건 — 켜면 그 실행은 멈춥니다. 앞의{' '}
+            미해결 {trial.unresolved_count?.toLocaleString()}건 — 사용하면 그 실행은 멈춥니다. 앞의{' '}
             {Math.min(UNRESOLVED_SHOWN, unresolved.length)}건:
           </p>
           <pre className="bg-muted/30 max-h-48 overflow-auto rounded-md border p-2 text-xs">

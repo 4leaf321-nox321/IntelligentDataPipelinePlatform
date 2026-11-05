@@ -71,8 +71,8 @@ def check(spec: Any) -> Policy | None:
 
 def label(policy: Policy | None) -> str:
     if policy is None:
-        return "끔"
-    gone = "지움도" if policy.allow_gone else "지움 없을 때만"
+        return "미사용"
+    gone = "삭제 포함" if policy.allow_gone else "삭제 없을 때만"
     return (
         f"타이머 실행 · 사람 적용 {policy.after_manual}번 뒤 · "
         f"변경 {policy.max_changes}건 이하 · {gone}"
@@ -99,7 +99,7 @@ def decide(policy: Policy, state: State, outcome: Outcome) -> list[str]:
     """적용하지 **않을** 까닭 — 비면 적용한다."""
     reasons: list[str] = []
     if outcome.status != "planned" or state.pending is None or not state.pending.ok:
-        reasons.append("대상의 미리보기에 오류가 있습니다")
+        reasons.append("대상의 미리 보기에 오류가 있습니다")
         return reasons
     done = manual_applies(state)
     if done < policy.after_manual:
@@ -108,9 +108,9 @@ def decide(policy: Policy, state: State, outcome: Outcome) -> list[str]:
         )
     changes, gone = totals(outcome.counts)
     if changes > policy.max_changes:
-        reasons.append(f"생성 + 고침 {changes}건이 기준 {policy.max_changes}건을 넘습니다")
+        reasons.append(f"생성 + 변경 {changes}건이 기준 {policy.max_changes}건을 넘습니다")
     if gone and not policy.allow_gone:
-        reasons.append(f"지움 {gone}건이 있습니다")
+        reasons.append(f"삭제 {gone}건이 있습니다")
     return reasons
 
 

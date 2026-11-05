@@ -25,7 +25,7 @@ export function QueuedNotice({ queued }: { queued: QueuedOut & { what: string } 
     <Alert>
       <AlertTitle>{queued.what} 작업을 등록했습니다</AlertTitle>
       <AlertDescription>
-        워커가 집으면 돕니다.{' '}
+        워커가 가져가면 실행됩니다.{' '}
         <Link to={jobLink(queued.job_id)}>작업 화면에서 진행 보기</Link>
       </AlertDescription>
     </Alert>
@@ -51,8 +51,8 @@ export function PipelineActions({
     return (
       <section className="rounded-md border border-dashed p-3">
         <p className="text-muted-foreground text-sm">
-          초안은 돌지 않습니다 — 아래 「정의 판」 에서 판을 시험하고 켜면 「지금 실행」 · 「적용」 이
-          섭니다.
+          초안은 실행되지 않습니다 — 아래 「정의 판」 에서 판을 시험하고 사용하면 「지금 실행」 ·
+          「적용」 이 표시됩니다.
         </p>
       </section>
     )
@@ -89,7 +89,7 @@ export function PipelineActions({
             checked={overwrite}
             onChange={(event) => setOverwrite(event.target.checked)}
           />
-          사람이 고친 칸도 {detail.system || '원천'} 값으로 덮기(overwrite)
+          사람이 수정한 칸도 {detail.system || '원천'} 값으로 덮기(overwrite)
         </label>
         <Button
           size="sm"
@@ -102,13 +102,13 @@ export function PipelineActions({
         </Button>
       </div>
       <p className="text-muted-foreground text-xs">
-        실행은 대상 SP 에 계획만 올립니다 — 아무것도 안 들어갑니다.{' '}
+        실행은 대상 SP 에 계획만 생성합니다 — 아무것도 들어가지 않습니다.{' '}
         {canApply
-          ? '대상 SP 에서 계획을 읽고 「적용」 을 누르면 들어갑니다.'
+          ? '대상 SP 에서 계획을 읽고 「적용」 을 클릭하면 들어갑니다.'
           : pending
-            ? '지금 계획에는 오류가 있어 적용할 수 없습니다 — 고쳐서 다시 실행하세요.'
+            ? '지금 계획에는 오류가 있어 적용할 수 없습니다 — 원인을 해결한 뒤 다시 실행하세요.'
             : '적용을 기다리는 계획이 없습니다.'}
-        {overwrite && ' 덮기를 켜면 대상에서 사람이 고친 칸도 원천 값으로 바뀝니다(계획에 적힙니다).'}
+        {overwrite && ' 덮기를 선택하면 대상에서 사람이 수정한 칸도 원천 값으로 바뀝니다(계획에 적힙니다).'}
       </p>
       <ErrorNotice error={failed} />
       {queued && <QueuedNotice queued={queued} />}

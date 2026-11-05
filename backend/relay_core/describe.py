@@ -58,8 +58,8 @@ class Described:
     schedule: dict[str, Any] | None = None
     schedule_label: str = "수동"
     auto_apply: Policy | None = None
-    auto_apply_label: str = "끔"
-    """자동 적용 — 「끔」 또는 기준 한 줄(`relay_core.autoapply`)."""
+    auto_apply_label: str = "미사용"
+    """자동 적용 — 「미사용」 또는 기준 한 줄(`relay_core.autoapply`)."""
     origin: str = "파일"
     """정의가 어디서 왔나 — 「파일」 · 「판 N」(켜진 판) · 「초안 N」(켜진 판이 없는 새
     파이프라인)."""
@@ -241,7 +241,7 @@ def describe_body(
     out.lineage = lineage(recipe, out.columns, same=out.columns_all)
     unknown = sorted({c for step in out.lineage for c in step.columns} - set(out.columns))
     if unknown and not out.columns_all:
-        out.problems.append(f"레시피가 읽는 열을 어댑터가 안 냅니다: {', '.join(unknown)}")
+        out.problems.append(f"레시피가 읽는 열을 어댑터가 내지 않습니다: {', '.join(unknown)}")
     return out
 
 

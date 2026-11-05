@@ -51,11 +51,11 @@ describe('중계 표', () => {
     expect(within(rowOf('plm-tasks')).getByTestId('relay-drift')).toHaveTextContent('어긋남3건')
   })
 
-  it('파이프라인 — 초안은 「초안(꺼짐)」 회색 배지, 마지막 적용은 없다', async () => {
+  it('파이프라인 — 초안은 「초안(미사용)」 회색 배지, 마지막 적용은 없다', async () => {
     relayApi.map.mockResolvedValue(withDraft(sampleMap()))
     await show('PipelinesPage')
     const row = within((await screen.findByRole('link', { name: 'plm-parts' })).closest('tr')!)
-    const badge = row.getByText('초안(꺼짐)')
+    const badge = row.getByText('초안(미사용)')
     expect(badge).toHaveClass('bg-muted')
     expect(row.getByText('—')).toBeInTheDocument()
   })

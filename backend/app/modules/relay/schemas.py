@@ -86,12 +86,14 @@ class PipelineDetail(BaseModel):
     """지금 도는 레시피 — 「파일」 또는 「판 N」."""
     schedule_label: str = "수동"
     """일정 — 「매일 01:00」 · 「60분마다」 · 「수동」."""
-    auto_apply_label: str = "끔"
-    """자동 적용 — 「끔」 또는 기준 한 줄(타이머 실행 · 사람 적용 N번 뒤 · 변경 M건 이하 …)."""
+    auto_apply_label: str = "미사용"
+    """자동 적용 — 「미사용」 또는 기준 한 줄(타이머 실행 · 사람 적용 N번 뒤 · 변경 M건
+    이하 …)."""
     definition_label: str = "파일"
-    """지금 서 있는 정의 — 「파일」 · 「판 N」(켜진 판) · 「초안 N」(켜진 판이 없는 새 것)."""
+    """지금 서 있는 정의 — 「파일」 · 「판 N」(사용 중인 판) · 「초안 N」(사용 중인 판이
+    없는 새 것)."""
     draft: bool = False
-    """켜진 정의가 없다 — 돌지 않는다. 화면이 「켜기」 를 권한다."""
+    """사용 중인 정의가 없다 — 실행되지 않는다. 화면이 「사용」 을 권한다."""
     reconcile: dict[str, Any] | None = None
     """마지막 대조(`relay_core.reconcile.Report`) — 타입 · 갈래마다 본보기 20개까지. 전부는
     `GET /pipelines/{slug}/reconcile`. 대조한 적이 없으면 None."""

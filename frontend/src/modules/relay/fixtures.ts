@@ -114,7 +114,7 @@ export function withDraft(map: RelayMap): RelayMap {
         label: 'plm-parts',
         sub: 'source plm · rest',
         status: 'draft',
-        status_label: '초안(꺼짐)',
+        status_label: '초안(미사용)',
         link: '/relay/pipelines/plm-parts',
       }),
     ],

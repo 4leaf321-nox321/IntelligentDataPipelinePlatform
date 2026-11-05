@@ -76,9 +76,9 @@ def check_url(
     if not _host_ok(netloc, allowed):
         raise Forbidden(
             code("RELAY", 10),
-            f"{where}: {netloc} 는 이 서버가 AI 요청으로 부를 수 있는 주소가 아닙니다. "
-            "켜진 정의가 쓰는 주소이거나 RELAY_SOURCE_HOSTS 에 있어야 합니다 — 관리자에게 "
-            "넣어 달라고 하세요.",
+            f"{where}: {netloc} 는 이 서버가 AI 요청으로 호출할 수 있는 주소가 아닙니다. "
+            "사용 중인 정의의 주소이거나 RELAY_SOURCE_HOSTS 에 있어야 합니다 — 관리자에게 "
+            "추가를 요청하세요.",
         )
 
 
@@ -127,7 +127,7 @@ def check_env(body: Any) -> None:
     if bad:
         raise Forbidden(
             code("RELAY", 13),
-            f"{', '.join(bad)} 는 이 플랫폼 자신의 설정입니다 — 원천 · 대상의 비밀로 쓰지 "
+            f"{', '.join(bad)} 는 이 플랫폼 자신의 설정입니다 — 원천 · 대상의 비밀로 사용하지 "
             "않습니다. 그 시스템의 토큰을 담을 환경 변수를 따로 두세요.",
         )
 

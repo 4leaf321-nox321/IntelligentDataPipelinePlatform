@@ -98,8 +98,8 @@ def run(
     if fetched.complete:
         state.watermark = fetched.watermark
     note += (
-        f"받음 {len(fetched.records)}건(새 {took.added} · 바뀜 {took.changed} · "
-        f"그대로 {took.unchanged} · 빠짐 {took.removed}) · 미러 {len(mirror)}건. "
+        f"받음 {len(fetched.records)}건(추가 {took.added} · 변경 {took.changed} · "
+        f"그대로 {took.unchanged} · 삭제 {took.removed}) · 미러 {len(mirror)}건. "
     )
     work.save_state(state)
     if len(mirror) == 0:
@@ -113,7 +113,7 @@ def run(
         return Outcome(
             "blocked",
             note + f"레시피 변환에 미해결이 있습니다 — {made.run}/unresolved.json · "
-            "table-report.txt 를 보고 레시피를 고치세요.",
+            "table-report.txt 를 보고 레시피를 수정하세요.",
         )
 
     baseline = work.path(state.applied_run) if state.applied_run else None
@@ -136,7 +136,7 @@ def run(
         return Outcome(
             "waiting",
             note + f"같은 계획({state.pending.job_id[:8]})이 적용을 기다립니다 — "
-            "새로 올리지 않았습니다.",
+            "새로 생성하지 않았습니다.",
             link=f"{pipeline.target.server}/jobs?job={state.pending.job_id}",
             counts=counts,
         )

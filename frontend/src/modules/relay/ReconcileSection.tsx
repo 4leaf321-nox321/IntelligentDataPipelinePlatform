@@ -201,10 +201,10 @@ function planBlocker(detail: PipelineDetail, report: ReconcileReport): string {
   if (pending) {
     return pending.origin === 'reconcile'
       ? '보정 계획이 이미 적용을 기다리고 있습니다 — 대상 SP 에서 계획을 확인하고 적용하세요. 적용하면 바로 다시 대조합니다.'
-      : '적용을 기다리는 계획이 있어 보정 계획을 올릴 수 없습니다 — 덮으면 사람이 보던 계획이 사라집니다. 그 계획을 적용한 뒤 다시 대조하세요.'
+      : '적용을 기다리는 계획이 있어 보정 계획을 생성할 수 없습니다 — 덮어쓰면 사람이 보던 계획이 사라집니다. 그 계획을 적용한 뒤 다시 대조하세요.'
   }
   if ((report.problems ?? []).length > 0) {
-    return '마지막 대조를 마치지 못해 보정 계획을 올릴 수 없습니다 — 원인을 확인한 뒤 다시 대조하세요.'
+    return '마지막 대조를 마치지 못해 보정 계획을 생성할 수 없습니다 — 원인을 확인한 뒤 다시 대조하세요.'
   }
   if (fixableCount(report) === 0) {
     return '어긋남이 이 원천이 관리하지 않는 타입의 「대상에만」 뿐이라 보정 계획에 실을 것이 없습니다 — 사람이 판단합니다.'
@@ -294,7 +294,7 @@ function ReconcileActions({
             disabled={busy || Boolean(blocker)}
           >
             <FileUp />
-            보정 계획 올리기
+            보정 계획 생성
           </Button>
         )}
       </div>
@@ -314,23 +314,23 @@ function ReconcileActions({
       {report && (
         <ConfirmDialog
           open={asking}
-          title="보정 계획을 올립니다"
+          title="보정 계획을 생성합니다"
           description={
             <div className="space-y-2">
               <p>
                 대상과 다시 대조한 뒤, 어긋난 객체를 기준(지난번 적용된 출력) 그대로 다시 보내는 계획을
-                대상 SP 의 검토함에 올립니다. 미리 보기이므로 올리는 것만으로는 대상이 바뀌지 않습니다
+                대상 SP 의 검토함에 미리 보기로 등록합니다. 등록하는 것만으로는 대상이 바뀌지 않습니다
                 — 계획을 확인하고 적용하는 것은 사람입니다.
               </p>
               <PlanLines report={report} />
               <p className="text-muted-foreground">
-                마지막 대조({shownDateTime(report.at)})의 수입니다 — 올릴 때 다시 견주므로 달라질 수
+                마지막 대조({shownDateTime(report.at)})의 수입니다 — 생성할 때 다시 견주므로 달라질 수
                 있습니다. 다시 보내는 객체에 닿는 기준의 관계도 함께 싣습니다. 적용하면 바로 다시
                 대조합니다.
               </p>
             </div>
           }
-          confirmLabel="올리기"
+          confirmLabel="생성"
           onConfirm={plan}
           onClose={() => setAsking(false)}
         />
@@ -374,7 +374,7 @@ export function ReconcileSection({
       <h2 className="text-base font-semibold">대조</h2>
       <p className="text-muted-foreground text-sm">
         대상 SP 에 지금 있는 객체를 지난번 적용된 출력(기준)과 견줍니다 — 대상에서 누가 객체를 삭제하거나
-        사용 중지하거나 백업에서 되돌리면 평소 실행은 그것을 모릅니다. 어긋난 객체는 「보정 계획」 으로 기준
+        사용 중지하거나 백업에서 복원하면 평소 실행은 그것을 모릅니다. 어긋난 객체는 「보정 계획」 으로 기준
         그대로 다시 보냅니다.
       </p>
 
@@ -400,7 +400,7 @@ export function ReconcileSection({
       )}
       {!admin && (
         <p className="text-muted-foreground text-sm">
-          「대조」 · 「보정 계획 올리기」 는 시스템 관리자가 합니다.
+          「대조」 · 「보정 계획 생성」 은 시스템 관리자가 합니다.
         </p>
       )}
 
@@ -409,7 +409,7 @@ export function ReconcileSection({
           title="아직 대조한 적이 없습니다"
           hint={
             detail.draft
-              ? '초안은 돌지 않아 견줄 기준이 없습니다 — 정의 판을 켜고 첫 적용을 마친 뒤부터 대조합니다.'
+              ? '초안은 실행되지 않아 견줄 기준이 없습니다 — 정의 판을 사용하고 첫 적용을 마친 뒤부터 대조합니다.'
               : schedule === '수동'
                 ? admin
                   ? '「대조」 를 클릭하면 대상 SP 의 객체를 읽어 기준과 견줍니다 — 대상에는 아무것도 보내지 않습니다.'

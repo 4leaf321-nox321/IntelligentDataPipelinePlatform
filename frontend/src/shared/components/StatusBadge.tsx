@@ -161,9 +161,9 @@ const RELAY_PIPELINE: Record<string, { label: string; tone: Tone }> = {
   failed: { label: '실패', tone: 'bad' },
   broken: { label: '정의 오류', tone: 'bad' },
   // 아직 안 돈 것은 사고가 아니다 — 처음 「지금 실행」 을 누르면 된다.
-  never: { label: '아직 안 돌았음', tone: 'neutral' },
+  never: { label: '실행 전', tone: 'neutral' },
   // 초안도 사고가 아니다 — 정의 판을 켜기 전까지 안 돌 뿐이다(실행도 서버가 거절한다).
-  draft: { label: '초안(꺼짐)', tone: 'neutral' },
+  draft: { label: '초안(미사용)', tone: 'neutral' },
 }
 
 /** 중계의 대상 SP — 지금 닿나. */
@@ -178,11 +178,11 @@ const RELAY_TARGET: Record<string, { label: string; tone: Tone }> = {
 const RELAY_VERSION: Record<string, { label: string; tone: Tone }> = {
   // 초안은 나쁨이 아니다 — 시험해 보고 켜면 된다.
   draft: { label: '초안', tone: 'neutral' },
-  active: { label: '켜짐', tone: 'good' },
-  // 내려 둔 판은 이력이다 — 다시 켤 수 있다.
-  retired: { label: '내려 둠', tone: 'neutral' },
+  active: { label: '사용 중', tone: 'good' },
+  // 사용을 마친 판은 이력이다 — 다시 사용할 수 있다.
+  retired: { label: '사용 종료', tone: 'neutral' },
   // 버린 초안도 사고가 아니다 — 치운 것이다. 목록에는 남되 다시 켜지 않는다.
-  discarded: { label: '버림', tone: 'neutral' },
+  discarded: { label: '폐기', tone: 'neutral' },
 }
 
 /** 레시피 · 정의 판의 시험 — 미해결 없이 다 바뀌었나, 원천 · 대상에 닿았나. */

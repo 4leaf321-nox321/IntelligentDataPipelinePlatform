@@ -280,8 +280,8 @@ def _check(db: Session, slug: str, body: Any) -> tuple[dict[str, Any], list[str]
     if "recipe" in body:
         body.pop("recipe")
         problems.append(
-            "recipe 칸은 뺐습니다 — DB 의 정의는 레시피 판을 씁니다(켜진 판이 없으면 "
-            "같은 slug 의 정의 파일의 레시피)."
+            "recipe 칸은 제외했습니다 — DB 의 정의는 레시피 판을 사용합니다(사용 중인 판이 "
+            "없으면 같은 slug 의 정의 파일의 레시피)."
         )
     unknown = sorted(set(body) - TOP_KEYS)
     if unknown:
@@ -303,25 +303,25 @@ def _check(db: Session, slug: str, body: Any) -> tuple[dict[str, Any], list[str]
     try:
         guard.check_source(kind, spec, allowed)
     except AppError as failure:
-        problems.append(f"원천: {failure.message} — 시험 · 실행 전에 풀어야 합니다.")
+        problems.append(f"원천: {failure.message} — 시험 · 실행 전에 해결해야 합니다.")
     try:
         guard.check_target(dict(body["target"]), allowed)
     except AppError as failure:
-        problems.append(f"대상: {failure.message} — 시험 전에 풀어야 합니다.")
+        problems.append(f"대상: {failure.message} — 시험 전에 해결해야 합니다.")
 
     running = [one for one in services.catalog(db) if not one.draft]
     for one in (other for other in running if other.slug == slug):
         if one.source and one.source != source:
             problems.append(
-                f"source 가 지금 도는 정의({one.origin})의 {one.source!r} 와 다릅니다 — 대상 "
-                "타입의 잠금(managed_by)과 어긋나 적재가 거절됩니다."
+                f"source 가 지금 사용 중인 정의({one.origin})의 {one.source!r} 와 다릅니다 — "
+                "대상 타입의 잠금(managed_by)과 어긋나 적재가 거절됩니다."
             )
     targets = {one.target_server for one in running}
     server = str(dict(body["target"]).get("server") or "").rstrip("/")
     if targets and server not in targets:
         problems.append(
-            f"대상 {server} 는 지금 도는 어느 정의도 쓰지 않는 곳입니다 — 등록된 SP "
-            "인스턴스가 맞는지 보세요."
+            f"대상 {server} 는 지금 사용 중인 어느 정의도 보내지 않는 곳입니다 — 등록된 SP "
+            "인스턴스가 맞는지 확인하세요."
         )
     return body, problems
 
@@ -367,14 +367,14 @@ def activate(
     if getattr(request.state, "token_scopes", None) is not None:
         raise Forbidden(
             code("RELAY", 14),
-            "정의를 켜는 일은 화면에서 사람이 합니다 — 토큰(MCP)으로는 켜지 않습니다. 시험 "
-            "결과를 화면에서 보고 「켜기」 를 누르세요.",
+            "정의 판의 사용은 화면에서 사람이 정합니다 — 토큰(MCP)으로는 사용할 수 없습니다. "
+            "시험 결과를 화면에서 확인하고 「사용」 을 클릭하세요.",
         )
     row = get(db, slug, version)
     if row.status == "active":
         return row
     if row.status == "discarded":
-        raise Conflict(code("RELAY", 17), f"버린 초안은 켜지 않습니다 — 판 {version}.")
+        raise Conflict(code("RELAY", 17), f"폐기한 초안은 사용할 수 없습니다 — 판 {version}.")
     try:
         check_body(row.body)
     except DefinitionError as failure:
@@ -423,7 +423,7 @@ def _target_check(target: dict[str, Any], env: Any, wanted: list[str]) -> dict[s
     token = env.get(name, "")
     if not token:
         out["token"] = (
-            f"환경 변수 {name} 가 비어 있습니다 — 이 서버에 대상 토큰을 넣어야 합니다."
+            f"환경 변수 {name} 가 비어 있습니다 — 이 서버에 대상 토큰을 설정해야 합니다."
         )
         return out
     status_code, schema = services.probe_http(server, token, "/api/ontology/schema")
@@ -447,7 +447,7 @@ def _recipe_for(
         return recipes.get(db, slug, recipe_version).body, f"레시피 판 {recipe_version}"
     row = recipes.active(db, slug)
     if row is not None:
-        return row.body, f"켜진 레시피 판 {row.version}"
+        return row.body, f"사용 중인 레시피 판 {row.version}"
     root = get_settings().relay_pipelines_dir
     for path in find(root) if root.is_dir() else []:
         one = describe(path)
@@ -492,9 +492,9 @@ def trial(
         shared = sorted(set(wanted) & set(other.types))
         if shared:
             out["problems"].append(
-                f"{', '.join(shared)} 을(를) 이미 {other.slug} 가 같은 대상에 넣습니다 — "
-                "한 타입을 두 길로 채우면 서로가 안 보낸 것을 지움(무덤)으로 냅니다. 한 "
-                "파이프라인만 켜세요."
+                f"{', '.join(shared)} 을(를) 이미 {other.slug} 가 같은 대상에 보냅니다 — "
+                "한 타입을 두 길로 채우면 서로 상대가 보낸 것을 삭제합니다. 한 "
+                "파이프라인만 사용하세요."
             )
 
     try:
@@ -535,8 +535,8 @@ def trial(
     }
     if recipe_body is None:
         out["recipe"] = {
-            "note": "레시피가 아직 없습니다 — recipe_draft_save 로 지은 뒤 recipe_version 을 "
-            "주고 다시 시험하세요."
+            "note": "레시피가 아직 없습니다 — recipe_draft_save 로 작성한 뒤 recipe_version "
+            "을 지정해 다시 시험하세요."
         }
         return out
     mirror = Mirror()
@@ -558,7 +558,8 @@ def discard(db: Session, user: User, slug: str, version: int) -> RelayDefinition
     row = get(db, slug, version)
     if row.status != "draft":
         raise Conflict(
-            code("RELAY", 17), f"초안만 버립니다 — 정의 판 {version} 은 {row.status} 입니다."
+            code("RELAY", 17),
+            f"초안만 폐기할 수 있습니다 — 정의 판 {version} 은 {row.status} 입니다.",
         )
     row.status = "discarded"
     audit.record(

@@ -48,12 +48,12 @@ function TrialNote({ trial }: { trial: RecipeTrial | undefined }) {
   if (!trial.clean) {
     return (
       <p className="text-destructive">
-        시험에서 막혔습니다 — 켜면 다음 실행이 멈춥니다. 고친 판을 기다리는 편이 낫습니다.
+        시험에서 막혔습니다 — 사용하면 다음 실행이 멈춥니다. 수정한 판을 기다리는 편이 낫습니다.
       </p>
     )
   }
   const line = countsLine(trial.would_send)
-  return <p>시험은 깨끗했습니다{line ? ` — 켜면 보낼 것: ${line}` : ''}.</p>
+  return <p>시험은 깨끗했습니다{line ? ` — 사용하면 보낼 것: ${line}` : ''}.</p>
 }
 
 export function RecipeVersions({
@@ -120,17 +120,17 @@ export function RecipeVersions({
     <section className="space-y-3">
       <h2 className="text-base font-semibold">레시피 판</h2>
       <p className="text-muted-foreground text-sm">
-        AI(MCP)가 레시피 초안을 짓고 시험합니다 — 켜는 일은 사람이 여기서 합니다. 켜면 다음
-        실행부터 그 판이 돕니다. 지금 도는 것:{' '}
+        AI(MCP)가 레시피 초안을 작성하고 시험합니다 — 사용 여부는 사람이 여기서 정합니다.
+        사용하면 다음 실행부터 그 판으로 변환합니다. 현재 레시피:{' '}
         <span className="text-foreground font-medium">
-          {recipeLabel === '파일' ? '정의 파일의 레시피(켜진 판 없음)' : recipeLabel}
+          {recipeLabel === '파일' ? '정의 파일의 레시피(사용 중인 판 없음)' : recipeLabel}
         </span>
       </p>
       <ErrorNotice error={versions.error ?? failed} />
       {versions.data && list.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          아직 판이 없습니다 — 정의 파일의 레시피가 돕니다. AI(MCP)가 초안을 지으면 여기 한 줄이
-          생깁니다.
+          아직 판이 없습니다 — 정의 파일의 레시피를 사용합니다. AI(MCP)가 초안을 작성하면 여기 한
+          줄이 생깁니다.
         </p>
       )}
       {list.length > 0 && (
@@ -140,9 +140,9 @@ export function RecipeVersions({
               <TableHead>판</TableHead>
               <TableHead>상태</TableHead>
               <TableHead>메모</TableHead>
-              <TableHead>지은 곳</TableHead>
+              <TableHead>작성 경로</TableHead>
               <TableHead>만든 시각</TableHead>
-              <TableHead>켠 시각</TableHead>
+              <TableHead>사용 시작</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -187,28 +187,28 @@ export function RecipeVersions({
                       {one.status !== 'active' && !discarded && (
                         <Button
                           size="xs"
-                          aria-label={`판 ${one.version} 켜기`}
+                          aria-label={`판 ${one.version} 사용`}
                           disabled={busy !== null}
                           onClick={() => {
                             setConfirming(one)
                             setAsking(true)
                           }}
                         >
-                          켜기
+                          사용
                         </Button>
                       )}
                       {one.status === 'draft' && (
                         <Button
                           size="xs"
                           variant="ghost"
-                          aria-label={`판 ${one.version} 버리기`}
+                          aria-label={`판 ${one.version} 폐기`}
                           disabled={busy !== null}
                           onClick={() => {
                             setDiscarding(one)
                             setAskingDiscard(true)
                           }}
                         >
-                          버리기
+                          폐기
                         </Button>
                       )}
                       <Button
@@ -247,34 +247,35 @@ export function RecipeVersions({
 
       <ConfirmDialog
         open={asking}
-        title={`판 ${confirming?.version ?? ''} 을 켭니다`}
+        title={`판 ${confirming?.version ?? ''} 을 사용합니다`}
         description={
           <div className="space-y-2">
             <p>
-              다음 실행부터 이 판이 돕니다. 지금 도는 것({recipeLabel})은 내려 둡니다 — 내려 둔
-              판은 언제든 다시 켤 수 있습니다. 켜는 것만으로는 대상에 아무것도 안 갑니다.
+              다음 실행부터 이 판으로 변환합니다. 지금 사용 중인 것({recipeLabel})은 사용 종료로
+              바뀝니다 — 사용 종료한 판은 언제든 다시 사용할 수 있습니다. 사용하는 것만으로는
+              대상에 아무것도 보내지 않습니다.
             </p>
             <TrialNote trial={confirming ? trials[confirming.version] : undefined} />
           </div>
         }
-        confirmLabel="켜기"
+        confirmLabel="사용"
         onConfirm={() => activate(confirming!.version)}
         onClose={() => setAsking(false)}
       />
 
       <ConfirmDialog
         open={askingDiscard}
-        title={`판 ${discarding?.version ?? ''} 을 버립니다`}
+        title={`판 ${discarding?.version ?? ''} 을 폐기합니다`}
         description={
           <div className="space-y-2">
             <p>
-              초안 판 {discarding?.version} 을 버립니다 — 되돌릴 수 없습니다. 판 번호는 다시 쓰지
-              않습니다. 버린 판은 목록에 「버림」 으로 남고 본문은 볼 수 있습니다.
+              초안 판 {discarding?.version} 을 폐기합니다 — 복원할 수 없습니다. 판 번호는 다시
+              사용하지 않습니다. 폐기한 판은 목록에 「폐기」 로 남고 본문은 볼 수 있습니다.
             </p>
-            <p>지금 도는 것({recipeLabel})은 그대로 돕니다.</p>
+            <p>지금 사용 중인 것({recipeLabel})은 바뀌지 않습니다.</p>
           </div>
         }
-        confirmLabel="버리기"
+        confirmLabel="폐기"
         destructive
         onConfirm={() => discard(discarding!.version)}
         onClose={() => setAskingDiscard(false)}

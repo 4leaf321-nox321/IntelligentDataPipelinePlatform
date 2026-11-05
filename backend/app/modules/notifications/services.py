@@ -38,6 +38,9 @@ RELAY_DRIFT = "relay.drift"
 것은 새 알림이 아니다."""
 RELAY_DRIFT_RESOLVED = "relay.drift.resolved"
 """어긋남 · 대조 실패 뒤 대상이 다시 같다."""
+RELAY_PLAN_WAITING = "relay.plan.waiting"
+"""적용할 수 있는 계획이 새로 올라와 사람의 적용을 기다린다(자동 적용이 꺼졌거나 기준을 못
+넘었다). 생길 때 한 번 — 같은 계획을 다음 실행이 다시 올려도 새 알림이 아니다."""
 
 
 def notify(

@@ -122,14 +122,14 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Workflow,
         to: '/relay/pipelines',
         summary:
-          '원천 + 레시피 + 대상 + 주기 — 칸 대응 표, 실행 이력(받은 건수 · 바뀐 객체 · 무덤 · ' +
+          '원천 + 레시피 + 대상 + 주기 — 칸 대응 표, 실행 이력(받은 건수 · 바뀐 객체 · 삭제 · ' +
           '미해결 · 대상의 계획 링크), 지금 실행.',
       },
       {
         label: '원천 시스템',
         icon: Database,
         to: '/relay/sources',
-        summary: 'PLM · MES 같은 레거시 시스템과 그 엔드포인트 — 인증 방식(비밀은 안 보임) · 연결 상태.',
+        summary: 'PLM · MES 같은 레거시 시스템과 그 엔드포인트 — 인증 방식(비밀은 표시하지 않음) · 연결 상태.',
       },
       {
         label: '대상 인스턴스',

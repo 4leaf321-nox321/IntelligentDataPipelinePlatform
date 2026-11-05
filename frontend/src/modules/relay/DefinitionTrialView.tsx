@@ -129,7 +129,7 @@ function SourcePart({ source }: { source: DefinitionSourceCheck | undefined }) {
       ) : (
         <>
           <p className="text-sm">
-            받은 줄 {source.rows.toLocaleString()} · 지움 표시 {source.deleted.toLocaleString()}
+            받은 줄 {source.rows.toLocaleString()} · 삭제 표시 {source.deleted.toLocaleString()}
             {source.watermark && (
               <>
                 {' '}
@@ -139,14 +139,14 @@ function SourcePart({ source }: { source: DefinitionSourceCheck | undefined }) {
           </p>
           {source.capped ? (
             <p className="text-sm text-amber-700 dark:text-amber-400">
-              원천이 커서 앞 {source.capped.toLocaleString()}줄만 받아 봤습니다 — 「켜면 보낼 것」 은
-              세지 않았습니다(덜 받은 채 견주면 나머지가 다 지움으로 보입니다).
+              원천이 커서 앞 {source.capped.toLocaleString()}줄만 받아 봤습니다 —
+              「사용하면 보낼 것」 은 세지 않았습니다(덜 받은 채 견주면 나머지가 다 삭제로 보입니다).
             </p>
           ) : (
             !source.complete && (
               <p className="text-sm text-amber-700 dark:text-amber-400">
-                마지막 쪽까지 못 받았습니다 — 실행이면 워터마크를 저장하지 않고, 안 온 것을 지운
-                것으로 보지도 않습니다.
+                마지막 쪽까지 못 받았습니다 — 실행이면 워터마크를 저장하지 않고, 받지 못한 것을
+                삭제된 것으로 보지도 않습니다.
               </p>
             )
           )}
@@ -234,7 +234,7 @@ export function DefinitionTrialView({ trial }: { trial: DefinitionTrial }) {
 
       {problems.length > 0 && (
         <Alert variant="destructive">
-          <AlertTitle>정의의 문제 {problems.length}건 — 고치기 전에는 돌지 않습니다</AlertTitle>
+          <AlertTitle>정의의 문제 {problems.length}건 — 수정하기 전에는 실행되지 않습니다</AlertTitle>
           <AlertDescription>
             <ul className="list-disc pl-4">
               {problems.map((one) => (
@@ -254,8 +254,9 @@ export function DefinitionTrialView({ trial }: { trial: DefinitionTrial }) {
         </div>
       ) : trial.recipe ? (
         <p className="border-t pt-3 text-sm text-amber-700 dark:text-amber-400">
-          레시피가 아직 없습니다 — 켜도 레시피 판을 켜기 전에는 돌지 않습니다. AI(MCP)가 레시피 판
-          초안을 지으면 그 판을 「시험에 쓸 레시피」 에서 골라 다시 시험하세요.
+          레시피가 아직 없습니다 — 사용해도 레시피 판을 사용하기 전에는 실행되지 않습니다.
+          AI(MCP)가 레시피 판 초안을 작성하면 그 판을 「시험에 사용할 레시피」 에서 선택해 다시
+          시험하세요.
         </p>
       ) : (
         trial.source &&

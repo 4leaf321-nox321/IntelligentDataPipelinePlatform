@@ -96,7 +96,7 @@ describe('지도 읽기', () => {
 
   it('초안도 상태 거르기에 서버의 말로 서고, 거르면 그 길만 남는다', () => {
     const drafted = buildGraph(withDraft(sampleMap()))
-    expect(statusOptions(drafted)).toContainEqual({ value: 'draft', label: '초안(꺼짐)' })
+    expect(statusOptions(drafted)).toContainEqual({ value: 'draft', label: '초안(미사용)' })
     const visible = visibleIds(drafted, { ...NO_FILTER, status: 'draft' })!
     expect(visible.has('pipeline:plm-parts')).toBe(true)
     expect(visible.has('endpoint:parts')).toBe(true)
@@ -110,13 +110,13 @@ describe('지도 읽기', () => {
     expect(countsLine(undefined)).toBe('')
     expect(
       countsLine({ objects: { a: { created: 2, changed: 1, unchanged: 9, gone: 0 }, b: { created: 1, changed: 0, gone: 1 } } }),
-    ).toBe('새 3 · 바뀜 1 · 무덤 1')
+    ).toBe('생성 3 · 변경 1 · 삭제 1')
     expect(
       countsLine({
         objects: { a: { created: 1, changed: 0, gone: 0 } },
         relations: { r: { created: 2, changed: 0, gone: 1 } },
       }),
-    ).toBe('새 1 · 바뀜 0 · 무덤 0 (관계 새 2 · 바뀜 0 · 무덤 1)')
+    ).toBe('생성 1 · 변경 0 · 삭제 0 (관계 생성 2 · 변경 0 · 삭제 1)')
   })
 })
 

@@ -441,7 +441,7 @@ def resync(
     if state.pending is not None:
         return Outcome(
             "waiting",
-            f"적용을 기다리는 계획({state.pending.job_id[:8]})이 있어 보정 계획을 올리지 "
+            f"적용을 기다리는 계획({state.pending.job_id[:8]})이 있어 보정 계획을 생성하지 "
             "않았습니다 — 그 계획을 적용하거나 다시 실행한 뒤 대조하세요.",
         )
     report = compare(pipeline, work, reader, submit)
@@ -531,7 +531,9 @@ def resync(
     try:
         plan = submit.preview(folder)
     except SubmitError as failure:
-        return Outcome("blocked", f"{report.summary()} 보정 계획을 못 올렸습니다: {failure}")
+        return Outcome(
+            "blocked", f"{report.summary()} 보정 계획을 생성하지 못했습니다: {failure}"
+        )
     state = work.load_state()
     state.pending = Pending(
         run=report.baseline,

@@ -26,7 +26,7 @@ def check(schedule: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(schedule, dict) or len(schedule) != 1:
         raise ScheduleError(
-            'schedule 은 {"daily_at": "HH:MM"} 또는 {"every_minutes": N} 하나다.'
+            'schedule 은 {"daily_at": "HH:MM"} 또는 {"every_minutes": N} 중 하나입니다.'
         )
     if "daily_at" in schedule:
         if not _HHMM.match(str(schedule["daily_at"])):
@@ -37,7 +37,9 @@ def check(schedule: Any) -> dict[str, Any] | None:
     if "every_minutes" in schedule:
         minutes = schedule["every_minutes"]
         if not isinstance(minutes, int) or minutes < 5:
-            raise ScheduleError("every_minutes 는 5 이상의 정수다(타이머가 5분마다 본다).")
+            raise ScheduleError(
+                "every_minutes 는 5 이상의 정수입니다(타이머가 5분마다 확인합니다)."
+            )
         return {"every_minutes": minutes}
     raise ScheduleError(f"모르는 일정입니다: {', '.join(schedule)}")
 

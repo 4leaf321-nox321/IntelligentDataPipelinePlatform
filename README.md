@@ -98,7 +98,7 @@ cd backend
 사람이 화면에서. 붙이는 법은 화면 「내 정보 › AI 도구 연결」.
 
 정의는 두 곳에 있을 수 있다 — `RELAY_PIPELINES_DIR` 의 파일, 그리고 DB 의 **정의 판**(MCP 가 지은 것). 같은
-slug 면 켜진 판이 이긴다. AI 요청이 닿을 수 있는 곳은 `RELAY_SOURCE_HOSTS`(주소) · `RELAY_FILE_ROOTS`(파일
+slug 면 사용 중인 판이 이긴다. AI 요청이 닿을 수 있는 곳은 `RELAY_SOURCE_HOSTS`(주소) · `RELAY_FILE_ROOTS`(파일
 폴더, 운영 `<DATA_DIR>/relay/drop`)로 막는다.
 
 ## SP 정제 도구의 판 올리기

@@ -55,8 +55,8 @@ STATUS_LABEL = {
     "blocked": "멈춤",
     "failed": "실패",
     "broken": "정의 오류",
-    "never": "아직 안 돌았음",
-    "draft": "초안(꺼짐)",
+    "never": "실행 전",
+    "draft": "초안(미사용)",
 }
 
 
@@ -94,7 +94,7 @@ def catalog(db: Session | None = None) -> list[Described]:
             if recipe is not None:
                 recipes.with_recipe(one, recipe.body, f"판 {recipe.version}")
             elif one.recipe is None and one.origin != "파일" and not one.draft:
-                one.problems.append("레시피가 없습니다 — 레시피 판을 짓고 켜세요.")
+                one.problems.append("레시피가 없습니다 — 레시피 판을 작성하고 사용하세요.")
     roots = settings.relay_file_root_paths
     for one in found:
         if one.adapter_kind == "file" and not one.endpoint.startswith(guard.REMOTE):
@@ -343,7 +343,8 @@ def target_schema(
     if not token:
         return (
             {},
-            f"대상 토큰({found.target_token_env})을 못 풀어 대상의 정의와 견주지 못했습니다.",
+            f"대상 토큰({found.target_token_env})을 읽지 못해 대상의 정의와 견주지 "
+            "못했습니다.",
         )
     status_code, schema = probe_http(found.target_server, token, "/api/ontology/schema")
     if status_code != 200 or not isinstance(schema, dict):

@@ -64,7 +64,7 @@ def _secret(spec: dict[str, Any], where: str, env: Mapping[str, str]) -> str:
     """`token_env` 의 값. 정의에 `token` 을 그대로 적었으면 거절한다 — 정의 파일이 퍼지는 날
     비밀도 같이 퍼진다."""
     if "token" in spec:
-        raise DefinitionError(f"{where}: 비밀은 정의에 적지 않습니다 — token_env 를 쓰세요.")
+        raise DefinitionError(f"{where}: 비밀은 정의에 적지 않습니다 — token_env 를 적으세요.")
     name = str(spec.get("token_env") or "")
     if not name:
         return ""
@@ -192,7 +192,7 @@ def check_body(body: dict[str, Any]) -> tuple[str, str]:
     check_adapter(dict(body.get("adapter") or {}))
     target = dict(body.get("target") or {})
     if "token" in target:
-        raise DefinitionError("target: 비밀은 정의에 적지 않습니다 — token_env 를 쓰세요.")
+        raise DefinitionError("target: 비밀은 정의에 적지 않습니다 — token_env 를 적으세요.")
     if not target.get("server") or not target.get("token_env"):
         raise DefinitionError("target 의 server · token_env 가 필요합니다.")
     from relay_core.autoapply import AutoApplyError, check
@@ -221,7 +221,7 @@ def load_body(
     if recipe is None:
         if base is None or not body.get("recipe"):
             raise DefinitionError(
-                "레시피가 없습니다 — 레시피 판을 짓고 켜거나 정의에 recipe 를 적으세요."
+                "레시피가 없습니다 — 레시피 판을 작성해 사용하거나 정의에 recipe 를 적으세요."
             )
         recipe = (base / str(body["recipe"])).resolve()
     if not recipe.is_file():

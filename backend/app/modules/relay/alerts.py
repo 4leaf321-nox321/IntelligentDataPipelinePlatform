@@ -3,10 +3,14 @@
 타이머가 밤에 돌린 실행 · 대조는 시킨 사람이 없어 작업 알림(`jobs.announce`)이 아무에게도 가지
 않는다 — 실패해도 누가 홈 화면의 「남은 일」 을 열기 전까지 모른다(2026-11-05).
 
-두 갈래를 따로 본다.
+세 갈래를 따로 본다.
 
     실행   실행 · 적용 작업 — `failed`(작업 실패) · `blocked`(멈춤) · `ok`
     대조   대조 작업, 보정 계획을 적용한 뒤의 다시 대조 — `same` · `drift` · `problem`
+    계획   적용할 수 있는 대기 계획이 있나 — `waiting` · `none`. 자동 적용은 기본이 꺼져 있어
+           밤의 실행이 올린 계획은 사람을 기다린다 — 알리지 않으면 대상이 옛 값인 채로 남는다.
+           생길 때만 알린다(적용돼 없어지는 것은 사람이 한 일이다). 오류가 있는 계획은
+           적용할 수 없으므로 「실행 멈춤」 이 대신 말한다.
 
 **갈래의 상태가 바뀔 때만** 알린다. 지난번 상태는 작업 폴더의 `alerts.json` 에 둔다(이중화면
 공용 폴더). 매일 밤 같은 실패를 알리면 그 종은 곧 안 읽힌다. 어긋난 건수만 바뀐 것(3 → 5)도 새
@@ -18,6 +22,9 @@
 """
 
 from __future__ import annotations
+
+import json
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -31,7 +38,7 @@ from relay_core.state import Workdir
 FILE = "alerts.json"
 LOCK = "datarelay:relay_alert"
 #: 알린 적이 없으면 좋은 상태로 본다 — 첫 실행이 실패하면 그것부터 알린다.
-GOOD = {"run": "ok", "reconcile": "same"}
+GOOD = {"run": "ok", "reconcile": "same", "plan": "none"}
 BODY_MAX = 500
 
 
@@ -54,9 +61,48 @@ def _reconcile_state(job: Job, slug: str) -> str | None:
     return services.reconcile_status(services.read_report(slug))
 
 
-def _message(lane: str, state: str, slug: str, job: Job) -> tuple[str, str, str]:
-    """(알림 종류, 제목, 본문)."""
+def _tally(group: dict[str, Any] | None) -> tuple[int, int, int]:
+    rows = [one for one in (group or {}).values() if isinstance(one, dict)]
+
+    def total(key: str) -> int:
+        return sum(int(one.get(key) or 0) for one in rows)
+
+    return total("created"), total("changed"), total("gone")
+
+
+def counts_line(counts: dict[str, Any] | None) -> str:
+    """「생성 3 · 변경 1 · 삭제 0」 — 화면(`countsLine`)과 같은 말. 관계가 움직였으면 뒤에
+    붙인다."""
+    if not counts:
+        return ""
+    made, changed, gone = _tally(counts.get("objects"))
+    line = f"생성 {made} · 변경 {changed} · 삭제 {gone}"
+    r_made, r_changed, r_gone = _tally(counts.get("relations"))
+    if r_made + r_changed + r_gone:
+        line += f" (관계 생성 {r_made} · 변경 {r_changed} · 삭제 {r_gone})"
+    return line
+
+
+def _plan_state(slug: str) -> str:
+    pending = (services.read_state(slug) or {}).get("pending") or {}
+    return "waiting" if pending and pending.get("ok") else "none"
+
+
+def _message(lane: str, state: str, slug: str, job: Job) -> tuple[str, str, str] | None:
+    """(알림 종류, 제목, 본문) — 알리지 않는 바뀜이면 None."""
     summary = str((job.result or {}).get("summary") or "")
+    if lane == "plan":
+        if state != "waiting":
+            return None
+        saved = services.read_state(slug) or {}
+        pending = saved.get("pending") or {}
+        what = "보정 계획" if pending.get("origin") == "reconcile" else "계획"
+        # 건수는 그 계획을 만든 이력에 있다 — 대상의 미리 보기 요약(「결과: 괜찮음」)은 무엇이
+        # 바뀌는지 말하지 않는다.
+        made = [one for one in saved.get("history") or [] if one.get("event") == "planned"]
+        line = counts_line(made[-1].get("counts")) if made else ""
+        said = line or str(pending.get("summary") or summary)
+        return notifications.RELAY_PLAN_WAITING, f"{slug} 적용 대기", f"{what} — {said}"
     if lane == "run":
         if state == "failed":
             return notifications.RELAY_RUN_FAILED, f"{slug} 실행 실패", job.error or ""
@@ -85,16 +131,19 @@ def after_job(db: Session, job: Job) -> None:
     reconciled = _reconcile_state(job, slug)
     if reconciled:
         now["reconcile"] = reconciled
-    if not now:
-        return
+    now["plan"] = _plan_state(slug)
     # 이중화의 두 워커가 같은 파이프라인의 두 작업을 함께 끝내도 상태 파일은 하나씩 —
     # 트랜잭션의 자문 잠금(`settle` 의 커밋에서 풀린다).
     db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"{LOCK}:{slug}"})
-    work = Workdir(get_settings().relay_work_dir, slug)
-    seen = {**GOOD, **(work.read_json(FILE) or {})}
+    # 폴더를 미리 만들지 않는다 — 정의가 지워진 파이프라인의 작업이 빈 폴더를 되살리지 않게.
+    file = get_settings().relay_work_dir / slug / FILE
+    seen = {**GOOD, **(json.loads(file.read_text(encoding="utf-8")) if file.is_file() else {})}
     changed = {lane: state for lane, state in now.items() if seen.get(lane) != state}
     for lane, state in changed.items():
-        kind, title, body = _message(lane, state, slug, job)
+        said = _message(lane, state, slug, job)
+        if said is None:
+            continue
+        kind, title, body = said
         notifications.notify_system_admins(
             db,
             kind=kind,
@@ -104,4 +153,4 @@ def after_job(db: Session, job: Job) -> None:
             skip=job.requested_by_id,
         )
     if changed:
-        work.write_json(FILE, {**seen, **now})
+        Workdir(get_settings().relay_work_dir, slug).write_json(FILE, {**seen, **now})

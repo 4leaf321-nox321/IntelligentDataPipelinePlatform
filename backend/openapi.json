@@ -7602,7 +7602,7 @@
           "auto_apply_label": {
             "type": "string",
             "title": "Auto Apply Label",
-            "default": "끔"
+            "default": "미사용"
           },
           "definition_label": {
             "type": "string",

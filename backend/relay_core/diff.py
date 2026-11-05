@@ -142,7 +142,8 @@ def delta(
     목록을 읽고, PLM 값으로 덮기로 정했으면 그 한 번만 `overwrite` 로 다시 미리 본다."""
     if not source.strip():
         raise ValueError(
-            "source(원천 이름 — plm · mes …)가 필요합니다. 무덤은 source 묶음에만 있다."
+            "source(원천 이름 — plm · mes …)가 필요합니다. 삭제 표식은 source 묶음에만 "
+            "있습니다."
         )
     if out.exists():
         raise FileExistsError(f"실행 폴더가 이미 있습니다: {out}")

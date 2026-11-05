@@ -57,7 +57,7 @@ function Legend() {
       </li>
       <li className="flex items-center gap-1">{line('text-destructive')}실패 · 정의 오류</li>
       <li className="flex items-center gap-1">
-        {line('text-muted-foreground/60', true)}초안(꺼짐 — 정의 판을 켜야 돕니다)
+        {line('text-muted-foreground/60', true)}초안(미사용 — 정의 판을 사용해야 실행됩니다)
       </li>
       <li className="flex items-center gap-1">
         {line('text-muted-foreground/40', true)}그 너머(이 플랫폼이 보내지 않음)
@@ -101,11 +101,11 @@ export default function RelayMapPage() {
     <div className="space-y-4">
       <PageHeader
         title="연결 지도"
-        description="원천 시스템의 API 가 어느 파이프라인을 거쳐 어느 Standard Platform 의 무슨 타입으로 가는지 봅니다. 정의에서 매번 계산합니다 — 파이프라인을 누르면 칸 대응 표와 실행 이력이 열립니다."
+        description="원천 시스템의 API 가 어느 파이프라인을 거쳐 어느 Standard Platform 의 무슨 타입으로 가는지 봅니다. 정의에서 매번 계산합니다 — 파이프라인을 클릭하면 칸 대응 표와 실행 이력이 열립니다."
         actions={
           <Button size="sm" variant="outline" onClick={map.reload} disabled={map.loading}>
             <RefreshCw className={map.loading ? 'animate-spin' : undefined} />
-            다시 읽기
+            새로 고침
           </Button>
         }
       />
@@ -137,9 +137,10 @@ export default function RelayMapPage() {
           hint={
             <>
               정의 파일(<span className="font-mono">relay-pipeline/1</span>)은 서버의 파이프라인
-              폴더(<span className="font-mono">RELAY_PIPELINES_DIR</span>)에 둡니다. 거기 넣고{' '}
-              「다시 읽기」 를 누르면 여기 그려집니다 — <span className="font-mono">*.example.json</span>{' '}
-              은 본보기라 빠집니다. AI(MCP)가 정의 판 초안을 지어도 여기 「초안(꺼짐)」 으로 그려집니다.
+              폴더(<span className="font-mono">RELAY_PIPELINES_DIR</span>)에 둡니다. 거기 추가하고{' '}
+              「새로 고침」 을 클릭하면 여기 그려집니다 —{' '}
+              <span className="font-mono">*.example.json</span> 은 본보기라 제외됩니다. AI(MCP)가
+              정의 판 초안을 작성해도 여기 「초안(미사용)」 으로 그려집니다.
             </>
           }
         />
@@ -189,7 +190,7 @@ export default function RelayMapPage() {
             </select>
             {isFiltered(filter) && (
               <Button size="sm" variant="ghost" onClick={() => setParams({}, { replace: true })}>
-                거르기 풀기
+                거르기 해제
               </Button>
             )}
             <span className="text-muted-foreground ml-auto text-xs">
@@ -204,7 +205,7 @@ export default function RelayMapPage() {
           {shownPipelines.length === 0 ? (
             <EmptyState
               title="거르기에 걸리는 파이프라인이 없습니다"
-              hint="원천 시스템 · 대상 · 상태 중 하나를 「전부」 로 돌리거나 「거르기 풀기」 를 누르세요."
+              hint="원천 시스템 · 대상 · 상태 중 하나를 「전부」 로 바꾸거나 「거르기 해제」 를 클릭하세요."
             />
           ) : (
             <div className="bg-muted/20 h-[70vh] min-h-[480px] overflow-hidden rounded-md border">

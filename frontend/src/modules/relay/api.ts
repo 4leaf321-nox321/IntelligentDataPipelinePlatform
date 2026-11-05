@@ -233,18 +233,18 @@ const tally = (group: Record<string, Record<string, number>> | undefined) => {
   return sum
 }
 
-/** 「새 3 · 바뀜 1 · 무덤 0」 — 관계가 움직였으면 뒤에 따로 붙인다. 건수가 없으면 빈 글. */
+/** 「생성 3 · 변경 1 · 삭제 0」 — 관계가 움직였으면 뒤에 따로 붙인다. 건수가 없으면 빈 글. */
 export function countsLine(counts: RunCounts | undefined | null): string {
   if (!counts || Object.keys(counts).length === 0) return ''
   const objects = tally(counts.objects)
-  const line = `새 ${objects.created} · 바뀜 ${objects.changed} · 무덤 ${objects.gone}`
+  const line = `생성 ${objects.created} · 변경 ${objects.changed} · 삭제 ${objects.gone}`
   const relations = tally(counts.relations)
   if (relations.created + relations.changed + relations.gone === 0) return line
-  return `${line} (관계 새 ${relations.created} · 바뀜 ${relations.changed} · 무덤 ${relations.gone})`
+  return `${line} (관계 생성 ${relations.created} · 변경 ${relations.changed} · 삭제 ${relations.gone})`
 }
 
 /**
- * 레시피의 판 하나 — draft(초안) · active(켜짐) · retired(내려 둠) · discarded(버림). 새것이 먼저
+ * 레시피의 판 하나 — draft(초안) · active(사용 중) · retired(사용 종료) · discarded(폐기). 새것이 먼저
  * 온다. 버린 판도 목록에 남는다(판 번호는 다시 쓰지 않는다).
  */
 export type RecipeVersion = Schemas['RecipeOut']

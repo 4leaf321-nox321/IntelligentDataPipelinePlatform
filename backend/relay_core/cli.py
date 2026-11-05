@@ -33,14 +33,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("definition", type=Path)
     parser.add_argument("--work", type=Path, default=DEFAULT_WORK)
     parser.add_argument(
-        "--plan", action="store_true", help="reconcile: 어긋난 줄의 보정 계획까지 올린다"
+        "--plan", action="store_true", help="reconcile: 어긋난 줄의 보정 계획까지 생성한다"
     )
     parser.add_argument(
         "--human-edits",
         choices=["keep", "overwrite"],
         default=None,
         help=(
-            "대상 SP 에서 사람이 고친 칸 — keep(기본, 비켜 가고 계획에 적음) · "
+            "대상 SP 에서 사람이 수정한 칸 — keep(기본, 비켜 가고 계획에 적음) · "
             "overwrite(원천 값으로 덮음)"
         ),
     )

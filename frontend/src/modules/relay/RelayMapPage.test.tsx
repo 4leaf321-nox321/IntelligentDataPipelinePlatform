@@ -63,11 +63,11 @@ describe('연결 지도', () => {
     const flow = within(document.querySelector<HTMLElement>('.react-flow')!)
     const card = flow.getByText('plm-parts').closest('[data-testid="relay-node-pipeline"]')!
     expect(card).toHaveClass('border-dashed')
-    expect(within(card as HTMLElement).getByText('초안(꺼짐)')).toHaveClass('bg-muted')
+    expect(within(card as HTMLElement).getByText('초안(미사용)')).toHaveClass('bg-muted')
     // 정상 마디는 점선이 아니다.
     const ok = flow.getByText('plm-tasks').closest('[data-testid="relay-node-pipeline"]')!
     expect(ok).not.toHaveClass('border-dashed')
-    expect(screen.getByText('초안(꺼짐 — 정의 판을 켜야 돕니다)')).toBeInTheDocument()
+    expect(screen.getByText('초안(미사용 — 정의 판을 사용해야 실행됩니다)')).toBeInTheDocument()
   })
 
   it('마지막 대조에서 어긋난 파이프라인은 「어긋남 N건」 — 대조 시각은 풍선 도움말에, 범례도 말한다', async () => {
@@ -100,7 +100,7 @@ describe('연결 지도', () => {
     expect(screen.queryByText('리포트 아카이브')).not.toBeInTheDocument()
     expect(screen.getByText(/파이프라인 1 \/ 3/)).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: '거르기 풀기' }))
+    await userEvent.click(screen.getByRole('button', { name: '거르기 해제' }))
     expect(await screen.findByText('plm-tasks')).toBeInTheDocument()
   })
 

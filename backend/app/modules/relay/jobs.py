@@ -27,10 +27,12 @@ def _load(work: kinds.Work) -> tuple[Described, Pipeline, Workdir]:
     work.progress("정의 읽기", 0, 0)
     found = services.by_slug(slug, work.db)
     if found.draft:
-        raise DefinitionError(f"{slug} 의 정의가 아직 초안입니다 — 화면에서 켜야 돕니다.")
+        raise DefinitionError(
+            f"{slug} 의 정의가 아직 초안입니다 — 화면에서 정의 판을 사용해야 실행됩니다."
+        )
     if found.problems:
         raise DefinitionError(
-            "정의에 문제가 있어 돌지 않습니다: " + " / ".join(found.problems)
+            "정의에 문제가 있어 실행되지 않습니다: " + " / ".join(found.problems)
         )
     # **켜진 레시피 판이 있으면 그것이 돈다** — 없으면 정의 파일의 `recipe`. 정의도 같다 —
     # 켜진 정의 판이 있으면 그것(`found.body`), 없으면 정의 파일.
@@ -58,7 +60,7 @@ def _tidy(folder: Workdir) -> int:
 
 def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
     found, pipeline, folder = _load(work)
-    work.progress("적용" if apply else "받기 · 변환 · 비교 · 미리보기", 0, 0)
+    work.progress("적용" if apply else "받기 · 변환 · 비교 · 미리 보기", 0, 0)
     reconciled = False
     if apply:
         pending = folder.load_state().pending

@@ -9,7 +9,7 @@
  * 계획이 사람을 기다리면(「자동 적용 안 함」) 그 까닭을 줄 아래에 늘어놓는다.
  *
  * 대조(「대조」)는 결과 한 줄과 함께 — 어긋남이 있으면 주의의 배지. 대조가 올린 계획은 원천이 바뀌어
- * 올린 계획과 다른 이름(「보정 계획」)을 쓴다 — 같은 「계획 올림」 이면 원천이 바뀐 줄로 읽힌다.
+ * 올린 계획과 다른 이름(「보정 계획」)을 쓴다 — 같은 「계획 생성」 이면 원천이 바뀐 줄로 읽힌다.
  */
 
 import type { ReactNode } from 'react'
@@ -30,7 +30,7 @@ import {
 import { shownDateTime } from '@/shared/lib/datetime'
 
 const EVENT_LABEL: Record<string, string> = {
-  planned: '계획 올림',
+  planned: '계획 생성',
   applied: '적용',
   blocked: '멈춤',
   nothing: '보낼 것 없음',
@@ -106,7 +106,7 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
             {pending.summary && <p className="text-xs whitespace-pre-line">{pending.summary}</p>}
             {!pending.ok && (
               <p className="text-destructive text-xs">
-                계획에 오류가 있어 적용할 수 없습니다 — 원인을 고치고 다시 실행하세요.
+                계획에 오류가 있어 적용할 수 없습니다 — 원인을 해결한 뒤 다시 실행하세요.
               </p>
             )}
           </div>
@@ -123,7 +123,7 @@ export function PipelineHistory({ detail }: { detail: PipelineDetail }) {
   if (history.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        아직 돈 적이 없습니다 — 시스템 관리자가 「지금 실행」 을 누르면 첫 줄이 생깁니다.
+        아직 실행한 적이 없습니다 — 시스템 관리자가 「지금 실행」 을 클릭하면 첫 줄이 생깁니다.
       </p>
     )
   }

@@ -65,7 +65,7 @@ def _queue(db: Session, user: User, kind: str, params: dict[str, Any]) -> Queued
     if found.draft:
         raise Conflict(
             code("RELAY", 15),
-            f"{found.slug} 의 정의가 아직 초안입니다 — 정의 판을 켜야 돕니다.",
+            f"{found.slug} 의 정의가 아직 초안입니다 — 정의 판을 사용해야 실행됩니다.",
         )
     job = job_services.enqueue(db, kind=kind, params=params, user=user, workspace_id=None)
     db.commit()

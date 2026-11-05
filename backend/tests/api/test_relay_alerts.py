@@ -76,7 +76,7 @@ def test_실행이_나빠질_때와_다시_될_때만_관리자에게_알린다(
             RuntimeError("원천이 안 닿습니다"),
             RuntimeError("원천이 안 닿습니다"),  # 같은 실패가 되풀이돼도 알림은 하나
             Outcome("blocked", "미해결 2줄"),
-            Outcome("planned", "계획을 올렸습니다"),
+            Outcome("planned", "계획을 생성했습니다"),
             Outcome("nothing", "보낼 것이 없습니다"),
         ],
     )
@@ -144,6 +144,7 @@ def test_대조가_어긋나면_한_번_보정을_적용해_같아지면_한_번
     assert bell == [
         ("relay.drift", f"{slug} 대조 실패"),
         ("relay.drift", f"{slug} 대상과 어긋남 1건"),
+        ("relay.plan.waiting", f"{slug} 적용 대기"),  # 보정 계획이 사람을 기다린다
         ("relay.drift.resolved", f"{slug} 대상과 일치"),
     ], bell
 
@@ -169,3 +170,64 @@ def test_작업이_끝나면_지난_실행을_정리한다(
 
     left = sorted(one.name for one in work.path("runs").iterdir())
     assert left == ["20261105T000000000003Z"]
+
+
+def test_적용할_계획이_생길_때_한_번_알리고_적용되면_조용하다(
+    registry: Any, db: Session, admin: Signed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """자동 적용이 꺼져 있으면(기본) 밤의 실행이 올린 계획은 사람을 기다린다 — 홈의 숫자만
+    으로는 누가 열기 전까지 모른다. 오류가 있는 계획은 적용할 수 없으므로 「실행 멈춤」 이
+    말한다."""
+    from app.config import get_settings
+    from relay_core.state import Pending, Workdir
+
+    slug = _slug()
+    _definition(registry, slug)
+    monkeypatch.setenv("RELAY_T_TOKEN", "x")
+    work = Workdir(get_settings().relay_work_dir, slug)
+
+    def planned(ok: bool) -> Outcome:
+        state = work.load_state()
+        state.pending = Pending(
+            run="runs/r", send="sends/s", job_id="j", ok=ok, digest="d",
+            summary="생성 2 · 수정 1", at="",
+        )  # fmt: skip
+        counts = {"objects": {"plm_model": {"created": 2, "changed": 1, "gone": 0}}}
+        state.history.append({"event": "planned", "ok": ok, "counts": counts})
+        work.save_state(state)
+        return Outcome("planned" if ok else "blocked", "계획을 생성했습니다")
+
+    def applied(*_args: Any, **_kwargs: Any) -> Outcome:
+        state = work.load_state()
+        state.pending = None
+        work.save_state(state)
+        return Outcome("applied", "적용했습니다")
+
+    runs = [lambda: planned(True), lambda: planned(True), lambda: planned(True)]
+    runs += [lambda: planned(False)]
+    monkeypatch.setattr(runner, "run", lambda *_a, **_k: runs.pop(0)())
+    monkeypatch.setattr(runner, "apply", applied)
+
+    _timer(db, services.RUN_KIND, slug)  # 계획이 생겼다 → 알림
+    _timer(db, services.RUN_KIND, slug)  # 다음 실행이 같은 자리에 다시 올렸다 → 조용
+    _timer(db, services.APPLY_KIND, slug)  # 사람이 적용했다 → 조용
+    _timer(db, services.RUN_KIND, slug)  # 새 계획 → 알림
+    _timer(db, services.APPLY_KIND, slug)
+    _timer(db, services.RUN_KIND, slug)  # 오류가 있는 계획 → 「실행 멈춤」 만
+
+    bell = _bell(db, admin.email, slug)
+    assert bell == [
+        ("relay.plan.waiting", f"{slug} 적용 대기"),
+        ("relay.plan.waiting", f"{slug} 적용 대기"),
+        ("relay.run.failed", f"{slug} 실행 멈춤"),
+    ], bell
+
+    from app.modules.notifications.models import Notification
+
+    first = db.scalars(
+        select(Notification.body).where(
+            Notification.kind == "relay.plan.waiting",
+            Notification.link == f"/relay/pipelines/{slug}",
+        )
+    ).first()
+    assert first == "계획 — 생성 2 · 변경 1 · 삭제 0"  # 무엇이 바뀌는지 — 대상 요약이 아니라

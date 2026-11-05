@@ -76,6 +76,6 @@ devtools/sandbox_sp/down.sh
 
 datarelay(8081) · MCP(8082) · 샘플 PLM 이 떠 있으면, Claude Desktop(또는 MCP 클라이언트)이 시스템 관리자의
 PAT 로 붙어 `get_guide('adapter')` 의 차례를 돈다: `source_discover`(OData 면 `$metadata` 의 엔티티 셋부터) →
-`pipeline_draft_save` → `pipeline_test` → `recipe_draft_save` → `pipeline_test(recipe_version=N)`. 켜기는 화면
-「파이프라인 › 정의 판」 에서 사람이. 개발에서 AI 요청이 닿는 곳은 `127.0.0.1` · `localhost` · 켜진 정의의 주소,
+`pipeline_draft_save` → `pipeline_test` → `recipe_draft_save` → `pipeline_test(recipe_version=N)`. 판의 사용(「사용」)은 화면
+「파이프라인 › 정의 판」 에서 사람이. 개발에서 AI 요청이 닿는 곳은 `127.0.0.1` · `localhost` · 사용 중인 정의의 주소,
 읽을 수 있는 파일 폴더는 `devtools/` 다(`RELAY_SOURCE_HOSTS` · `RELAY_FILE_ROOTS` 로 바꾼다).

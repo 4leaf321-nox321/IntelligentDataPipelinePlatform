@@ -31,7 +31,7 @@ def test_기준은_켜야_있고_모르는_칸은_거절한다() -> None:
     ):
         with pytest.raises(AutoApplyError):
             check(wrong)
-    assert autoapply.label(None) == "끔"
+    assert autoapply.label(None) == "미사용"
     assert "3번 뒤" in autoapply.label(Policy())
 
 
@@ -82,7 +82,7 @@ def test_변경이_많거나_지움이_있으면_사람에게_넘긴다(tmp_path
     strict = _run(pipeline, work, fake, Policy(after_manual=1, max_changes=0))
     assert strict.status == "planned"
     reasons = work.load_state().history[-1]["reasons"]
-    assert any("기준 0건" in one for one in reasons) and any("지움" in one for one in reasons)
+    assert any("기준 0건" in one for one in reasons) and any("삭제" in one for one in reasons)
 
     # 같은 계획이 기다리는 중 — 다시 돌아도 「waiting」 이라 자동 적용을 다시 보지 않는다
     again = _run(pipeline, work, fake, Policy(after_manual=1, allow_gone=True))

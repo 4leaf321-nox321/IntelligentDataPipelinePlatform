@@ -131,7 +131,7 @@ def test_어댑터가_안_내는_열을_읽는_초안은_저장하되_알린다(
     body["types"][0]["fields"]["region"] = {"column": "REGION"}
     saved = _draft(client, admin.headers, slug, body)
     assert saved.status_code == 201
-    assert saved.json()["problems"] == ["어댑터가 안 내는 열을 읽습니다: REGION"]
+    assert saved.json()["problems"] == ["어댑터가 내지 않는 열을 읽습니다: REGION"]
     wrong = _draft(client, admin.headers, slug, {"format": "x"})
     assert wrong.status_code == 422
 

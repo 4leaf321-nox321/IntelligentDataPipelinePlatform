@@ -121,7 +121,7 @@ def test_새_파이프라인은_초안으로_서고_토큰은_시험까지만(
     saved = _save(client, mcp, slug, _body(slug, drop, recipe="x.table.json"))
     assert saved.status_code == 201, saved.text
     assert saved.json()["version"] == 1
-    assert any("recipe 칸은 뺐습니다" in one for one in saved.json()["problems"])
+    assert any("recipe 칸은 제외했습니다" in one for one in saved.json()["problems"])
 
     nodes = client.get("/api/relay/map", headers=admin.headers).json()["nodes"]
     (pipeline,) = [one for one in nodes if one["kind"] == "pipeline" and one["label"] == slug]
