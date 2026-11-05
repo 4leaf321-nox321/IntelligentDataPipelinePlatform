@@ -69,9 +69,21 @@ def _headers(ctx: Context | None) -> dict[str, str]:
     return out
 
 
+#: 경로에 들어가는 글자 — slug · 판 번호 · 작업 id 는 모두 이 안이다. 도구가 받은 값을
+#: 경로에 끼우므로, `?` · `#` · `%` · `..` 를 허용하면
+#: `pipeline_run(slug="plm-model/apply?")` 처럼 **없는 도구(적용)를 부르는 경로**가 된다 —
+#: AI 는 원천 데이터에 심은 지시에 넘어갈 수 있다(2026-11-06 보안 검토).
+_SAFE_PATH = re.compile(r"(/[A-Za-z0-9_-]+)+")
+
+
 async def _call(
     ctx: Context | None, method: str, path: str, *, body: Any = None, params: Any = None
 ) -> Any:
+    if not _SAFE_PATH.fullmatch(path):
+        raise RelayError(
+            f"경로에 쓸 수 없는 글자가 있습니다: {path!r} — slug 는 영문 · 숫자 · - · _ 만 "
+            "됩니다."
+        )
     async with httpx.AsyncClient(base_url=API, timeout=120, transport=_TRANSPORT) as client:
         got = await client.request(
             method, f"/api{path}", json=body, params=params, headers=_headers(ctx)

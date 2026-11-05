@@ -32,7 +32,7 @@ from app.modules.relay.schemas import (
     TraceOut,
 )
 from app.shared.auth import current_user, require_system_admin
-from app.shared.errors import Conflict, NotFound, code
+from app.shared.errors import Conflict, Forbidden, NotFound, code
 from relay_core.state import Workdir
 
 router = APIRouter(prefix="/relay", tags=["relay"])
@@ -88,8 +88,21 @@ def pipeline_run(
 
 @router.post("/pipelines/{slug}/apply", response_model=QueuedOut, status_code=202)
 def pipeline_apply(
-    slug: str, user: User = Depends(require_system_admin), db: Session = Depends(get_db)
+    slug: str,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
 ) -> QueuedOut:
+    """대기 계획을 대상에 적용한다 — **화면에서 사람만**(ADR 0001 §2). 토큰(MCP · 스크립트
+    · 위임 토큰)으로 온 요청은 거절한다 — 판의 사용과 같다. 적용 도구가 MCP 에 없다는
+    것만으로는 막히지 않는다(토큰으로 이 경로를 바로 부를 수 있었다, 2026-11-06 보안
+    검토)."""
+    if getattr(request.state, "token_scopes", None) is not None:
+        raise Forbidden(
+            code("RELAY", 20),
+            "계획의 적용은 화면에서 사람이 합니다 — 토큰(MCP)으로는 적용할 수 없습니다. "
+            "계획을 화면에서 확인하고 「적용」 을 클릭하세요.",
+        )
     return _queue(db, user, services.APPLY_KIND, {"slug": slug})
 
 
@@ -132,12 +145,19 @@ def pipeline_trace(
     slug: str,
     type_slug: str = Query(min_length=1, max_length=80),
     key: str = Query(min_length=1, max_length=200),
-    _: User = Depends(current_user),
+    user: User = Depends(current_user),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """**거꾸로 보기** — 대상 객체 하나(`type_slug` · `key`)의 값이 어느 원천 행 · 칸 · 레시피
-    규칙에서 왔나, 닿는 관계, 마지막 대조에서의 상태. 읽기만 한다. 못 찾으면 404 와 까닭."""
-    return services.trace_value(db, slug, type_slug, key)
+    규칙에서 왔나, 닿는 관계, 마지막 대조에서의 상태. 읽기만 한다. 못 찾으면 404 와 까닭.
+    **원천 행 · 원래 값은 관리자만** — 레시피가 안 보내는 열까지 원천의 날것이다."""
+    got = services.trace_value(db, slug, type_slug, key)
+    if not user.is_system_admin:
+        got["rows"] = []
+        got["rows_hidden"] = True
+        for one in got["fields"]:
+            one["seen"] = []
+    return got
 
 
 # --- 레시피의 판 — MCP 가 초안 · 시험, 사람이 화면에서 켠다 ------------------------------
@@ -269,7 +289,7 @@ def target_schema(
 ) -> dict[str, Any]:
     """대상 SP 의 정의 — 레시피가 만드는 타입 · 그 칸(자료형 · 고를 값 · 참조 대상)."""
     found = services.by_slug(slug, db)
-    schema, note = services.target_schema(found, services.secrets_env())
+    schema, note = services.target_schema(found, services.secrets_env(), db)
     wanted = set(found.types) | {"plm_project", "plm_task", "plm_model", "plm_test_site"}
     return {
         "target": found.target_name,

@@ -23,15 +23,15 @@ import json
 import os
 import re
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
 from relay_core.adapters.base import SourceAdapter
 from relay_core.adapters.file import FileAdapter, FileSource
 from relay_core.adapters.odata import ODataAdapter, ODataSource
-from relay_core.adapters.rest import Auth, RestAdapter, RestSource
-from relay_core.adapters.xml import XmlAdapter, XmlSource
+from relay_core.adapters.rest import Auth, RestAdapter, RestSource, SourceError
+from relay_core.adapters.xml import XmlAdapter, XmlSource, check_xml
 
 FORMAT = "relay-pipeline/1"
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
@@ -47,7 +47,7 @@ class DefinitionError(ValueError):
 class Target:
     name: str
     server: str
-    token: str
+    token: str = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -105,6 +105,16 @@ def column_default(kind: str) -> Any:
 SECRET_FIELDS = {"dsn", "password", "token", "secret"}
 
 
+#: 숫자 칸의 범위 — 한 번 묻는 데 몇 분씩 묶이거나 끝없이 다시 묻지 않게(탐색 · 시험은 화면
+#: 요청 안에서 돈다).
+BOUNDS: dict[str, tuple[int, int]] = {
+    "timeout": (1, 300),
+    "retries": (1, 10),
+    "page_size": (1, 10_000),
+    "max_pages": (1, 100_000),
+}
+
+
 #: 탐색(`partial`)에서는 없어도 되는 칸 — 무엇이 있는지 보려고 부르는 것이라 아직 모른다.
 DISCOVER_DEFAULTS: dict[str, Any] = {
     "key": "",
@@ -139,6 +149,22 @@ def check_adapter(
             body.setdefault(one, DISCOVER_DEFAULTS[one])
         elif not body.get(one):
             raise DefinitionError(f"adapter.{one} 가 필요합니다.")
+    for name, (low, high) in BOUNDS.items():
+        value = body.get(name, low)
+        if isinstance(value, bool) or not (
+            isinstance(value, int | float) and low <= value <= high
+        ):
+            raise DefinitionError(f"adapter.{name} 은 {low} 이상 {high} 이하여야 합니다.")
+    if kind == "xml":
+        try:
+            check_xml(
+                str(body.get("method") or "GET"),
+                str(body.get("soap_action") or ""),
+                str(body.get("envelope") or ""),
+                str(body.get("content_type") or "text/xml"),
+            )
+        except SourceError as failure:
+            raise DefinitionError(f"adapter: {failure}") from None
     return kind, body
 
 
@@ -182,12 +208,12 @@ def check_body(body: dict[str, Any]) -> tuple[str, str]:
     if body.get("format") != FORMAT:
         raise DefinitionError(f"format 이 {FORMAT} 이어야 합니다.")
     slug = str(body.get("slug") or "")
-    if not _SLUG.match(slug):
+    if not _SLUG.fullmatch(slug):
         raise DefinitionError(
             f"slug 는 소문자로 시작하는 소문자 · 숫자 · '-' 40자 이내: {slug!r}"
         )
     source = str(body.get("source") or "")
-    if not _SOURCE.match(source):
+    if not _SOURCE.fullmatch(source):
         raise DefinitionError(f"source(원천 이름 — plm · mes …)가 맞지 않습니다: {source!r}")
     check_adapter(dict(body.get("adapter") or {}))
     target = dict(body.get("target") or {})

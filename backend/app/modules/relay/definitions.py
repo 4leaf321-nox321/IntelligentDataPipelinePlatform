@@ -225,10 +225,10 @@ def _trim(value: Any, depth: int = 0) -> Any:
     return value
 
 
-def _allowed(db: Session) -> set[str]:
+def _fence(db: Session) -> guard.Fence:
     from app.modules.relay import services
 
-    return guard.allowed_hosts(services.catalog(db))
+    return guard.fence(services.catalog(db))
 
 
 def discover(db: Session, spec: dict[str, Any]) -> dict[str, Any]:
@@ -243,7 +243,7 @@ def discover(db: Session, spec: dict[str, Any]) -> dict[str, Any]:
     except DefinitionError as failure:
         raise _invalid(str(failure)) from failure
     guard.check_env(spec)
-    guard.check_source(kind, checked, _allowed(db))
+    guard.check_source(kind, checked, _fence(db))
     try:
         adapter = build_adapter(
             spec,
@@ -299,13 +299,13 @@ def _check(db: Session, slug: str, body: Any) -> tuple[dict[str, Any], list[str]
     guard.check_env(body)
 
     kind, spec = check_adapter(dict(body["adapter"]))
-    allowed = _allowed(db)
+    fenced = _fence(db)
     try:
-        guard.check_source(kind, spec, allowed)
+        guard.check_source(kind, spec, fenced)
     except AppError as failure:
         problems.append(f"원천: {failure.message} — 시험 · 실행 전에 해결해야 합니다.")
     try:
-        guard.check_target(dict(body["target"]), allowed)
+        guard.check_target(dict(body["target"]), fenced)
     except AppError as failure:
         problems.append(f"대상: {failure.message} — 시험 전에 해결해야 합니다.")
 
@@ -382,7 +382,7 @@ def activate(
     guard.check_env(row.body)
     kind, spec = check_adapter(dict(row.body["adapter"]))
     if kind == "file" and not guard.source_url(kind, spec):
-        guard.check_source(kind, spec, set())  # 파일 폴더의 울타리는 켜는 사람도 넘지 못한다
+        guard.check_source(kind, spec, guard.Fence())  # 파일 폴더는 켜는 사람도 못 넘는다
     before = active(db, slug)
     db.execute(
         update(RelayDefinition)
@@ -471,9 +471,9 @@ def trial(
         raise _invalid(str(failure)) from failure
     guard.check_env(body)
     kind, spec = check_adapter(dict(body["adapter"]))
-    allowed = _allowed(db)
-    guard.check_source(kind, spec, allowed)
-    guard.check_target(dict(body["target"]), allowed)
+    fenced = _fence(db)
+    guard.check_source(kind, spec, fenced)
+    guard.check_target(dict(body["target"]), fenced)
     env = services.secrets_env()
     described = describe_row(row, None)
     out: dict[str, Any] = {"version": version, "problems": list(described.problems)}

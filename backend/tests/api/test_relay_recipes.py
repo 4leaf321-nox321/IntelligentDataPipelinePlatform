@@ -158,3 +158,23 @@ def test_표본과_대상_정의는_시스템_관리자만(
         f"/api/relay/pipelines/{slug}/target-schema", headers=admin.headers
     ).json()
     assert "토큰" in schema["note"]  # 시험 대상에는 토큰이 없다 — 그 까닭을 말한다
+
+
+def test_레시피_판은_서버의_파일을_가리키지_못한다(
+    client: TestClient, admin: Signed, registry: Path
+) -> None:
+    """DB 의 판은 작업 폴더에 옮겨 적혀 도므로 `@../../…` 가 서버의 아무 파일이나 읽고,
+    `ontology` 는 묶음에 실려 대상으로 나간다(2026-11-06 보안 검토)."""
+    slug = _slug()
+    _definition(registry, slug)
+    mcp = _pat(client, admin)
+    keys = copy.deepcopy(RECIPE)
+    field = keys["types"][0]["fields"]["model_kind"]
+    field["match"] = {"keys": "@../../../../etc/passwd"}
+    for body in (keys, {**RECIPE, "ontology": "../../../secret.json"}):
+        got = _draft(client, mcp, slug, body)
+        assert got.status_code == 422, got.text
+        assert got.json()["error"]["code"].endswith("RELAY-0022")
+    by_type = copy.deepcopy(RECIPE)
+    by_type["types"][0]["fields"]["model_kind"]["match"] = {"keys": "plm_kind"}
+    assert _draft(client, mcp, slug, by_type).status_code == 201  # 대상의 타입으로는 된다

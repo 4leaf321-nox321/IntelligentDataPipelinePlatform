@@ -1035,6 +1035,7 @@ describe('파이프라인 상세 · 값의 출처', () => {
       { row: 3, values: { TASK_CODE: 'T200', TASK_NAME: '알파 1차 개발', DUE: '2026.8.1' } },
     ],
     rows_total: 2,
+    rows_hidden: false,
     relations: [{ relation: 'plm_task_of', direction: 'in', other: 'M-0001' }],
     reconcile: { state: 'changed', at: '2026-11-06T03:00:00Z', fields: ['label', 'due'], stale: false },
     problems: [],
@@ -1076,6 +1077,18 @@ describe('파이프라인 상세 · 값의 출처', () => {
     await userEvent.click(box.getByRole('button', { name: '출처 조회' }))
     expect(await box.findByText(/지금 기준을 적용하기 전의 대조입니다/)).toBeInTheDocument()
     expect(box.getByText('대상과 같음')).toBeInTheDocument()
+  })
+
+  it('원천 행을 서버가 뺐으면(관리자 아님) 그렇다고 말한다', async () => {
+    const plain = TRACE.fields.map((one) => ({ ...one, seen: [] }))
+    relayApi.trace.mockResolvedValue({ ...TRACE, rows: [], fields: plain, rows_hidden: true })
+    await mount()
+    const box = within(area())
+    await userEvent.type(box.getByLabelText('식별자'), 'T200')
+    await userEvent.click(box.getByRole('button', { name: '출처 조회' }))
+    expect(await box.findByText(/원천 행 · 원래 값은 시스템 관리자만 봅니다/)).toBeInTheDocument()
+    expect(within(box.getByTestId('trace-field-due')).getByText('관리자만')).toBeInTheDocument()
+    expect(box.queryByText('2026.8.1')).not.toBeInTheDocument()
   })
 
   it('직접 입력해 조회하고, 못 찾으면 서버의 까닭을 보인다', async () => {

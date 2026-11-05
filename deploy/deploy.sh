@@ -76,6 +76,8 @@ if [[ -z "${APP_SLUG:-}" ]]; then
 fi
 [[ "$APP_SLUG" =~ ^[a-z][a-z0-9]{0,31}$ ]] || err "APP_SLUG 는 소문자·숫자 한 덩어리 32자 이내여야 합니다: $APP_SLUG"
 APP_NAME="${APP_NAME:-$(instance_conf_get "$APP_SLUG" APP_NAME)}"; APP_NAME="${APP_NAME:-$APP_NAME_DEFAULT}"
+# 이름은 유닛(`Description=`) · 설정 파일의 한 줄에 들어간다 — 줄바꿈이면 다음 줄이 지시가 된다.
+[[ "$APP_NAME" != *$'\n'* && "$APP_NAME" != *$'\r'* ]] || err "APP_NAME 에 줄바꿈을 넣을 수 없습니다."
 APP_TAGLINE="${APP_TAGLINE:-$(instance_conf_get "$APP_SLUG" APP_TAGLINE)}"
 EXTENSIONS="${EXTENSIONS-$(instance_conf_get "$APP_SLUG" EXTENSIONS)}"
 APP_PORT="${APP_PORT:-$(instance_conf_get "$APP_SLUG" APP_PORT)}"; APP_PORT="${APP_PORT:-$APP_PORT_DEFAULT}"
@@ -631,7 +633,7 @@ render_unit_paths() {  # $1=template
     fi
     sed -e "s|@@USER@@|$OPERATOR|g" \
         -e "s|@@INSTALL_DIR@@|$INSTALL_DIR|g" \
-        -e "s|@@APP_NAME@@|$APP_NAME|g" \
+        -e "s|@@APP_NAME@@|$(sed_escape "$APP_NAME")|g" \
         -e "s|@@APP_SLUG@@|$APP_SLUG|g" \
         -e "s|@@ENV_FILE@@|$ENV_FILE|g" \
         -e "s|@@FILESTORE_DIR@@|$FILESTORE_HOST_DIR|g" \
@@ -657,7 +659,7 @@ render_mcp_service_unit() {
     info "MCP systemd 유닛 렌더 → $MCP_SERVICE_UNIT"
     sed -e "s|@@USER@@|$OPERATOR|g" \
         -e "s|@@INSTALL_DIR@@|$INSTALL_DIR|g" \
-        -e "s|@@APP_NAME@@|$APP_NAME|g" \
+        -e "s|@@APP_NAME@@|$(sed_escape "$APP_NAME")|g" \
         -e "s|@@APP_SLUG@@|$APP_SLUG|g" \
         -e "s|@@API_BASE@@|$MCP_API_BASE|g" \
         -e "s|@@MCP_HOST@@|$MCP_HOST|g" \
@@ -752,7 +754,7 @@ setup_sync_timer() {
         || { warn "sync.*.template 없음 — 동기화 타이머 건너뜀"; return 0; }
     info "동기화 타이머 렌더 → $SYNC_TIMER_UNIT"
     render_unit_paths "$HERE/sync.service.template" > "$SYNC_SERVICE_UNIT"
-    sed -e "s|@@APP_NAME@@|$APP_NAME|g" "$HERE/sync.timer.template" > "$SYNC_TIMER_UNIT"
+    sed -e "s|@@APP_NAME@@|$(sed_escape "$APP_NAME")|g" "$HERE/sync.timer.template" > "$SYNC_TIMER_UNIT"
     chmod 644 "$SYNC_SERVICE_UNIT" "$SYNC_TIMER_UNIT"
     systemctl daemon-reload
     systemctl enable --now "${SYNC_SERVICE_NAME}.timer" >/dev/null 2>&1 \
@@ -772,7 +774,7 @@ setup_backup_timer() {
     local at="03:00"; [[ "$HA_ROLE" == "backup" ]] && at="03:30"
     info "백업 타이머 렌더 → $BACKUP_TIMER_UNIT (매일 $at → $BACKUP_HOST_DIR)"
     render_unit_paths "$HERE/backup.service.template" > "$BACKUP_SERVICE_UNIT"
-    sed -e "s|@@APP_NAME@@|$APP_NAME|g" -e "s|@@AT@@|$at|g" "$HERE/backup.timer.template" > "$BACKUP_TIMER_UNIT"
+    sed -e "s|@@APP_NAME@@|$(sed_escape "$APP_NAME")|g" -e "s|@@AT@@|$at|g" "$HERE/backup.timer.template" > "$BACKUP_TIMER_UNIT"
     chmod 644 "$BACKUP_SERVICE_UNIT" "$BACKUP_TIMER_UNIT"
     systemctl daemon-reload
     systemctl enable --now "${BACKUP_SERVICE_NAME}.timer" >/dev/null 2>&1 \

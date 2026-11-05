@@ -6,6 +6,9 @@
            본다(`FileAdapter.roots`).
     비밀   `token_env` 로 **이 플랫폼 자신의 설정**(DATABASE_URL · JWT_SECRET …)을
            가리키지 못한다 — 그 값이 원천 · 대상의 인증 머리글로 나간다.
+    묶임   사용 중인 정의가 쓰는 비밀은 **그 역할 · 그 주소에 묶인다** — 대상 SP 의 토큰
+           (JVHUB_TOKEN)을 원천 인증에 실어 SP 를 부르거나(적용도 POST 다), PLM 의 토큰을
+           다른 주소로 보내지 못한다. 아직 아무 정의도 안 쓰는 새 비밀은 울타리 안 주소로만.
 
 켜진 정의가 도는 길(작업)은 사람이 켠 것이라 주소 울타리를 보지 않는다. 파일의 울타리는
 도는 길에도 선다(`services.catalog` 가 문제로 적고 작업이 멈춘다).
@@ -14,7 +17,8 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -26,8 +30,22 @@ from relay_core.describe import Described
 #: 서버가 바깥으로 닿는 자리의 앞머리 — 파일 원천은 공유 폴더(`smb://`)도 된다.
 REMOTE = ("http://", "https://", "smb://")
 
-#: 비밀처럼 보이는 값 — 주소 안의 비밀번호(`://u:p@`), 머리글 그대로(`Bearer …`).
-_LOOKS_SECRET = re.compile(r"://[^/\s:@]+:[^/\s@]+@|^\s*(bearer|basic)\s+\S{8,}", re.I)
+#: 비밀처럼 보이는 값 — 주소 안의 비밀번호(`://u:p@` · `://:p@`), 머리글 그대로
+#: (`Bearer …`), 주소의 질의에 실은 키(`?access_token=…` · `&api_key=…`).
+_LOOKS_SECRET = re.compile(
+    r"://[^/\s:@]*:[^/\s@]+@"
+    r"|^\s*(bearer|basic)\s+\S{8,}"
+    r"|[?&](api[_-]?key|apikey|access[_-]?token|token|password|passwd|pwd|secret"
+    r"|client[_-]?secret|sig|signature)=[^&\s]{4,}",
+    re.I,
+)
+#: 비밀처럼 보이는 칸 이름 — `SECRET_FIELDS`(정확히 그 이름) 말고도 `api_key` · `client_secret`
+#: · `access_token` · `X-Api-Key` … 이름만 담는 `…_env` 는 된다.
+_SECRET_KEY = re.compile(
+    r"(^|[_-])(password|passwd|pwd|secret|token|api[_-]?key|apikey|private[_-]?key"
+    r"|credentials?|authorization|cookie)$",
+    re.I,
+)
 
 
 def source_url(kind: str, spec: dict[str, Any]) -> str:
@@ -45,25 +63,72 @@ def host_of(url: str) -> str:
     return urlsplit(url).netloc.rsplit("@", 1)[-1].lower()
 
 
-def allowed_hosts(found: Iterable[Described]) -> set[str]:
-    """설정의 주소 + **켜진 정의(파일 · 켜진 판)가 쓰는 주소** — 초안은 넣지 않는다."""
-    out = set(get_settings().relay_source_host_list)
+#: 비밀이 실리는 역할 — 원천의 인증(`adapter…token_env`) · 대상의 인증(`target.token_env`).
+SOURCE, TARGET = "원천", "대상"
+
+
+@dataclass(frozen=True)
+class Fence:
+    """AI 요청이 닿아도 되는 곳 — 주소와 비밀의 묶임. `fence(catalog)` 로 짓는다."""
+
+    hosts: frozenset[str] = frozenset()
+    """설정(`RELAY_SOURCE_HOSTS`)의 주소 + 사용 중인 정의(초안 아닌 것)가 쓰는 주소."""
+    bound: Mapping[str, frozenset[tuple[str, str]]] = field(default_factory=dict)
+    """사용 중인 정의가 쓰는 비밀의 이름 → 그 비밀이 실려 가는 (역할, host)."""
+
+
+def _uses(one: Described) -> list[tuple[str, str, str]]:
+    """그 정의가 비밀을 싣는 곳 — (이름, 역할, host)."""
+    out: list[tuple[str, str, str]] = []
+    if one.endpoint.startswith(REMOTE):
+        adapter = dict(one.body.get("adapter") or {})
+        out += [(name, SOURCE, host_of(one.endpoint)) for name in env_names(adapter)]
+    if one.target_token_env and one.target_server.startswith(REMOTE):
+        out.append((one.target_token_env, TARGET, host_of(one.target_server)))
+    return out
+
+
+def fence(found: Iterable[Described]) -> Fence:
+    """설정의 주소 + **켜진 정의(파일 · 켜진 판)** 가 쓰는 주소와 비밀 — 초안은 넣지 않는다."""
+    hosts = set(get_settings().relay_source_host_list)
+    bound: dict[str, set[tuple[str, str]]] = {}
     for one in found:
         if one.draft:
             continue
         for url in (one.endpoint, one.target_server):
             if url.startswith(REMOTE):
-                out.add(host_of(url))
-    return out
+                hosts.add(host_of(url))
+        for name, role, host in _uses(one):
+            bound.setdefault(name, set()).add((role, host))
+    return Fence(frozenset(hosts), {k: frozenset(v) for k, v in bound.items()})
 
 
-def _host_ok(netloc: str, allowed: set[str]) -> bool:
+def check_secret(name: str, role: str, url: str, fenced: Fence) -> None:
+    """그 비밀을 그 역할로 그 주소에 실어도 되나 — 묶인 비밀은 묶인 곳만."""
+    if not name or name not in fenced.bound:
+        return
+    host = host_of(url)
+    if (role, host) in fenced.bound[name]:
+        return
+    where = " · ".join(f"{r} {h}" for r, h in sorted(fenced.bound[name]))
+    raise Forbidden(
+        code("RELAY", 21),
+        f"{name} 은 사용 중인 정의가 {where} 에 쓰는 비밀입니다 — {role} {host} 에 실어 "
+        "보낼 수 없습니다. 그 시스템의 토큰을 담을 환경 변수를 따로 두세요.",
+    )
+
+
+def _host_ok(netloc: str, allowed: Iterable[str]) -> bool:
+    allowed = set(allowed)
     bare = netloc.split("]")[0] + "]" if netloc.startswith("[") else netloc.split(":")[0]
     return netloc in allowed or bare in allowed
 
 
 def check_url(
-    url: str, allowed: set[str], where: str, schemes: tuple[str, ...] = ("http", "https")
+    url: str,
+    allowed: Iterable[str],
+    where: str,
+    schemes: tuple[str, ...] = ("http", "https"),
 ) -> None:
     parts = urlsplit(url)
     if parts.scheme not in schemes or not parts.netloc:
@@ -104,17 +169,21 @@ def check_file(location: str) -> None:
         )
 
 
-def check_source(kind: str, spec: dict[str, Any], allowed: set[str]) -> None:
+def check_source(kind: str, spec: dict[str, Any], fenced: Fence) -> None:
     url = source_url(kind, spec)
     if url:
         schemes = ("http", "https", "smb") if kind == "file" else ("http", "https")
-        check_url(url, allowed, "adapter", schemes)
+        check_url(url, fenced.hosts, "adapter", schemes)
+        for name in env_names(spec):
+            check_secret(name, SOURCE, url, fenced)
     elif kind == "file":
         check_file(str(spec.get("location") or ""))
 
 
-def check_target(target: dict[str, Any], allowed: set[str]) -> None:
-    check_url(str(target.get("server") or ""), allowed, "target.server")
+def check_target(target: dict[str, Any], fenced: Fence) -> None:
+    server = str(target.get("server") or "")
+    check_url(server, fenced.hosts, "target.server")
+    check_secret(str(target.get("token_env") or ""), TARGET, server, fenced)
 
 
 def forbidden_env() -> set[str]:
@@ -132,12 +201,17 @@ def check_env(body: Any) -> None:
         )
 
 
+#: 열 이름 → 자리처럼 **키가 원천의 열 이름**인 칸 — 열 이름이 `ACCESS_TOKEN` 일 수 있다.
+_NAMES_ONLY = ("columns", "namespaces")
+
+
 def check_no_secrets(body: Any, where: str = "") -> None:
     """정의 어디에도 비밀이 없나 — 비밀 칸(`token` · `password` …) 이름, 비밀처럼 보이는 값."""
     if isinstance(body, dict):
         for key, value in body.items():
             here = f"{where}.{key}" if where else str(key)
-            if key in SECRET_FIELDS:
+            named = _SECRET_KEY.search(str(key)) and not where.endswith(_NAMES_ONLY)
+            if key in SECRET_FIELDS or named:
                 raise AppError(
                     code("RELAY", 9),
                     f"{here}: 비밀은 정의에 적지 않습니다 — 환경 변수 이름(token_env)을 "
@@ -151,7 +225,7 @@ def check_no_secrets(body: Any, where: str = "") -> None:
     elif isinstance(body, str) and _LOOKS_SECRET.search(body):
         raise AppError(
             code("RELAY", 9),
-            f"{where}: 비밀처럼 보이는 값입니다(주소 안의 비밀번호 · 인증 머리글) — 정의에는 "
-            "환경 변수 이름만 적습니다.",
+            f"{where}: 비밀처럼 보이는 값입니다(주소 안의 비밀번호 · 인증 머리글 · 질의의 "
+            "키) — 정의에는 환경 변수 이름만 적습니다.",
             status=422,
         )

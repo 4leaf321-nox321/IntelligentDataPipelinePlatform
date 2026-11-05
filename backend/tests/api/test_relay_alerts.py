@@ -51,10 +51,14 @@ def _bell(db: Session, email: str, slug: str) -> list[tuple[str, str]]:
     return [(one.kind, one.title) for one in rows]
 
 
-def _scripted(monkeypatch: pytest.MonkeyPatch, plan: list[Any]) -> None:
-    """실행 결과를 차례로 — 예외면 작업이 실패한다."""
+def _scripted(monkeypatch: pytest.MonkeyPatch, slug: str, plan: list[Any]) -> None:
+    """`slug` 의 실행 결과를 차례로 — 예외면 작업이 실패한다. **그 파이프라인에만 답한다**:
+    같은 작업자에서 앞선 시험이 남긴 작업(DB 에 사용 중으로 남은 다른 파이프라인)이 큐 앞에서
+    먼저 돌며 결과를 가로채면 순서가 밀린다(병렬 시험에서 가끔, 2026-11-06)."""
 
-    def run(*_args: Any, **_kwargs: Any) -> Outcome:
+    def run(pipeline: Any, *_args: Any, **_kwargs: Any) -> Outcome:
+        if pipeline.slug != slug:
+            return Outcome("nothing", "다른 시험의 작업")
         one = plan.pop(0)
         if isinstance(one, Exception):
             raise one
@@ -72,6 +76,7 @@ def test_실행이_나빠질_때와_다시_될_때만_관리자에게_알린다(
     monkeypatch.setenv("RELAY_T_TOKEN", "x")
     _scripted(
         monkeypatch,
+        slug,
         [
             RuntimeError("원천이 안 닿습니다"),
             RuntimeError("원천이 안 닿습니다"),  # 같은 실패가 되풀이돼도 알림은 하나
@@ -106,7 +111,7 @@ def test_사람이_시킨_실행은_그_사람에게_안_가고_다른_관리자
     _definition(registry, slug)
     monkeypatch.setenv("RELAY_T_TOKEN", "x")
     other = _make_user(db, workspace, label="admin2", is_system_admin=True, role="manager")
-    _scripted(monkeypatch, [RuntimeError("원천이 안 닿습니다")])
+    _scripted(monkeypatch, slug, [RuntimeError("원천이 안 닿습니다")])
 
     queued = client.post(f"/api/relay/pipelines/{slug}/run", json={}, headers=admin.headers)
     assert queued.status_code == 202, queued.text
@@ -167,7 +172,7 @@ def test_작업이_끝나면_지난_실행을_정리한다(
     work = Workdir(get_settings().relay_work_dir, slug)
     for i in range(1, 4):
         work.path(f"runs/20261105T{i:012d}Z").mkdir(parents=True)
-    _scripted(monkeypatch, [Outcome("nothing", "보낼 것이 없습니다")])
+    _scripted(monkeypatch, slug, [Outcome("nothing", "보낼 것이 없습니다")])
 
     _timer(db, services.RUN_KIND, slug)
 

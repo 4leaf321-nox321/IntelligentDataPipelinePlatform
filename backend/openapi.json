@@ -3902,6 +3902,7 @@
           "relay"
         ],
         "summary": "Pipeline Apply",
+        "description": "대기 계획을 대상에 적용한다 — **화면에서 사람만**(ADR 0001 §2). 토큰(MCP · 스크립트\n· 위임 토큰)으로 온 요청은 거절한다 — 판의 사용과 같다. 적용 도구가 MCP 에 없다는\n것만으로는 막히지 않는다(토큰으로 이 경로를 바로 부를 수 있었다, 2026-11-06 보안\n검토).",
         "operationId": "pipeline_apply_api_relay_pipelines__slug__apply_post",
         "parameters": [
           {
@@ -4047,7 +4048,7 @@
           "relay"
         ],
         "summary": "Pipeline Trace",
-        "description": "**거꾸로 보기** — 대상 객체 하나(`type_slug` · `key`)의 값이 어느 원천 행 · 칸 · 레시피\n규칙에서 왔나, 닿는 관계, 마지막 대조에서의 상태. 읽기만 한다. 못 찾으면 404 와 까닭.",
+        "description": "**거꾸로 보기** — 대상 객체 하나(`type_slug` · `key`)의 값이 어느 원천 행 · 칸 · 레시피\n규칙에서 왔나, 닿는 관계, 마지막 대조에서의 상태. 읽기만 한다. 못 찾으면 404 와 까닭.\n**원천 행 · 원래 값은 관리자만** — 레시피가 안 보내는 열까지 원천의 날것이다.",
         "operationId": "pipeline_trace_api_relay_pipelines__slug__trace_get",
         "parameters": [
           {
@@ -8885,6 +8886,11 @@
           "rows_total": {
             "type": "integer",
             "title": "Rows Total"
+          },
+          "rows_hidden": {
+            "type": "boolean",
+            "title": "Rows Hidden",
+            "default": false
           },
           "relations": {
             "items": {

@@ -126,8 +126,17 @@ def test_보정_계획을_적용하면_다시_견줘_어긋남이_풀린다(
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
     assert detail["status"] == "pending"
 
+    # 적용은 화면에서 사람만 — 토큰(MCP)이 이 경로를 바로 불러도 거절한다(RELAY-0020)
+    from tests.api.test_relay_recipes import _pat
+
+    path = f"/api/relay/pipelines/{slug}/apply"
+    by_token = client.post(path, headers=_pat(client, admin))
+    assert by_token.status_code == 403, by_token.text
+    assert by_token.json()["error"]["code"].endswith("RELAY-0020")
+    assert work.load_state().pending is not None  # 그대로 기다린다
+
     target.items["plm_model"] = SAME  # 사람이 대상에서 적용했다
-    applied = _job(client, db, admin, f"/api/relay/pipelines/{slug}/apply")
+    applied = _job(client, db, admin, path)
     assert applied["result"]["status"] == "applied", applied
     assert "다시 대조: 대상과 같습니다" in applied["result"]["summary"]
     home = client.get("/api/server/maintenance", headers=admin.headers).json()

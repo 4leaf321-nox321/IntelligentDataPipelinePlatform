@@ -29,7 +29,7 @@ def check(schedule: Any) -> dict[str, Any] | None:
             'schedule 은 {"daily_at": "HH:MM"} 또는 {"every_minutes": N} 중 하나입니다.'
         )
     if "daily_at" in schedule:
-        if not _HHMM.match(str(schedule["daily_at"])):
+        if not _HHMM.fullmatch(str(schedule["daily_at"])):
             raise ScheduleError(
                 f"daily_at 은 HH:MM(24시)이어야 합니다: {schedule['daily_at']!r}"
             )

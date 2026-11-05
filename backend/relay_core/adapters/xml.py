@@ -4,9 +4,9 @@
      "columns": {"LOT_ID": "m:LotId", "QTY": "m:Qty", "LINE": "@line"},
      "namespaces": {"m": "urn:mes"}}
 
-- **GET**(REST 식 XML)이 기본이다. `soap_action` 이나 `envelope` 를 주면 **POST** 로 SOAP
-  봉투를 보낸다 — 봉투 글에 `{since}` · `{page}` · `{page_size}` 를 적으면 그 자리에 값이
-  들어간다.
+- **GET**(REST 식 XML)이 기본이다. `envelope` 를 주면 **POST** 로 SOAP 봉투를 보낸다 — 봉투
+  글에 `{since}` · `{page}` · `{page_size}` 를 적으면 그 자리에 값이 들어간다. **읽기만** 한다:
+  다른 방식(DELETE · PUT …)이나 봉투 없는 POST · `soap_action` 은 거절한다.
 - `columns` 의 자리는 **행 요소 기준** XPath — 요소면 그 글(`string()`), 속성이면 그 값,
   여럿이면 `;`.
 - **안전하게 읽는다**(lxml): 바깥 엔티티 · 네트워크를 안 따라가고, 거대한 문서를 거절한다. SOAP
@@ -24,7 +24,7 @@ import httpx
 from lxml import etree
 
 from relay_core.adapters.base import Fetched
-from relay_core.adapters.rest import Auth, SourceError, truthy
+from relay_core.adapters.rest import Auth, SourceError, scrub, truthy
 from relay_core.records import SourceRecord
 
 _PARSER = etree.XMLParser(
@@ -61,6 +61,19 @@ class XmlSource:
     max_pages: int = 10_000
 
 
+def check_xml(method: str, soap_action: str, envelope: str, content_type: str) -> None:
+    """XML 원천은 **읽기만** — GET, 또는 SOAP 봉투를 실은 POST. 봉투 없는 POST · SOAPAction
+    은 남의 API 를 부르는 길이 된다(대상 SP 의 적용도 POST 다)."""
+    if method.upper() not in ("GET", "POST"):
+        raise SourceError(f"XML 원천의 method 는 GET · POST 만 됩니다: {method!r}")
+    if not envelope and (method.upper() == "POST" or soap_action):
+        raise SourceError("POST · soap_action 은 SOAP 봉투(envelope)가 있을 때만 됩니다.")
+    if "xml" not in content_type.lower():
+        raise SourceError(f"content_type 은 XML 이어야 합니다: {content_type!r}")
+    if any(ch in soap_action + content_type for ch in "\r\n"):
+        raise SourceError("soap_action · content_type 에 줄바꿈을 넣을 수 없습니다.")
+
+
 def _text(found: Any) -> str:
     """XPath 결과 → 글. 요소는 안의 글 전부, 여럿은 `;`."""
     if isinstance(found, list):
@@ -89,14 +102,18 @@ class XmlAdapter:
 
     @property
     def _soap(self) -> bool:
-        return bool(self.source.envelope or self.source.soap_action)
+        """봉투가 있을 때만 POST — 그 밖의 방식(DELETE · PUT …)이나 봉투 없는 POST 는 「읽기」
+        가 아니다(`check_xml` 이 정의에서 먼저 거절한다)."""
+        return bool(self.source.envelope)
 
     def _request(self, since: str | None, page: int) -> Any:
         source = self.source
-        headers = {**source.auth.headers(), "Accept": "application/xml, text/xml"}
+        check_xml(source.method, source.soap_action, source.envelope, source.content_type)
+        secret = source.auth.headers()
+        headers = {**secret, "Accept": "application/xml, text/xml"}
         params: dict[str, Any] = dict(source.params)
         body: bytes | None = None
-        method = "POST" if self._soap else source.method.upper()
+        method = "POST" if self._soap else "GET"
         if self._soap:
             headers["Content-Type"] = source.content_type
             if source.soap_action:
@@ -123,7 +140,7 @@ class XmlAdapter:
             else:
                 if got.status_code == 200:
                     return self._parse(got.content)
-                last = f"{got.status_code} {got.text[:300]}"
+                last = f"{got.status_code} {scrub(got.text[:2000], secret)[:300]}"
                 if got.status_code < 500 and got.status_code != 429:
                     raise SourceError(f"원천이 거절했습니다({source.url}): {last}")
             self._sleep(min(2**attempt, 10))

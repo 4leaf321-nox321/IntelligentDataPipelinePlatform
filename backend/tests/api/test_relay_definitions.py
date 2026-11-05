@@ -324,3 +324,83 @@ def test_자동_적용은_정의에_적고_사람이_켜야_서고_틀리면_거
     client.post(f"/api/relay/pipelines/{slug}/definitions/1/activate", headers=admin.headers)
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
     assert detail["auto_apply_label"].startswith("타이머 실행 · 사람 적용 3번 뒤 · 변경 50건")
+
+
+def test_사용_중인_정의의_비밀은_그_역할_그_주소에만(
+    client: TestClient,
+    admin: Signed,
+    drop: Path,
+    registry: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """대상 SP 의 토큰을 원천 인증에 실어 SP 를 부르거나(적용도 POST 다), 울타리 안 다른
+    주소로 보내지 못한다(2026-11-06 보안 검토). 아직 아무 정의도 안 쓰는 새 비밀은 된다."""
+    from app.modules.relay import services
+
+    _definition(registry, _slug())  # 사용 중 — 대상 NOWHERE 에 RELAY_T_TOKEN
+    monkeypatch.setenv("RELAY_T_TOKEN", "x")
+    monkeypatch.setattr(get_settings(), "relay_source_hosts", "127.0.0.1,127.0.0.2")
+    asked: list[str] = []
+    real_probe = services.probe_http
+
+    def probe(server: str, token: str, path: str) -> Any:
+        asked.append(server)
+        return real_probe(server, token, path)
+
+    monkeypatch.setattr(services, "probe_http", probe)
+    mcp = _pat(client, admin)
+    stolen = client.post(
+        "/api/relay/discover",
+        json={
+            "adapter": {
+                "kind": "xml",
+                "url": f"{NOWHERE}/api/jobs/1/apply",
+                "envelope": "<x/>",
+                "auth": {"kind": "bearer", "token_env": "RELAY_T_TOKEN"},
+            }
+        },
+        headers=mcp,
+    )
+    assert stolen.status_code == 403 and _code(stolen).endswith("RELAY-0021"), stolen.text
+    assert "대상 127.0.0.1:9" in stolen.json()["error"]["message"]
+
+    slug = _slug()
+    elsewhere = {"name": "다른 SP", "server": "http://127.0.0.2:9"}
+    elsewhere["token_env"] = "RELAY_T_TOKEN"
+    saved = _save(client, mcp, slug, _body(slug, drop, target=elsewhere))
+    assert saved.status_code == 201, saved.text
+    assert any("RELAY_T_TOKEN" in one for one in saved.json()["problems"])
+    tried = client.post(f"/api/relay/pipelines/{slug}/definitions/1/test", headers=mcp)
+    assert tried.status_code == 403 and _code(tried).endswith("RELAY-0021")
+
+    # 초안의 대상은 지도 · 상세가 묻지 않는다 — 사람이 아직 안 본 주소 · 토큰이다
+    nodes = client.get("/api/relay/map", headers=admin.headers).json()["nodes"]
+    (draft,) = [one for one in nodes if one["kind"] == "target" and "127.0.0.2" in one["sub"]]
+    assert draft["status"] == "draft"
+    detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
+    assert "초안의 대상에는 묻지 않았습니다" in detail["target_schema_note"]
+    assert not any("127.0.0.2" in one for one in asked)
+
+    fresh = {**elsewhere, "token_env": "RELAY_NEW_SP_TOKEN"}
+    assert _save(client, mcp, slug, _body(slug, drop, target=fresh)).status_code == 201
+    tried = client.post(f"/api/relay/pipelines/{slug}/definitions/2/test", headers=mcp)
+    assert tried.status_code == 200, tried.text  # 새 비밀은 울타리 안 주소로 된다
+    assert tried.json()["target"]["reachable"] is False
+
+
+def test_비밀처럼_보이는_칸_이름_질의의_키도_거절한다(
+    client: TestClient, admin: Signed
+) -> None:
+    mcp = _pat(client, admin)
+    base = {"kind": "rest", "base_url": NOWHERE, "path": "/x"}
+    for adapter in (
+        {**base, "params": {"api_key": "abcdef"}},
+        {**base, "auth": {"kind": "header", "client_secret": "abcdef"}},
+        {**base, "path": "/x?access_token=abcdef"},
+        {**base, "base_url": "http://:pw@127.0.0.1:9"},
+    ):
+        got = client.post("/api/relay/discover", json={"adapter": adapter}, headers=mcp)
+        assert got.status_code == 422 and _code(got).endswith("RELAY-0009"), adapter
+    named = {**base, "columns": {"ACCESS_TOKEN": "access_token"}}  # 원천의 열 이름일 뿐
+    got = client.post("/api/relay/discover", json={"adapter": named}, headers=mcp)
+    assert got.status_code == 200, got.text

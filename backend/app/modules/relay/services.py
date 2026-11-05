@@ -35,7 +35,7 @@ from app.modules.relay.schemas import (
     RelayMap,
 )
 from app.shared import extensions
-from app.shared.errors import NotFound, code
+from app.shared.errors import AppError, NotFound, code
 from relay_core import reconcile
 from relay_core.describe import Described, describe, find
 from relay_core.state import Workdir
@@ -268,7 +268,9 @@ def build_map(db: Session) -> RelayMap:
         if not found.target_server:
             continue
         target = _node_id("target", found.target_server)
-        targets.setdefault(target, (found.target_server, env.get(found.target_token_env, "")))
+        if not found.draft:  # 초안의 대상 · 토큰은 묻지 않는다 — 사람이 아직 안 본 주소다
+            token = env.get(found.target_token_env, "")
+            targets.setdefault(target, (found.target_server, token))
         nodes.setdefault(
             target,
             MapNode(
@@ -291,6 +293,9 @@ def build_map(db: Session) -> RelayMap:
                 MapEdge(source=target, target=type_node, weight=_sends(counts, type_slug))
             )
 
+    for one in nodes.values():
+        if one.kind == "target" and one.id not in targets:
+            one.status, one.status_label = "draft", "확인하지 않음(초안)"
     # 대상이 지금 하는 말 — 판 · slug(엉뚱한 곳에 붙지 않았나) · 그 너머(코어 현황의 수신자).
     for target_id, (server, token) in targets.items():
         node = nodes[target_id]
@@ -337,9 +342,18 @@ def build_map(db: Session) -> RelayMap:
 
 
 def target_schema(
-    found: Described, env: Mapping[str, str]
+    found: Described, env: Mapping[str, str], db: Session | None = None
 ) -> tuple[dict[str, dict[str, Any]], str]:
-    """대상 SP 의 정의 — `{타입: {칸: 정의}}`. 못 읽으면 빈 것과 까닭."""
+    """대상 SP 의 정의 — `{타입: {칸: 정의}}`. 못 읽으면 빈 것과 까닭. 초안이면 울타리
+    (`guard.check_target`)를 먼저 지난다 — 사람이 아직 안 본 주소 · 토큰이다."""
+    if found.draft:
+        try:
+            guard.check_target(
+                {"server": found.target_server, "token_env": found.target_token_env},
+                guard.fence(catalog(db)),
+            )
+        except AppError as failure:
+            return {}, f"초안의 대상에는 묻지 않았습니다 — {failure.message}"
     token = env.get(found.target_token_env, "")
     if not token:
         return (
@@ -362,7 +376,7 @@ def detail(db: Session, slug: str) -> PipelineDetail:
     jobs = recent_jobs(db, slug)
     runs = [one for one in jobs if one.kind in (RUN_KIND, APPLY_KIND)]
     status = status_of(found, state, runs[0] if runs else None)
-    schema, note = target_schema(found, secrets_env()) if found.target_server else ({}, "")
+    schema, note = target_schema(found, secrets_env(), db) if found.target_server else ({}, "")
     steps: list[LineageStep] = []
     for one in found.lineage:
         props = schema.get(one.target_type)

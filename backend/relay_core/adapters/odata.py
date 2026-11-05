@@ -82,6 +82,18 @@ class ODataSource:
     max_pages: int = 100_000
 
 
+def same_origin(current: str, link: str) -> str:
+    """다음 쪽 주소 — 지금 주소와 scheme · host · port 가 같을 때만 따라간다. 응답이 준 주소로
+    인증 머리글을 실어 보내면, 원천이 (또는 원천을 흉내 낸 누가) 비밀을 다른 곳으로 빼낸다."""
+    here = httpx.URL(current)
+    there = here.join(link)
+    if (there.scheme, there.host, there.port) != (here.scheme, here.host, here.port):
+        raise SourceError(
+            f"다음 쪽 주소가 다른 곳을 가리킵니다 — 따라가지 않습니다: {link:.200}"
+        )
+    return str(there)
+
+
 class ODataAdapter:
     def __init__(
         self,
@@ -269,7 +281,7 @@ class ODataAdapter:
             if limit and len(records) >= limit:
                 return Fetched(records=records[:limit], complete=False)
             if nxt:
-                url, params = str(nxt), None
+                url, params = same_origin(url, str(nxt)), None
             elif len(items) >= source.page_size:
                 skip += len(items)
                 params = {**self._first_params(since, version), "$skip": skip}

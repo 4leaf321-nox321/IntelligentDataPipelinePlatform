@@ -156,20 +156,24 @@ if [[ -d "$RELAY_DIR" ]]; then
     mkdir -p "$BACKUP_ROOT/relay"
     RELAY_TAR="$BACKUP_ROOT/relay/relay-$STAMP.tar.gz"
     LIST="$(mktemp)"
+    # 목록은 NUL 로 가른다 — 줄바꿈이 든 파일 이름이 목록을 쪼개 다른 파일을 끼워 넣지 않게.
+    # 기준 실행의 자리(`applied_run`)는 `runs/<시각>` 모양일 때만 — 상태 파일이 `../..` 를
+    # 적었으면 중계 폴더 밖을 담는다.
     (
         cd "$RELAY_DIR"
-        if [[ -d pipelines ]]; then find pipelines -type f; fi
+        if [[ -d pipelines ]]; then find pipelines -type f -print0; fi
         for state in work/*/state.json; do
             if [[ ! -f "$state" ]]; then continue; fi
             dir="${state%/state.json}"
-            find "$dir" -maxdepth 1 -type f -name '*.json'
+            find "$dir" -maxdepth 1 -type f -name '*.json' -print0
             run="$(sed -n 's|.*"applied_run": *"\([^"]*\)".*|\1|p' "$state" | head -n1)"
-            if [[ -n "$run" && -d "$dir/$run" ]]; then find "$dir/$run" -type f; fi
+            if [[ ! "$run" =~ ^runs/[A-Za-z0-9_-]+$ ]]; then continue; fi
+            if [[ -d "$dir/$run" ]]; then find "$dir/$run" -type f -print0; fi
         done
     ) > "$LIST"
-    tar -czf "$RELAY_TAR.part" -C "$RELAY_DIR" -T "$LIST"
+    tar -czf "$RELAY_TAR.part" -C "$RELAY_DIR" --null -T "$LIST"
     mv "$RELAY_TAR.part" "$RELAY_TAR"
-    RELAY_FILES=$(wc -l < "$LIST")
+    RELAY_FILES=$(tr -cd '\0' < "$LIST" | wc -c)
     rm -f "$LIST"
 else
     echo "경고: 중계 폴더가 없습니다($RELAY_DIR) — 다른 곳이면 -r 로 주세요." >&2

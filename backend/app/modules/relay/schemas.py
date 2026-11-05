@@ -16,7 +16,7 @@ class MapNode(BaseModel):
     """이름 아래 작은 글 — 주소 · 판 · 마지막 실행."""
     status: str = ""
     """파이프라인: ok · pending · blocked · failed · broken · never. 대상: ok · unreachable ·
-    mismatch."""
+    mismatch · draft(초안만 보내는 곳 — 묻지 않았다)."""
     status_label: str = ""
     link: str = ""
     """눌렀을 때 갈 곳 — 파이프라인 상세, 대기 계획(대상 SP 의 작업 화면) …"""
@@ -215,6 +215,8 @@ class TraceOut(BaseModel):
     fields: list[TraceField]
     rows: list[TraceRow]
     rows_total: int
+    rows_hidden: bool = False
+    """원천 행 · 원래 값(`seen`)을 뺐다 — 원천의 날것은 관리자만 본다(`/sample` 과 같은 선)."""
     relations: list[TraceRelation]
     reconcile: TraceReconcile | None = None
     problems: list[str]

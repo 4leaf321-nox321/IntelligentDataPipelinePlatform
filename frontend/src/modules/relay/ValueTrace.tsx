@@ -50,8 +50,9 @@ function shown(value: unknown): string {
   return typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
 
-function Seen({ field }: { field: TraceField }) {
+function Seen({ field, hidden }: { field: TraceField; hidden: boolean }) {
   if (!field.columns.length) return <span className="text-muted-foreground">—</span>
+  if (hidden) return <span className="text-muted-foreground">관리자만</span>
   if (!field.seen?.length) return <span className="text-muted-foreground">원천 행 없음</span>
   return (
     <ul className="space-y-0.5">
@@ -83,6 +84,12 @@ function Result({ trace }: { trace: Trace }) {
           </Fact>
           <Fact label="원천 행">
             {trace.basis} · {trace.rows_total}행{trace.note && ` · 변환기: ${trace.note}`}
+            {trace.rows_hidden && (
+              <span className="text-muted-foreground">
+                {' '}
+                — 원천 행 · 원래 값은 시스템 관리자만 봅니다.
+              </span>
+            )}
           </Fact>
           <Fact label="레시피">{trace.recipe_basis}</Fact>
           {trace.reconcile && (
@@ -140,7 +147,7 @@ function Result({ trace }: { trace: Trace }) {
                 {field.rule}
               </TableCell>
               <TableCell className="whitespace-normal text-xs">
-                <Seen field={field} />
+                <Seen field={field} hidden={trace.rows_hidden} />
               </TableCell>
             </TableRow>
           ))}

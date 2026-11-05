@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 
 from relay_core import runner
 from relay_core.adapters.base import Fetched
@@ -76,6 +77,39 @@ def test_v4_는_nextLink_를_따르고_증분은_filter_로() -> None:
     assert first["$orderby"] == "ModelId" and first["$expand"] == "Task($expand=Project)"
     assert "page2" in str(seen[1].url)  # 서버가 준 다음 주소를 그대로
     assert got.watermark == "2026-11-03T00:00:00Z" and not got.full
+
+
+def test_다음_쪽_주소가_다른_곳이면_따라가지_않는다() -> None:
+    """응답이 준 주소로 인증 머리글을 실어 보내면 비밀이 그리로 나간다(2026-11-06 보안 검토).
+    같은 곳의 상대 주소는 따라간다."""
+    from relay_core.adapters.rest import Auth, SourceError
+
+    seen: list[httpx.Request] = []
+
+    def handler(next_link: str) -> Any:
+        def answer(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            if "page2" in str(request.url):
+                return httpx.Response(200, json={"value": []})
+            rows = [_row("M1", "2026-11-01T00:00:00Z"), _row("M2", "2026-11-02T00:00:00Z")]
+            return httpx.Response(200, json={"value": rows, "@odata.nextLink": next_link})
+
+        return answer
+
+    auth = Auth("bearer", "sekret-token-123")
+    for far in (
+        "http://evil.test/odata/v4/Plm/DevModels?page2=1",
+        "https://plm.test/odata/v4/Plm/DevModels?page2=1",
+        "http://plm.test:8443/odata/v4/Plm/DevModels?page2=1",
+        "//evil.test/x?page2=1",
+    ):
+        seen.clear()
+        with pytest.raises(SourceError, match="다른 곳"):
+            _adapter(handler(far), auth=auth).fetch(None)
+        assert [one.url.host for one in seen] == ["plm.test"]
+    seen.clear()
+    got = _adapter(handler("DevModels?page2=1"), auth=auth).fetch(None)
+    assert len(got.records) == 2 and str(seen[1].url).startswith("http://plm.test/odata/v4/")
 
 
 def test_v2_는_d_results_와_Date_를_풀고_껍질을_벗긴다() -> None:

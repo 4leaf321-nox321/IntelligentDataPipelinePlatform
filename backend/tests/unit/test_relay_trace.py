@@ -214,3 +214,21 @@ def test_지금_기준보다_앞선_대조는_그렇다고_적는다(applied: tu
     work.write_json("reconcile.json", {"at": "2000-01-01T00:00:00Z", "types": {}})
     got = trace(work, recipe, "plm_model", "M1").reconcile
     assert got is not None and got["stale"] and got["state"] == "unknown"
+
+
+def test_5천_줄이_넘어_나뉜_타입에서도_찾는다(tmp_path: Path) -> None:
+    """변환기 · SP 도구는 5,000줄이 넘는 타입을 `<slug>-001.json` … 으로 나눈다 — 실제 PLM 의
+    모델은 그보다 많다(2026-11-06 대용량 시험에서 1만 행의 모델을 하나도 못 찾았다)."""
+    from relay_core.trace import _baseline_row
+
+    objects = tmp_path / "run" / "objects"
+    objects.mkdir(parents=True)
+    for index, keys in enumerate((["M1", "M2"], ["M3"]), start=1):
+        body = {"type_slug": "plm_model", "rows": [{"key": key, "label": key} for key in keys]}
+        (objects / f"plm_model-{index:03d}.json").write_text(
+            json.dumps(body), encoding="utf-8"
+        )
+    other = {"type_slug": "plm_model_kind", "rows": [{"key": "M3", "label": "남의 타입"}]}
+    (objects / "plm_model_kind.json").write_text(json.dumps(other), encoding="utf-8")
+    assert _baseline_row(tmp_path / "run", "plm_model", "M3") == {"key": "M3", "label": "M3"}
+    assert _baseline_row(tmp_path / "run", "plm_model", "M9") is None

@@ -106,6 +106,39 @@ def with_recipe(found: Described, body: dict[str, Any], label: str) -> Described
     return found
 
 
+def file_refs(body: Any, where: str = "") -> list[str]:
+    """레시피가 가리키는 서버의 파일 — `ontology`(온톨로지 파일) · `match.keys` 의 `@파일`.
+    DB 의 판은 작업 폴더에 옮겨 적혀 돌므로, 그 상대 경로(`@../../…`)가 서버의 아무 파일이나
+    읽고 온톨로지는 묶음에 실려 대상으로 나간다. 그 둘은 운영자가 넣는 **정의 파일 옆의
+    레시피**에서만 쓴다."""
+    found: list[str] = []
+    if isinstance(body, dict):
+        for key, value in body.items():
+            here = f"{where}.{key}" if where else str(key)
+            ontology = key == "ontology" and not where and bool(value)
+            keys_file = key == "keys" and str(value).strip().startswith("@")
+            if ontology or keys_file:
+                found.append(here)
+            else:
+                found += file_refs(value, here)
+    elif isinstance(body, list):
+        for index, one in enumerate(body):
+            found += file_refs(one, f"{where}[{index}]")
+    return found
+
+
+def _refuse_files(body: Any) -> None:
+    refs = file_refs(body)
+    if refs:
+        raise AppError(
+            code("RELAY", 22),
+            f"레시피 판은 서버의 파일을 가리킬 수 없습니다({', '.join(refs[:5])}) — "
+            "참조 대조는 대상 SP 의 식별자로(`match.keys` 에 타입), 온톨로지는 대상에서 "
+            "정합니다. 파일이 꼭 필요하면 운영자가 정의 파일 옆의 레시피에 둡니다.",
+            status=422,
+        )
+
+
 def save_draft(
     db: Session,
     user: User,
@@ -118,6 +151,7 @@ def save_draft(
         raise AppError(code("RELAY", 5), "레시피는 JSON 객체여야 합니다.", status=422)
     if body.get("format") != "sp-table/1":
         raise AppError(code("RELAY", 6), "format 이 sp-table/1 이어야 합니다.", status=422)
+    _refuse_files(body)
     latest = db.scalar(
         select(func.max(RelayRecipe.version)).where(RelayRecipe.pipeline_slug == found.slug)
     )
@@ -162,6 +196,7 @@ def activate(
         return row
     if row.status == "discarded":
         raise Conflict(code("RELAY", 17), f"폐기한 초안은 사용할 수 없습니다 — 판 {version}.")
+    _refuse_files(row.body)
     before = active(db, found.slug)
     db.execute(
         update(RelayRecipe)
@@ -191,6 +226,7 @@ def materialize(db: Session, slug: str) -> Path | None:
     row = active(db, slug)
     if row is None:
         return None
+    _refuse_files(row.body)  # 이 검사 전에 사용한 판이 있을 수 있다
     folder = get_settings().relay_work_dir / slug / "recipes"
     folder.mkdir(parents=True, exist_ok=True)
     path = folder / f"v{row.version}.table.json"
@@ -203,6 +239,9 @@ def dry_run(
 ) -> dict[str, Any]:
     """`mirror` 를 레시피 `body` 로 바꿔 보고 지난번 적용된 출력과 견준다 — **아무것도 안
     보낸다.** 레시피 시험 · 정의 초안 시험이 같이 쓴다."""
+    refs = file_refs(body)
+    if refs:
+        return {"clean": False, "error": f"서버의 파일을 가리키는 칸: {', '.join(refs[:5])}"}
     state = work.load_state()
     with tempfile.TemporaryDirectory(dir=work.root) as scratch:
         root = Path(scratch)

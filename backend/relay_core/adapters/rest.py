@@ -11,6 +11,7 @@ SP 의 데이터 소스(`rest`)가 읽는 것과 같은 축(쪽 넘김 셋 · �
 from __future__ import annotations
 
 import base64
+import contextlib
 import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -35,7 +36,7 @@ class SourceError(RuntimeError):
 class Auth:
     kind: str = "none"
     """none · bearer · header · basic."""
-    token: str = ""
+    token: str = field(default="", repr=False)
     header: str = "Authorization"
     user: str = ""
 
@@ -112,6 +113,21 @@ def as_text(value: Any) -> str:
     return str(value)
 
 
+def scrub(text: str, headers: Mapping[str, str]) -> str:
+    """원천의 오류 글에서 그 요청에 실은 비밀을 지운다 — 받은 머리글을 그대로 되돌려 찍는
+    서버가 있고, 그 글은 작업 오류 · 알림 · MCP 로 퍼진다."""
+    secrets: set[str] = set()
+    for value in headers.values():
+        tail = value.rsplit(" ", 1)[-1]
+        secrets |= {value, tail}
+        if value.startswith("Basic "):
+            with contextlib.suppress(ValueError):  # UnicodeDecodeError · binascii.Error
+                secrets.add(base64.b64decode(tail).decode().split(":", 1)[-1])
+    for one in sorted((one for one in secrets if len(one) >= 6), key=len, reverse=True):
+        text = text.replace(one, "***")
+    return text
+
+
 def get_json(
     client: httpx.Client,
     url: str,
@@ -133,7 +149,7 @@ def get_json(
         else:
             if answer.status_code == 200:
                 return answer.json()
-            last = f"{answer.status_code} {answer.text[:300]}"
+            last = f"{answer.status_code} {scrub(answer.text[:2000], headers)[:300]}"
             if answer.status_code < 500 and answer.status_code != 429:
                 raise SourceError(f"원천이 거절했습니다({url}): {last}")
         sleep(min(2**attempt, 10))

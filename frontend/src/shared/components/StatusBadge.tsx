@@ -172,6 +172,8 @@ const RELAY_TARGET: Record<string, { label: string; tone: Tone }> = {
   unreachable: { label: '닿지 않음', tone: 'bad' },
   // 닿긴 하는데 엉뚱한 곳(다른 slug)이다 — 보내기 전에 정의를 봐야 한다.
   mismatch: { label: '다른 인스턴스', tone: 'warn' },
+  // 초안만 보내는 대상 — 사람이 정의를 사용하기 전에는 서버가 그 주소에 묻지 않는다(울타리).
+  draft: { label: '확인하지 않음(초안)', tone: 'neutral' },
 }
 
 /** 중계 레시피 · 정의의 판 — AI(MCP)가 초안을 짓고 사람이 켠다. 둘이 같은 말을 쓴다. */

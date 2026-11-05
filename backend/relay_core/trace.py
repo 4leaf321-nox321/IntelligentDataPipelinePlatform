@@ -155,13 +155,23 @@ def _read_rows(path: Path) -> list[dict[str, str]]:
 
 
 def _baseline_row(run: Path, type_slug: str, key: str) -> dict[str, Any] | None:
-    file = run / "objects" / f"{type_slug}.json"
-    if not file.is_file():
-        return None
-    body = json.loads(file.read_text(encoding="utf-8"))
-    for row in body.get("rows") or []:
-        if isinstance(row, dict) and str(row.get("key")) == key:
-            return row
+    """기준 출력에서 그 객체. **5,000줄이 넘는 타입은 `<slug>-001.json` … 으로 나뉜다**(변환기
+    · SP 도구의 상한) — 그 이름만 보면 큰 타입의 객체를 하나도 못 찾는다(2026-11-06 대용량
+    시험)."""
+    folder = run / "objects"
+    files = [
+        folder / f"{type_slug}.json",
+        *sorted(folder.glob(f"{type_slug}-[0-9][0-9][0-9].json")),
+    ]
+    for file in files:
+        if not file.is_file():
+            continue
+        body = json.loads(file.read_text(encoding="utf-8"))
+        if str(body.get("type_slug") or type_slug) != type_slug:
+            continue
+        for row in body.get("rows") or []:
+            if isinstance(row, dict) and str(row.get("key")) == key:
+                return row
     return None
 
 

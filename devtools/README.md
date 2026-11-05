@@ -41,6 +41,9 @@ curl -X POST http://127.0.0.1:8088/_mock/scenario/change
 .venv/bin/python -m relay_core.cli trace ../devtools/mock_plm/pipeline.json --work ../.work/relay \
     --type plm_task --key T-1001
 
+# 7) 대용량 시험 — 샘플 PLM 모양의 원천 N 행으로 엔진만 끝까지(대상 SP 는 가짜, 임시 폴더에만 쓰고 지운다)
+.venv/bin/python ../devtools/bench/relay_bench.py 200000
+
 # datarelay 자신(화면 · MCP 까지) — 창 셋. backend/.env 에 MOCK_PLM_TOKEN · RELAY_TARGET_TOKEN 을 적는다
 #   backend: .venv/bin/python -m uvicorn app.main:app --port 8081
 #   backend: .venv/bin/python -m app.worker          (API 가 뜬 뒤에)

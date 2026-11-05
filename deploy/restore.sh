@@ -52,6 +52,9 @@ done
 # 첨부를 되돌릴 자리 — -F 로 직접, 또는 -i 의 설치 폴더 아래.
 [[ -n "$FILESTORE" || -z "$INSTALL_DIR" ]] || FILESTORE="$INSTALL_DIR/filestore"
 [[ -n "$DB_NAME" ]]     || err "-d <복구할 DB 이름> 이 필요합니다."
+# 이름은 SQL 글(`CREATE DATABASE "…"` · `datname='…'`)에 그대로 들어간다 — 영문 · 숫자 · _ 만.
+[[ "$DB_NAME" =~ ^[A-Za-z_][A-Za-z0-9_]{0,62}$ ]] \
+    || err "DB 이름은 영문 · 숫자 · _ 로(영문이나 _ 로 시작, 63자 이내): '$DB_NAME'"
 
 # 접속 정보는 **백업이 함께 받아 둔 .env** 에서 읽는다. 앱이 살아 있지 않아도
 # 복구할 수 있어야 한다 — 서버가 통째로 날아간 상황이 바로 복구가 필요한 상황이다.

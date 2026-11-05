@@ -149,6 +149,72 @@ def test_SOAP_은_봉투에_증분을_넣고_Fault_면_멈춘다() -> None:
         _xml(lambda _r: httpx.Response(200, content=fault)).fetch(None)
 
 
+def test_XML_은_읽기만_한다_다른_방식_봉투_없는_POST_는_거절() -> None:
+    """XML 원천으로 남의 API 를 부르지 못하게(2026-11-06 보안 검토) — 대상 SP 의 적용도
+    POST 다. 정의에서 먼저 거절하고(`check_adapter`), 어댑터도 다시 본다."""
+    from relay_core.definition import check_adapter
+
+    base: dict[str, Any] = {"kind": "xml", "url": "http://mes.test/ws", "rows_xpath": "//r"}
+    base |= {"key": "k", "columns": {"K": "k"}}
+    wrong: list[dict[str, Any]] = [
+        {"method": "DELETE"},
+        {"method": "PUT", "envelope": "<E/>"},
+        {"method": "POST"},
+        {"soap_action": "urn:x#Apply"},
+        {"envelope": "<E/>", "content_type": "application/json"},
+        {"envelope": "<E/>", "soap_action": "a\r\nX-Evil: 1"},
+    ]
+    for over in wrong:
+        with pytest.raises(DefinitionError):
+            check_adapter({**base, **over})
+    asked: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        asked.append(request)
+        return httpx.Response(200, content=XML)
+
+    for over in wrong:
+        with pytest.raises(SourceError):
+            _xml(handler, **over).fetch(None)
+    assert asked == []  # 한 번도 나가지 않았다
+    _xml(handler, method="POST", envelope="<E/>").fetch(None)
+    assert asked[-1].method == "POST"
+
+
+def test_원천의_오류_글에_실은_비밀이_되돌아오지_않는다() -> None:
+    """받은 머리글을 그대로 찍는 서버 — 그 글이 작업 오류 · 알림 · MCP 로 퍼진다."""
+    from relay_core.adapters.rest import Auth, RestAdapter, RestSource
+
+    def echo(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text=f"bad credentials: {request.headers['Authorization']}")
+
+    client = httpx.Client(transport=httpx.MockTransport(echo))
+    for auth in (Auth("bearer", "sekret-token-123"), Auth("basic", "sekret-pass-9", user="u")):
+        source = RestSource(
+            base_url="http://plm.test", path="/m", key="id", columns={}, auth=auth
+        )
+        rest = RestAdapter(source, client=client, sleep=lambda _s: None)
+        with pytest.raises(SourceError) as failure:
+            rest.fetch(None)
+        assert "sekret" not in str(failure.value) and "***" in str(failure.value)
+        assert "sekret" not in repr(auth)  # 객체 표현(로그 · 오류 추적)에도
+    xml = _xml(echo, auth=Auth("header", "sekret-key-77", header="Authorization"))
+    with pytest.raises(SourceError) as failure:
+        xml.fetch(None)
+    assert "sekret" not in str(failure.value)
+
+
+def test_숫자_칸은_범위_안이어야_한다() -> None:
+    from relay_core.definition import check_adapter
+
+    base: dict[str, Any] = {"kind": "rest", "base_url": "http://x", "path": "/r", "key": "id"}
+    base["columns"] = {"ID": "id"}
+    for over in ({"timeout": 0}, {"timeout": 3600}, {"retries": True}, {"max_pages": 10**9}):
+        with pytest.raises(DefinitionError, match="이하여야"):
+            check_adapter({**base, **over})
+    assert check_adapter({**base, "timeout": 60, "retries": 3})[1]["timeout"] == 60
+
+
 def test_XML_은_바깥_엔티티를_따라가지_않는다(tmp_path: Path) -> None:
     secret = tmp_path / "secret.txt"
     secret.write_text("TOP-SECRET", encoding="utf-8")
@@ -299,3 +365,21 @@ def test_시험용_상한이면_앞만_받고_덜_받았다고_적는다(tmp_pat
     )
     got = rest.fetch(None, limit=4)
     assert len(got.records) == 4 and not got.complete and len(calls) == 2
+
+
+def test_slug_는_끝의_줄바꿈도_거절한다() -> None:
+    """`^…$` 를 `match` 로 보면 `"plm\\n"` 이 지난다 — 그 slug 가 작업 폴더 · 주소가 된다."""
+    from relay_core.definition import check_body
+
+    body: dict[str, Any] = {
+        "format": "relay-pipeline/1",
+        "slug": "plm-model",
+        "source": "plm",
+        "adapter": {"kind": "rest", "base_url": "http://x", "path": "/r", "key": "id"},
+        "target": {"server": "http://sp", "token_env": "SP_TOKEN"},
+    }
+    body["adapter"]["columns"] = {"ID": "id"}
+    assert check_body(body) == ("plm-model", "plm")
+    for slug, source in (("plm-model\n", "plm"), ("plm-model", "plm\n")):
+        with pytest.raises(DefinitionError):
+            check_body({**body, "slug": slug, "source": source})

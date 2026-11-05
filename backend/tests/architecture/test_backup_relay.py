@@ -170,3 +170,47 @@ def test_DB_가_다른_서버면_거기서_할_일을_말한다(tmp_path: Path) 
     assert done.returncode != 0
     assert "sudo -u postgres createdb -O relay check_db" in done.stderr
     assert not calls.exists()  # 남의 서버 DB 를 이 서버의 postgres 로 만들지 않는다
+
+
+@_no_bash
+def test_백업_목록은_이상한_이름_밖을_가리키는_기준에_흔들리지_않는다(tmp_path: Path) -> None:
+    """줄바꿈이 든 파일 이름이 목록을 쪼개 다른 파일을 끼우지 않고, 상태 파일의
+    `applied_run` 이 `../..` 면 중계 폴더 밖을 담지 않는다(2026-11-06 보안 검토)."""
+    install = tmp_path / "install"
+    install.mkdir()
+    (install / ".env").write_text(ENV, encoding="utf-8")
+    relay = _relay(install)
+    (relay / "pipelines" / "odd\n.env").write_text("{}", encoding="utf-8")
+    outside = install / "secret"
+    outside.mkdir()
+    (outside / "key.txt").write_text("TOP-SECRET", encoding="utf-8")
+    sneaky = relay / "work" / "sneaky"
+    sneaky.mkdir(parents=True)
+    state = {"applied_run": "../../../secret", "pending": None}
+    (sneaky / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    bin_dir = _tools(tmp_path)
+    backup = tmp_path / "backup"
+
+    done = _bash(bin_dir, str(DEPLOY / "backup.sh"), "-i", str(install), "-o", str(backup))
+    assert done.returncode == 0, done.stderr
+    (tarball,) = (backup / "relay").glob("relay-*.tar.gz")
+    with tarfile.open(tarball) as opened:
+        names = opened.getnames()
+    assert "pipelines/odd\n.env" in names and "pipelines/odd" not in names
+    assert not any("secret" in one or ".." in one for one in names)
+    assert "work/sneaky/state.json" in names
+
+
+@_no_bash
+def test_복구할_DB_이름은_SQL_에_끼울_수_있는_글자만(tmp_path: Path) -> None:
+    install = tmp_path / "install"
+    install.mkdir()
+    (install / ".env").write_text(ENV, encoding="utf-8")
+    _relay(install)
+    bin_dir = _tools(tmp_path)
+    backup = tmp_path / "backup"
+    done = _bash(bin_dir, str(DEPLOY / "backup.sh"), "-i", str(install), "-o", str(backup))
+    assert done.returncode == 0, done.stderr
+    for bad in ('x" ENCODING', "x';--", "1abc", "a b"):
+        got = _bash(bin_dir, str(DEPLOY / "restore.sh"), "-b", str(backup), "-d", bad)
+        assert got.returncode != 0 and "DB 이름은" in got.stderr, (bad, got.stderr)

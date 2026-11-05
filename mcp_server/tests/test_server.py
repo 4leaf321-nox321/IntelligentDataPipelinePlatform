@@ -68,6 +68,24 @@ def test_백엔드의_거절은_코드와_말로(monkeypatch: pytest.MonkeyPatch
         asyncio.run(server.recipe_test(_ctx(), "plm-model", 1))
 
 
+def test_slug_로_다른_경로를_부르지_못한다(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`plm-model/apply?` 같은 slug 가 「없는 도구」(적용)의 경로가 되지 않게(2026-11-06 보안
+    검토) — 백엔드에 닿기 전에 멈춘다."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={})
+
+    monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(handler))
+    for slug in ("plm-model/apply?", "../jobs/1/apply", "plm-model#", "plm model", "a%2Fb"):
+        with pytest.raises(server.RelayError, match="쓸 수 없는 글자"):
+            asyncio.run(server.recipe_test(_ctx(), slug, 1))
+    assert seen == []
+    asyncio.run(server.recipe_test(_ctx(), "plm-model", 1))
+    assert seen[0].url.path == "/api/relay/pipelines/plm-model/recipes/1/test"
+
+
 def test_가이드는_절로_돌려준다() -> None:
     assert server.get_guide("start").startswith("## start")
     assert "sp-table/1" in server.get_guide("recipe")
