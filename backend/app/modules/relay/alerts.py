@@ -126,7 +126,12 @@ def after_job(db: Session, job: Job) -> None:
     if not slug or job.status not in ("done", "failed"):
         return
     now: dict[str, str] = {}
-    if job.kind in (services.RUN_KIND, services.APPLY_KIND):
+    # 적용할 계획이 없어 아무 일도 안 한 적용은 실행 갈래를 바꾸지 않는다 — 실패한 실행 뒤에
+    # 누른 「적용」 이 「실행 복구」 로 읽히면 안 된다(된 실행은 없다, 2026-11-06 개발 서버).
+    result = job.result or {}
+    idle = job.kind == services.APPLY_KIND and result.get("status") == "nothing"
+    run_like = job.kind in (services.RUN_KIND, services.APPLY_KIND)
+    if run_like and not (job.status == "done" and idle):
         now["run"] = _run_state(job)
     reconciled = _reconcile_state(job, slug)
     if reconciled:

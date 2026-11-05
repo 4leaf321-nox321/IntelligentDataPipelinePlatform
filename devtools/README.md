@@ -37,6 +37,10 @@ curl -X POST http://127.0.0.1:8088/_mock/scenario/change
 # 5) 대상과 대조 — 허브 쪽에서 바뀐 것을 찾는다(읽기만). --plan 이면 보정 계획(미리보기)까지
 .venv/bin/python -m relay_core.cli reconcile ../devtools/mock_plm/pipeline.json --work ../.work/relay
 
+# 6) 값의 출처 — 그 객체의 값이 원천 몇 행의 어느 칸에서 어떤 규칙으로 왔나(읽기만)
+.venv/bin/python -m relay_core.cli trace ../devtools/mock_plm/pipeline.json --work ../.work/relay \
+    --type plm_task --key T-1001
+
 # datarelay 자신(화면 · MCP 까지) — 창 셋. backend/.env 에 MOCK_PLM_TOKEN · RELAY_TARGET_TOKEN 을 적는다
 #   backend: .venv/bin/python -m uvicorn app.main:app --port 8081
 #   backend: .venv/bin/python -m app.worker          (API 가 뜬 뒤에)

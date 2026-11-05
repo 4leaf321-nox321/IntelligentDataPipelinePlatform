@@ -29,6 +29,9 @@ export type LineageStep = Schemas['LineageStep']
 export type RelayJob = Schemas['RelayJob']
 export type QueuedOut = Schemas['QueuedOut']
 export type RunIn = Schemas['RunIn']
+/** 거꾸로 보기 — 대상 객체 하나의 값이 어느 원천 행 · 칸 · 레시피 규칙에서 왔나(`relay_core/trace`). */
+export type ValueTrace = Schemas['TraceOut']
+export type TraceField = Schemas['TraceField']
 
 /** 지도의 열 — 왼쪽에서 오른쪽으로 이 차례다. */
 export const NODE_KINDS = ['system', 'endpoint', 'pipeline', 'target', 'type', 'downstream'] as const
@@ -104,6 +107,12 @@ export const DRIFT_LABEL: Record<DriftKind, string> = {
   deprecated: '안 씀',
   changed: '다름',
   extra: '대상에만',
+}
+
+/** 거꾸로 보기의 「마지막 대조에서」 — 어긋남 넷에 같음 · 견주지 못함을 더한다. */
+export function traceStateLabel(state: string): string {
+  if (state in DRIFT_LABEL) return DRIFT_LABEL[state as DriftKind]
+  return state === 'same' ? '대상과 같음' : '대조하지 못함'
 }
 
 /**
@@ -250,6 +259,23 @@ export function countsLine(counts: RunCounts | undefined | null): string {
  * 온다. 버린 판도 목록에 남는다(판 번호는 다시 쓰지 않는다).
  */
 export type RecipeVersion = Schemas['RecipeOut']
+/** 초안 저장의 답 — 저장은 했지만 알아야 할 것(어댑터가 내지 않는 열 · 빈 types …)이 `problems`. */
+export type RecipeSaved = Schemas['RecipeSaved']
+
+/** 정의 파일이 가리키는 레시피 — 사용 중인 판이 없을 때 쓰는 것. 없으면 `body` 가 null. */
+export interface RecipeFile {
+  path: string
+  body: Record<string, unknown> | null
+  problems?: string[]
+}
+
+/** 미러(마지막으로 받은 원천)의 앞 몇 줄 — 레시피가 읽는 평평한 열 그대로. */
+export interface SourceSample {
+  columns: string[]
+  total: number
+  rows: Record<string, unknown>[]
+  note: string
+}
 
 /** 판의 본문 — 생성 타입은 `{[key]: unknown}` 이라 모양을 여기 적는다(`routes.recipe_body`). */
 export interface RecipeBody extends RecipeVersion {
@@ -408,8 +434,19 @@ export const relayApi = {
     api.post<QueuedOut>(`${slugPath(slug)}/reconcile`, { plan }),
   /** 마지막 대조의 보고서 전부(상세는 본보기만 싣는다). 대조한 적이 없으면 404. */
   reconcileReport: (slug: string) => api.get<ReconcileReport>(`${slugPath(slug)}/reconcile`),
+  /** 거꾸로 보기 — 읽기만 한다. 못 찾으면 404 와 까닭(모르는 타입 · 어디에도 없는 식별자 · 받은 적 없음). */
+  trace: (slug: string, typeSlug: string, key: string) =>
+    api.get<ValueTrace>(
+      `${slugPath(slug)}/trace?${new URLSearchParams({ type_slug: typeSlug, key }).toString()}`,
+    ),
   recipes: (slug: string) => api.get<RecipeVersion[]>(`${slugPath(slug)}/recipes`),
   recipe: (slug: string, version: number) => api.get<RecipeBody>(recipePath(slug, version)),
+  recipeFile: (slug: string) => api.get<RecipeFile>(`${slugPath(slug)}/recipe-file`),
+  /** 레시피 편집의 열 목록 — 원천에 다시 묻지 않는다(실행이 받아 둔 미러). */
+  sample: (slug: string, limit = 1) => api.get<SourceSample>(`${slugPath(slug)}/sample?limit=${limit}`),
+  /** 초안 저장 — 사용하지 않는다(사용은 목록의 「사용」). 작성 경로는 「화면」 으로 남는다. */
+  saveRecipe: (slug: string, body: Record<string, unknown>, note: string) =>
+    api.post<RecipeSaved>(`${slugPath(slug)}/recipes`, { body, note }),
   testRecipe: (slug: string, version: number) =>
     api.post<RecipeTrial>(`${recipePath(slug, version)}/test`),
   /** 켠다 — **화면의 사람만**(서버가 토큰을 거절한다). 다음 실행부터 이 판이 돈다. */

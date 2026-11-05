@@ -29,6 +29,7 @@ from app.modules.relay.schemas import (
     RecipeOut,
     RecipeSaved,
     RelayMap,
+    TraceOut,
 )
 from app.shared.auth import current_user, require_system_admin
 from app.shared.errors import Conflict, NotFound, code
@@ -124,6 +125,19 @@ def pipeline_reconcile_report(
     if report is None:
         raise NotFound(code("RELAY", 18), f"{slug} 은 아직 대조한 적이 없습니다.")
     return report
+
+
+@router.get("/pipelines/{slug}/trace", response_model=TraceOut)
+def pipeline_trace(
+    slug: str,
+    type_slug: str = Query(min_length=1, max_length=80),
+    key: str = Query(min_length=1, max_length=200),
+    _: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """**거꾸로 보기** — 대상 객체 하나(`type_slug` · `key`)의 값이 어느 원천 행 · 칸 · 레시피
+    규칙에서 왔나, 닿는 관계, 마지막 대조에서의 상태. 읽기만 한다. 못 찾으면 404 와 까닭."""
+    return services.trace_value(db, slug, type_slug, key)
 
 
 # --- 레시피의 판 — MCP 가 초안 · 시험, 사람이 화면에서 켠다 ------------------------------

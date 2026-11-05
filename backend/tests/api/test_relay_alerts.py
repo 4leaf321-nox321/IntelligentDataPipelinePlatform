@@ -80,7 +80,10 @@ def test_실행이_나빠질_때와_다시_될_때만_관리자에게_알린다(
             Outcome("nothing", "보낼 것이 없습니다"),
         ],
     )
-    for _ in range(5):
+    _timer(db, services.RUN_KIND, slug)
+    _timer(db, services.RUN_KIND, slug)
+    _timer(db, services.APPLY_KIND, slug)  # 적용할 계획이 없다 — 「실행 복구」 가 아니다
+    for _ in range(3):
         _timer(db, services.RUN_KIND, slug)
 
     assert _bell(db, admin.email, slug) == [

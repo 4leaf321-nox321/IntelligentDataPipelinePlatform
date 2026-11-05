@@ -86,6 +86,7 @@ cd backend
 .venv/bin/python -m relay_core.cli apply  <정의.json>   # 대기 중인 계획 적용
 .venv/bin/python -m relay_core.cli status <정의.json>
 .venv/bin/python -m relay_core.cli reconcile <정의.json> [--plan]   # 대상과 대조 · 보정 계획(미리보기)
+.venv/bin/python -m relay_core.cli trace <정의.json> --type T --key K   # 값의 출처(원천 행 · 규칙 · 대조)
 ```
 
 화면의 「지금 실행」 · 「적용」 · 「대조」 와 타이머가 같은 함수를 작업으로 부른다. **대조**는 대상 SP 에

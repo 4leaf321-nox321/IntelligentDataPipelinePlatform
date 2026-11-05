@@ -1,6 +1,6 @@
 /**
  * 파이프라인 상세 — 원천 + 레시피 + 대상. **칸 대응 표**(대상의 칸이 원천의 어디서 오나) · 지금
- * 상태 · 대조(대상에 지금 있는 것과 기준) · 실행 이력 · 최근 작업, 그리고 시스템 관리자의 「지금
+ * 상태 · 대조(대상에 지금 있는 것과 기준) · 값의 출처(거꾸로 보기) · 실행 이력 · 최근 작업, 그리고 시스템 관리자의 「지금
  * 실행」 · 「적용」 · 「대조」 · 정의 판 · 레시피 판.
  *
  * 초안(AI 가 지은 정의 판이 아직 안 켜진 새 파이프라인)은 돌지 않는다 — 맨 위에 그렇게 적고, 실행
@@ -12,6 +12,7 @@
  * 꺼진 것이 기본이라 「끔」 은 흐리게.
  */
 
+import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { relayApi } from '@/modules/relay/api'
@@ -22,6 +23,8 @@ import { PipelineActions } from '@/modules/relay/PipelineActions'
 import { Fact, PipelineHistory, PipelineJobs, PipelineState } from '@/modules/relay/PipelineRuns'
 import { ReconcileSection } from '@/modules/relay/ReconcileSection'
 import { RecipeVersions } from '@/modules/relay/RecipeVersions'
+import { ValueTraceSection } from '@/modules/relay/ValueTrace'
+import type { TraceRequest } from '@/modules/relay/ValueTrace'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { isSystemAdmin } from '@/shared/auth/roles'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -71,6 +74,7 @@ export default function PipelineDetailPage() {
   const admin = isSystemAdmin(user)
   const detail = useResource(() => relayApi.pipeline(slug), [slug])
   const data = detail.stale ? null : detail.data
+  const [traceRequest, setTraceRequest] = useState<TraceRequest | null>(null)
 
   if (!data) {
     return (
@@ -202,7 +206,16 @@ export default function PipelineDetailPage() {
         <LineageTable steps={data.lineage} />
       </section>
 
-      <ReconcileSection detail={data} admin={admin} onQueued={detail.reload} />
+      <ReconcileSection
+        detail={data}
+        admin={admin}
+        onQueued={detail.reload}
+        onTrace={(typeSlug, key) => setTraceRequest({ typeSlug, key, nonce: Date.now() })}
+      />
+
+      {data.types.length > 0 && (
+        <ValueTraceSection slug={data.slug} types={data.types} request={traceRequest} />
+      )}
 
       {admin && <VersionPanels detail={data} onChanged={detail.reload} />}
 

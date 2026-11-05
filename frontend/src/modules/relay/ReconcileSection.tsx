@@ -61,8 +61,35 @@ function Count({ value }: { value: number }) {
   return <span className={cn(value ? 'font-medium' : 'text-muted-foreground')}>{value}</span>
 }
 
+type OnTrace = (typeSlug: string, key: string) => void
+
+/** 본보기의 식별자 하나 — 「값의 출처」 로 그 값을 조회하는 단추(없으면 글자만). */
+function KeyChip({ slug, value, onTrace }: { slug: string; value: string; onTrace?: OnTrace }) {
+  if (!onTrace) return <span className="font-mono">{value}</span>
+  return (
+    <button
+      type="button"
+      className="font-mono underline-offset-2 hover:underline"
+      aria-label={`${slug} ${value} 출처 조회`}
+      onClick={() => onTrace(slug, value)}
+    >
+      {value}
+    </button>
+  )
+}
+
 /** 한 갈래의 본보기 — 참 건수가 더 크면 앞의 몇 건만이라고 적는다. */
-function Samples({ type, kind }: { type: ReconcileType; kind: DriftKind }) {
+function Samples({
+  slug,
+  type,
+  kind,
+  onTrace,
+}: {
+  slug: string
+  type: ReconcileType
+  kind: DriftKind
+  onTrace?: OnTrace
+}) {
   const total = driftCount(type, kind)
   if (!total) return null
   const shown = driftShown(type, kind)
@@ -78,7 +105,7 @@ function Samples({ type, kind }: { type: ReconcileType; kind: DriftKind }) {
         <ul className="space-y-0.5 text-xs">
           {Object.entries(type.changed ?? {}).map(([key, fields]) => (
             <li key={key}>
-              <span className="font-mono">{key}</span>
+              <KeyChip slug={slug} value={key} onTrace={onTrace} />
               <span className="text-muted-foreground"> — {fields.join(' · ')}</span>
             </li>
           ))}
@@ -86,8 +113,8 @@ function Samples({ type, kind }: { type: ReconcileType; kind: DriftKind }) {
       ) : (
         <ul className="flex flex-wrap gap-1">
           {(type[kind] ?? []).map((key) => (
-            <li key={key} className="bg-background rounded border px-1 font-mono text-xs">
-              {key}
+            <li key={key} className="bg-background rounded border px-1 text-xs">
+              <KeyChip slug={slug} value={key} onTrace={onTrace} />
             </li>
           ))}
         </ul>
@@ -102,7 +129,7 @@ function Samples({ type, kind }: { type: ReconcileType; kind: DriftKind }) {
   )
 }
 
-function TypeTable({ report }: { report: ReconcileReport }) {
+function TypeTable({ report, onTrace }: { report: ReconcileReport; onTrace?: OnTrace }) {
   const [opened, setOpened] = useState<Set<string>>(new Set())
   const types = Object.entries(report.types ?? {})
   if (types.length === 0) return null
@@ -173,7 +200,7 @@ function TypeTable({ report }: { report: ReconcileReport }) {
                     <TableCell colSpan={DRIFT_KINDS.length + 4} className="bg-muted/30 whitespace-normal">
                       <div className="space-y-2">
                         {DRIFT_KINDS.map((kind) => (
-                          <Samples key={kind} type={one} kind={kind} />
+                          <Samples key={kind} slug={slug} type={one} kind={kind} onTrace={onTrace} />
                         ))}
                       </div>
                     </TableCell>
@@ -343,11 +370,14 @@ export function ReconcileSection({
   detail,
   admin,
   onQueued,
+  onTrace,
 }: {
   detail: PipelineDetail
   admin: boolean
   /** 대조 · 보정 계획 작업을 넣었다 — 상세를 다시 읽는다. */
   onQueued: () => void
+  /** 본보기의 식별자를 클릭했다 — 「값의 출처」 로 그 값을 조회한다. */
+  onTrace?: OnTrace
 }) {
   const report = reconcileOf(detail)
   const [full, setFull] = useState<ReconcileReport | null>(null)
@@ -448,7 +478,7 @@ export function ReconcileSection({
             <p className="text-muted-foreground text-xs">전체 보고서를 표시하고 있습니다.</p>
           )}
           <ErrorNotice error={failed} />
-          <TypeTable report={shown} />
+          <TypeTable report={shown} onTrace={onTrace} />
         </>
       )}
     </section>

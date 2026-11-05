@@ -157,3 +157,64 @@ class DefinitionTestIn(BaseModel):
     """이 레시피 판으로 바꿔 본다 — 비우면 켜진 레시피 판, 없으면 같은 slug 의 정의 파일 것."""
     limit: int = Field(default=10, ge=0, le=50)
     """돌려줄 표본 줄 수."""
+
+
+# --- 거꾸로 보기 — 값의 출처(`relay_core.trace`) -----------------------------------------
+
+
+class TraceSeen(BaseModel):
+    value: str
+    """원천 행의 원래 값."""
+    rows: list[int]
+    """그 값이 나온 원천 표의 행 번호(1행은 머리글)."""
+
+
+class TraceField(BaseModel):
+    name: str
+    rule: str
+    """사람이 읽는 레시피 규칙 한 줄."""
+    columns: list[str]
+    value: Any = None
+    """기준 출력의 값."""
+    seen: list[TraceSeen] = Field(default_factory=list)
+
+
+class TraceRow(BaseModel):
+    row: int
+    values: dict[str, str]
+
+
+class TraceRelation(BaseModel):
+    relation: str
+    direction: str
+    """`out`(이 객체에서 나감) · `in`(이 객체로 들어옴)."""
+    other: str
+
+
+class TraceReconcile(BaseModel):
+    state: str
+    """`same` · `missing`(빠짐) · `deprecated`(안 씀) · `changed`(다름) · `extra`(대상에만) ·
+    `unknown`(그 타입을 견주지 못함)."""
+    at: str | None = None
+    fields: list[str] = Field(default_factory=list)
+    stale: bool = False
+    """지금 기준을 적용하기 전의 대조 — 그 상태는 지금 기준의 것이 아니다."""
+
+
+class TraceOut(BaseModel):
+    type_slug: str
+    key: str
+    label: str = ""
+    found: bool
+    """기준 출력에 그 객체가 있나."""
+    run: str = ""
+    applied_at: str = ""
+    basis: str
+    recipe_basis: str
+    note: str = ""
+    fields: list[TraceField]
+    rows: list[TraceRow]
+    rows_total: int
+    relations: list[TraceRelation]
+    reconcile: TraceReconcile | None = None
+    problems: list[str]

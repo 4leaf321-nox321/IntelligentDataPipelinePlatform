@@ -310,6 +310,17 @@ async def pipeline_reconcile_report(ctx: Context, slug: str) -> Any:
 
 
 @mcp.tool()
+async def pipeline_trace(ctx: Context, slug: str, type_slug: str, key: str) -> Any:
+    """거꾸로 보기 — 대상 객체 하나(`type_slug` · `key`)의 값이 어느 원천 행 · 칸 · 레시피
+    규칙에서 왔나. 칸마다 기준 출력의 값 · 규칙 · 원천의 원래 값(행 번호), 원천 행들, 닿는
+    관계, 마지막 대조에서의 상태(`reconcile.state` · 다른 칸). 대조가 「다름」 을 말하면
+    이것으로 까닭을 가린다 — 레시피의 값 모양 탓이면 레시피를, 원천 탓이면 원천 담당을,
+    대상에서 바뀐 것이면 보정 계획을. 읽기만 한다."""
+    params = {"type_slug": type_slug, "key": key}
+    return await _call(ctx, "GET", f"/relay/pipelines/{slug}/trace", params=params)
+
+
+@mcp.tool()
 async def job_status(ctx: Context, job_id: str) -> Any:
     """작업의 상태 · 결과 요약(summary)."""
     got = await _call(ctx, "GET", f"/jobs/{job_id}")

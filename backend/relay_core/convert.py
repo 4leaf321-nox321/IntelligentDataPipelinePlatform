@@ -31,11 +31,14 @@ def convert(
     server: str = "",
     token: str = "",
 ) -> Converted:
-    """`work` 에 원천 표(CSV)를 쓰고 `run` 에 실행 폴더를 만든다(`run` 은 없어야 한다).
+    """`work` 에 원천 표(CSV)와 **그때의 레시피 사본**을 쓰고 `run` 에 실행 폴더를 만든다
+    (`run` 은 없어야 한다). 사본은 거꾸로 보기(`trace`)가 쓴다 — 기준을 만든 뒤 레시피 판이
+    바뀌면 지금 레시피로는 그 값이 어디서 왔는지 틀리게 말한다.
 
     `server` · `token` 은 레시피의 참조 대조(`match`)가 대상 SP 의 식별자를 받을 때만 쓴다."""
     if len(mirror) == 0:
         raise ValueError("미러가 비어 있습니다 — 받은 행이 없습니다.")
     source = mirror.write_csv(work / f"{run.name}.source.csv")
+    (work / f"{run.name}.recipe.table.json").write_bytes(recipe.read_bytes())
     clean, report = sp.table.convert(recipe, source, run, server=server, token=token)
     return Converted(run=run, clean=bool(clean), report=str(report))

@@ -55,7 +55,7 @@ class State:
 #: 실행마다 생기는 이름 — `stamp()` 모양(보정 계획의 묶음은 `-resync` 가 붙는다). 정리는
 #: **이 모양만** 지운다 — 시험의 임시 폴더(`tmp…`)나 사람이 둔 파일은 건드리지 않는다.
 _RUN_NAME = re.compile(r"^(\d{8}T\d{12}Z)(-resync)?$")
-_SOURCE_NAME = re.compile(r"^(\d{8}T\d{12}Z)\.source\.csv$")
+_SOURCE_NAME = re.compile(r"^(\d{8}T\d{12}Z)\.(source\.csv|recipe\.table\.json)$")
 #: 정리하는 곳 — (폴더, 이름 모양).
 _PRUNED = (("runs", _RUN_NAME), ("sends", _RUN_NAME), ("work", _SOURCE_NAME))
 
@@ -122,7 +122,15 @@ class Workdir:
                 for one in base.iterdir()
                 if (matched := shape.match(one.name))
             )
-            for name, when in found[:-keep]:
+            # work/ 는 실행 하나에 파일이 여럿(원천 표 · 레시피) — 실행 시각으로 묶어 센다.
+            recent = {when for _name, when in found} if folder == "work" else set()
+            recent = set(sorted(recent)[-keep:])
+            doomed = (
+                [one for one in found if one[1] not in recent]
+                if folder == "work"
+                else found[:-keep]
+            )
+            for name, when in doomed:
                 relative = f"{folder}/{name}"
                 # 원천 표(work/)는 그 실행이 남으면 같이 남는다 — 기준이 무엇에서 나왔나.
                 if relative in held or (folder == "work" and f"runs/{when}" in held):

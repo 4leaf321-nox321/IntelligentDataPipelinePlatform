@@ -5,6 +5,7 @@
     python -m relay_core.cli status <정의.json> [--work DIR]   워터마크 · 기준 · 대기 계획
     python -m relay_core.cli check  <정의.json>                이 서버에서 원천 · 대상에 닿나
     python -m relay_core.cli reconcile <정의.json> [--plan]    대상과 대조 · 보정 계획
+    python -m relay_core.cli trace <정의.json> --type T --key K 값의 출처(거꾸로 보기, JSON)
 
 끝나는 값: 0 정상(보낼 것 없음 · 올림 · 적용 · 대상과 같음) · 1 사람이 볼 것(미해결 · 계획
 오류 · 대상과 어긋남) · 2 멈춤(원천 · 대상 · 정의 오류). 야간 작업의 경보로 쓴다.
@@ -18,7 +19,7 @@ import os
 import sys
 from pathlib import Path
 
-from relay_core import reconcile, runner
+from relay_core import reconcile, runner, trace
 from relay_core.adapters.rest import SourceError
 from relay_core.definition import DefinitionError, Pipeline, load
 from relay_core.state import Workdir
@@ -29,12 +30,16 @@ DEFAULT_WORK = Path(os.environ.get("DATARELAY_WORK", Path.cwd() / ".work"))
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="relay")
-    parser.add_argument("command", choices=["run", "apply", "status", "check", "reconcile"])
+    parser.add_argument(
+        "command", choices=["run", "apply", "status", "check", "reconcile", "trace"]
+    )
     parser.add_argument("definition", type=Path)
     parser.add_argument("--work", type=Path, default=DEFAULT_WORK)
     parser.add_argument(
         "--plan", action="store_true", help="reconcile: 어긋난 줄의 보정 계획까지 생성한다"
     )
+    parser.add_argument("--type", dest="type_slug", help="trace: 대상 타입 slug")
+    parser.add_argument("--key", help="trace: 그 타입 안의 식별자")
     parser.add_argument(
         "--human-edits",
         choices=["keep", "overwrite"],
@@ -65,6 +70,13 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             return 0
+        if args.command == "trace":
+            if not args.type_slug or not args.key:
+                print("멈춤: trace 에는 --type 과 --key 가 필요합니다.", file=sys.stderr)
+                return 2
+            got = trace.trace(work, pipeline.recipe, args.type_slug, args.key)
+            print(json.dumps(got.to_json(), ensure_ascii=False, indent=2))
+            return 0
         if args.command == "reconcile" and not args.plan:
             report = reconcile.compare(pipeline, work)
             print(report.summary())
@@ -82,7 +94,13 @@ def main(argv: list[str] | None = None) -> int:
             outcome = runner.run(pipeline, work, options=options)
         else:
             outcome = runner.apply(pipeline, work)
-    except (DefinitionError, SourceError, SubmitError, reconcile.ReconcileError) as failure:
+    except (
+        DefinitionError,
+        SourceError,
+        SubmitError,
+        reconcile.ReconcileError,
+        trace.TraceError,
+    ) as failure:
         print(f"멈춤: {failure}", file=sys.stderr)
         return 2
     print(f"[{outcome.status}] {outcome.message}")

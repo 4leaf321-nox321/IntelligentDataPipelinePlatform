@@ -38,6 +38,7 @@ from app.shared import extensions
 from app.shared.errors import NotFound, code
 from relay_core import reconcile
 from relay_core.describe import Described, describe, find
+from relay_core.state import Workdir
 
 #: 작업 종류 — `relay/jobs.py` 가 등록한다.
 RUN_KIND = "relay_run"
@@ -428,6 +429,27 @@ def detail(db: Session, slug: str) -> PipelineDetail:
         reconcile=report,
         reconcile_label=reconcile_label(),
     )
+
+
+def trace_value(db: Session, slug: str, type_slug: str, key: str) -> dict[str, Any]:
+    """거꾸로 보기 — `relay_core.trace`. 기준 실행의 레시피 사본이 없을 때만 지금 레시피(사용
+    중인 판, 없으면 정의 파일의 것)로 읽는다. **읽기만 한다** — 작업 폴더를 새로 만들지
+    않는다."""
+    from app.modules.relay import recipes
+    from relay_core.trace import TraceError, trace
+
+    found = by_slug(slug, db)
+    if not (get_settings().relay_work_dir / slug).is_dir():
+        raise NotFound(
+            code("RELAY", 19), f"{slug} 은 아직 원천을 받은 적이 없습니다 — 먼저 실행하세요."
+        )
+    active = recipes.active(db, slug)
+    now: dict[str, Any] | Path | None = active.body if active is not None else found.recipe
+    try:
+        got = trace(Workdir(get_settings().relay_work_dir, slug), now, type_slug, key)
+    except TraceError as failure:
+        raise NotFound(code("RELAY", 19), str(failure)) from failure
+    return got.to_json()
 
 
 def reconcile_label() -> str:

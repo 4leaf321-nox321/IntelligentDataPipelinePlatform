@@ -4041,6 +4041,71 @@
         }
       }
     },
+    "/api/relay/pipelines/{slug}/trace": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Trace",
+        "description": "**거꾸로 보기** — 대상 객체 하나(`type_slug` · `key`)의 값이 어느 원천 행 · 칸 · 레시피\n규칙에서 왔나, 닿는 관계, 마지막 대조에서의 상태. 읽기만 한다. 못 찾으면 404 와 까닭.",
+        "operationId": "pipeline_trace_api_relay_pipelines__slug__trace_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "type_slug",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80,
+              "title": "Type Slug"
+            }
+          },
+          {
+            "name": "key",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TraceOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/relay/pipelines/{slug}/recipes": {
       "get": {
         "tags": [
@@ -8724,6 +8789,243 @@
         ],
         "title": "TokenScopesOut",
         "description": "이 설치가 아는 범위. **화면이 목록을 손으로 들지 않는다** — 도메인이 범위를\n더하면 화면은 아무것도 안 고쳐도 새 범위를 보여 준다."
+      },
+      "TraceField": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "rule": {
+            "type": "string",
+            "title": "Rule"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "value": {
+            "title": "Value"
+          },
+          "seen": {
+            "items": {
+              "$ref": "#/components/schemas/TraceSeen"
+            },
+            "type": "array",
+            "title": "Seen"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "rule",
+          "columns"
+        ],
+        "title": "TraceField"
+      },
+      "TraceOut": {
+        "properties": {
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          },
+          "found": {
+            "type": "boolean",
+            "title": "Found"
+          },
+          "run": {
+            "type": "string",
+            "title": "Run",
+            "default": ""
+          },
+          "applied_at": {
+            "type": "string",
+            "title": "Applied At",
+            "default": ""
+          },
+          "basis": {
+            "type": "string",
+            "title": "Basis"
+          },
+          "recipe_basis": {
+            "type": "string",
+            "title": "Recipe Basis"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/TraceField"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TraceRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "rows_total": {
+            "type": "integer",
+            "title": "Rows Total"
+          },
+          "relations": {
+            "items": {
+              "$ref": "#/components/schemas/TraceRelation"
+            },
+            "type": "array",
+            "title": "Relations"
+          },
+          "reconcile": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TraceReconcile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type_slug",
+          "key",
+          "found",
+          "basis",
+          "recipe_basis",
+          "fields",
+          "rows",
+          "rows_total",
+          "relations",
+          "problems"
+        ],
+        "title": "TraceOut"
+      },
+      "TraceReconcile": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Fields"
+          },
+          "stale": {
+            "type": "boolean",
+            "title": "Stale",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "TraceReconcile"
+      },
+      "TraceRelation": {
+        "properties": {
+          "relation": {
+            "type": "string",
+            "title": "Relation"
+          },
+          "direction": {
+            "type": "string",
+            "title": "Direction"
+          },
+          "other": {
+            "type": "string",
+            "title": "Other"
+          }
+        },
+        "type": "object",
+        "required": [
+          "relation",
+          "direction",
+          "other"
+        ],
+        "title": "TraceRelation"
+      },
+      "TraceRow": {
+        "properties": {
+          "row": {
+            "type": "integer",
+            "title": "Row"
+          },
+          "values": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Values"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row",
+          "values"
+        ],
+        "title": "TraceRow"
+      },
+      "TraceSeen": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "rows": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value",
+          "rows"
+        ],
+        "title": "TraceSeen"
       },
       "UnreadCountOut": {
         "properties": {

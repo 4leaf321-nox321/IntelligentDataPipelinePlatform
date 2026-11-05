@@ -1,5 +1,6 @@
 /**
- * 레시피 판 — **AI(MCP)가 초안을 짓고 시험한다. 켜는 일은 사람이 여기서 한다**(ADR 0001 §2).
+ * 레시피 판 — **AI(MCP)가, 또는 사람이 여기 「초안 작성」(`RecipeEditor`)으로 초안을 작성하고 시험한다. 사용
+ * 여부는 사람이 여기서 정한다**(ADR 0001 §2).
  *
  * 서버는 토큰으로 온 「켜기」 를 거절한다. 그래서 켜기 전에 여기서 한 번 더 시험해 「켜면 무엇이
  * 바뀌나」 를 사람이 읽게 한다 — 시험하지 않았거나 막힌 판이면 확인 창이 그렇다고 먼저 말한다.
@@ -11,11 +12,13 @@ import { Fragment, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 
 import { countsLine, relayApi } from '@/modules/relay/api'
-import type { RecipeBody, RecipeTrial, RecipeVersion } from '@/modules/relay/api'
+import type { RecipeBody, RecipeSaved, RecipeTrial, RecipeVersion } from '@/modules/relay/api'
+import { RecipeEditor } from '@/modules/relay/RecipeEditor'
 import { RecipeTrialView } from '@/modules/relay/RecipeTrialView'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { StatusBadge } from '@/shared/components/StatusBadge'
+import { Alert, AlertDescription } from '@/shared/components/ui/alert'
 import { Button } from '@/shared/components/ui/button'
 import {
   Dialog,
@@ -80,6 +83,8 @@ export function RecipeVersions({
   const [discarding, setDiscarding] = useState<RecipeVersion | null>(null)
   const [askingDiscard, setAskingDiscard] = useState(false)
   const [body, setBody] = useState<RecipeBody | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [saved, setSaved] = useState<RecipeSaved | null>(null)
 
   async function act(version: number, run: () => Promise<void>) {
     setBusy(version)
@@ -118,19 +123,62 @@ export function RecipeVersions({
   const list = versions.data ?? []
   return (
     <section className="space-y-3">
-      <h2 className="text-base font-semibold">레시피 판</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="text-base font-semibold">레시피 판</h2>
+        {!editing && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setSaved(null)
+              setEditing(true)
+            }}
+          >
+            초안 작성
+          </Button>
+        )}
+      </div>
       <p className="text-muted-foreground text-sm">
-        AI(MCP)가 레시피 초안을 작성하고 시험합니다 — 사용 여부는 사람이 여기서 정합니다.
-        사용하면 다음 실행부터 그 판으로 변환합니다. 현재 레시피:{' '}
+        AI(MCP)가, 또는 여기 「초안 작성」 으로 레시피 초안을 작성하고 시험합니다 — 사용 여부는 사람이
+        여기서 정합니다. 사용하면 다음 실행부터 그 판으로 변환합니다. 현재 레시피:{' '}
         <span className="text-foreground font-medium">
           {recipeLabel === '파일' ? '정의 파일의 레시피(사용 중인 판 없음)' : recipeLabel}
         </span>
       </p>
       <ErrorNotice error={versions.error ?? failed} />
+      {editing && (
+        <RecipeEditor
+          slug={slug}
+          versions={list}
+          onClose={() => setEditing(false)}
+          onSaved={(got) => {
+            setSaved(got)
+            setEditing(false)
+            versions.reload()
+          }}
+        />
+      )}
+      {saved && (
+        <Alert data-testid="recipe-saved">
+          <AlertDescription>
+            <p>
+              판 {saved.version} 초안을 저장했습니다 — 아래 목록에서 「시험」 으로 「사용하면 보낼 것」 을
+              확인한 뒤 「사용」 하세요.
+            </p>
+            {saved.problems.length > 0 && (
+              <ul className="list-disc pl-4">
+                {saved.problems.map((one) => (
+                  <li key={one}>{one}</li>
+                ))}
+              </ul>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
       {versions.data && list.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          아직 판이 없습니다 — 정의 파일의 레시피를 사용합니다. AI(MCP)가 초안을 작성하면 여기 한
-          줄이 생깁니다.
+          아직 판이 없습니다 — 정의 파일의 레시피를 사용합니다. AI(MCP)가, 또는 「초안 작성」 으로
+          초안을 작성하면 여기 한 줄이 생깁니다.
         </p>
       )}
       {list.length > 0 && (

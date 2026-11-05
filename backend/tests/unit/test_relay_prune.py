@@ -23,6 +23,7 @@ def _folder(tmp_path: Path) -> Workdir:
         (work.path(f"sends/{_at(i)}")).mkdir(parents=True)
         work.path("work").mkdir(exist_ok=True)
         (work.path(f"work/{_at(i)}.source.csv")).write_text("K\n", encoding="utf-8")
+        (work.path(f"work/{_at(i)}.recipe.table.json")).write_text("{}", encoding="utf-8")
     (work.path(f"sends/{_at(4)}-resync")).mkdir()
     (work.path("runs/notes.txt")).write_text("사람이 둔 것", encoding="utf-8")
     (work.path("runs/tmpabc")).mkdir()  # 시험의 임시 폴더 모양
@@ -51,8 +52,10 @@ def test_최근_것과_상태가_가리키는_것만_남긴다(tmp_path: Path) -
 
     assert _names(work, "runs") == [_at(1), _at(3), _at(5), _at(6), "notes.txt", "tmpabc"]
     assert _names(work, "sends") == [_at(3), _at(5), _at(6)]  # 보정 계획의 묶음도 이름 순으로
-    # 원천 표는 남는 실행(기준 · 대기)을 따라 남는다.
-    assert _names(work, "work") == [f"{_at(i)}.source.csv" for i in (1, 3, 5, 6)]
+    # 원천 표 · 레시피 사본은 실행 시각으로 묶여 남는 실행(최근 · 기준 · 대기)을 따라 남는다.
+    exts = ("recipe.table.json", "source.csv")
+    kept = [f"{_at(i)}.{ext}" for i in (1, 3, 5, 6) for ext in exts]
+    assert _names(work, "work") == kept
     assert f"sends/{_at(4)}-resync" in removed and f"runs/{_at(2)}" in removed
     assert work.prune(2) == []  # 두 번째는 할 일이 없다
 

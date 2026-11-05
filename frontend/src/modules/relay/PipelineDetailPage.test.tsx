@@ -4,6 +4,7 @@
  * 실행 단추를 세우지 않는다. 초안 판은 버릴 수 있고, 새 파이프라인의 마지막 초안을 버리면 목록으로
  * 돌아간다. 자동 적용은 사실 목록 · 이력 · 켜기 확인 창이 말한다. 대조는 타입마다 건수와 본보기를
  * 보이고, 본보기가 잘렸으면 전체 보고서를 권한다. 보정 계획은 적용을 기다리는 계획이 있으면 막힌다.
+ * 값의 출처는 대조 본보기의 식별자를 클릭해도, 직접 입력해도 조회하고, 못 찾으면 서버의 까닭을 보인다.
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -17,6 +18,7 @@ import type {
   PipelineDetail,
   RecipeTrial,
   RecipeVersion,
+  ValueTrace,
 } from '@/modules/relay/api'
 import { fullReconcile, sampleReconcile } from '@/modules/relay/fixtures'
 import { ApiError } from '@/shared/api/client'
@@ -28,6 +30,7 @@ const relayApi = vi.hoisted(() => ({
   apply: vi.fn(),
   reconcile: vi.fn(),
   reconcileReport: vi.fn(),
+  trace: vi.fn(),
   recipes: vi.fn(),
   recipe: vi.fn(),
   testRecipe: vi.fn(),
@@ -1007,5 +1010,91 @@ describe('파이프라인 상세 · 대조', () => {
     const box = within(section())
     expect(box.queryByRole('button', { name: '대조' })).not.toBeInTheDocument()
     expect(box.getByText(/초안은 실행되지 않아 견줄 기준이 없습니다/)).toBeInTheDocument()
+  })
+})
+
+describe('파이프라인 상세 · 값의 출처', () => {
+  const area = () => screen.getByRole('heading', { name: '값의 출처' }).closest('section')!
+  const TRACE: ValueTrace = {
+    type_slug: 'plm_task',
+    key: 'T200',
+    label: '알파 1차 개발',
+    found: true,
+    run: 'runs/20261105T010000000000Z',
+    applied_at: '2026-11-05T01:00:00Z',
+    basis: '기준 실행의 원천 표',
+    recipe_basis: '기준 실행의 레시피',
+    note: '2행에서 모음',
+    fields: [
+      { name: 'key', rule: '열 TASK_CODE', columns: ['TASK_CODE'], value: 'T200', seen: [{ value: 'T200', rows: [2, 3] }] },
+      { name: 'label', rule: '열 TASK_NAME', columns: ['TASK_NAME'], value: '알파 1차 개발', seen: [{ value: '알파 1차 개발', rows: [2, 3] }] },
+      { name: 'due', rule: '열 DUE · 날짜로', columns: ['DUE'], value: '2026-08-01', seen: [{ value: '2026.8.1', rows: [2, 3] }] },
+    ],
+    rows: [
+      { row: 2, values: { TASK_CODE: 'T200', TASK_NAME: '알파 1차 개발', DUE: '2026.8.1' } },
+      { row: 3, values: { TASK_CODE: 'T200', TASK_NAME: '알파 1차 개발', DUE: '2026.8.1' } },
+    ],
+    rows_total: 2,
+    relations: [{ relation: 'plm_task_of', direction: 'in', other: 'M-0001' }],
+    reconcile: { state: 'changed', at: '2026-11-06T03:00:00Z', fields: ['label', 'due'], stale: false },
+    problems: [],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    auth.admin = false
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile() }))
+    relayApi.recipes.mockResolvedValue(VERSIONS)
+    relayApi.definitions.mockResolvedValue([])
+    relayApi.trace.mockResolvedValue(TRACE)
+  })
+
+  it('대조 본보기의 식별자를 클릭하면 그 값의 출처를 조회한다 — 다른 칸 · 규칙 · 원천 값 · 관계', async () => {
+    await mount()
+    await userEvent.click(screen.getByRole('button', { name: 'plm_task 본보기 펼치기' }))
+    await userEvent.click(screen.getByRole('button', { name: 'plm_task T200 출처 조회' }))
+    await waitFor(() => expect(relayApi.trace).toHaveBeenCalledWith('plm-tasks', 'plm_task', 'T200'))
+
+    const box = within(await screen.findByTestId('value-trace-result'))
+    expect(within(area()).getByLabelText('식별자')).toHaveValue('T200')
+    expect(box.getByText(/다른 칸: label · due/)).toBeInTheDocument()
+    const due = within(box.getByTestId('trace-field-due'))
+    expect(due.getByText('다름')).toBeInTheDocument()
+    expect(due.getByText('열 DUE · 날짜로')).toBeInTheDocument()
+    expect(due.getByText('2026.8.1')).toBeInTheDocument() // 원천의 원래 값 — 규칙이 날짜로 바꿨다
+    expect(within(box.getByTestId('trace-field-key')).queryByText('다름')).not.toBeInTheDocument()
+    expect(box.getByText(/기준 실행의 원천 표 · 2행 · 변환기: 2행에서 모음/)).toBeInTheDocument()
+    expect(box.getByText('M-0001')).toBeInTheDocument()
+    expect(box.queryByText(/지금 기준을 적용하기 전의 대조입니다/)).not.toBeInTheDocument()
+  })
+
+  it('지금 기준보다 앞선 대조는 그렇다고 말한다', async () => {
+    relayApi.trace.mockResolvedValue({ ...TRACE, reconcile: { ...TRACE.reconcile!, state: 'same', fields: [], stale: true } })
+    await mount()
+    const box = within(area())
+    await userEvent.type(box.getByLabelText('식별자'), 'T200')
+    await userEvent.click(box.getByRole('button', { name: '출처 조회' }))
+    expect(await box.findByText(/지금 기준을 적용하기 전의 대조입니다/)).toBeInTheDocument()
+    expect(box.getByText('대상과 같음')).toBeInTheDocument()
+  })
+
+  it('직접 입력해 조회하고, 못 찾으면 서버의 까닭을 보인다', async () => {
+    relayApi.trace.mockRejectedValue(
+      new ApiError(404, {
+        error: {
+          code: 'DRL-RELAY-0019',
+          message: 'plm_task 의 T999 를 기준 출력에서도 원천 표에서도 찾지 못했습니다.',
+          request_id: 'r1',
+        },
+      }),
+    )
+    await mount()
+    const box = within(area())
+    expect(box.getByRole('button', { name: '출처 조회' })).toBeDisabled() // 식별자 없이는 묻지 않는다
+    await userEvent.type(box.getByLabelText('식별자'), 'T999')
+    await userEvent.click(box.getByRole('button', { name: '출처 조회' }))
+    await waitFor(() => expect(relayApi.trace).toHaveBeenCalledWith('plm-tasks', 'plm_task', 'T999'))
+    expect(await box.findByText(/찾지 못했습니다/)).toBeInTheDocument()
+    expect(screen.queryByTestId('value-trace-result')).not.toBeInTheDocument()
   })
 })

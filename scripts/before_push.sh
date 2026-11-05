@@ -77,8 +77,8 @@ step "내용이 있던 파일이 비지 않았다" check_emptied_files
 
 # ── 1. 백엔드 ───────────────────────────────────────────────────────────
 say "1. 백엔드 (ruff · mypy · pytest)"
-ruff_check() { cd "$BACKEND" && "$PY" -m ruff check . ../mcp_server ../pipeline --config pyproject.toml; }
-ruff_format() { cd "$BACKEND" && "$PY" -m ruff format --check . ../mcp_server ../pipeline --config pyproject.toml; }
+ruff_check() { cd "$BACKEND" && "$PY" -m ruff check . ../mcp_server --config pyproject.toml; }
+ruff_format() { cd "$BACKEND" && "$PY" -m ruff format --check . ../mcp_server --config pyproject.toml; }
 mypy_strict() { cd "$BACKEND" && "$PY" -m mypy; }
 # **`EXTENSIONS` 를 비운다.** CI 에는 `.env` 가 없어서 확장 기본값이 「꺼짐」 이다 —
 # 개발 `.env` 를 딛고 통과한 시험은 거기서만 통과한다.
@@ -92,16 +92,16 @@ step "ruff format" ruff_format
 step "mypy strict" mypy_strict
 step "pytest (EXTENSIONS 빈 값)" pytest_all
 
-# ── 2. MCP · 파이프라인 ─────────────────────────────────────────────────
+# ── 2. MCP ─────────────────────────────────────────────────
 #
 # 환경을 갈라 본다 — `mcp` 를 백엔드 환경에 깔면 시험이 쓰는 HTTP 스택이 바뀐다.
-say "2. MCP · 파이프라인"
+say "2. MCP"
 if [ -x "$MCP_PY" ]; then
-  mcp_tests() { cd "$REPO" && "$MCP_PY" -m pytest mcp_server/tests pipeline/tests -q; }
-  step "pytest (mcp_server · pipeline)" mcp_tests
+  mcp_tests() { cd "$REPO" && "$MCP_PY" -m pytest mcp_server/tests -q; }
+  step "pytest (mcp_server)" mcp_tests
 else
   printf '  – 건너뜀 (%s 없음 — mcp_server 에서 python3 -m venv venv 로 만든다)\n' "$MCP_PY"
-  SKIPPED+=("mcp_server · pipeline 시험")
+  SKIPPED+=("mcp_server 시험")
 fi
 
 # ── 3. 마이그레이션 정합 ────────────────────────────────────────────────
@@ -155,10 +155,13 @@ step "alembic upgrade + check" alembic_check
 
 # ── 4. 프론트 ───────────────────────────────────────────────────────────
 say "4. 프론트 (tsc · vitest · oxlint · build)"
-# **생성 타입(`schema.d.ts`) 없이 본다** — 커밋하지 않는 생성물이라 CI 의 빌드 단계에는 아직 없다(생성은
-# 그 뒤 최신성 검사에서). 이 PC 에 남은 파일로 타입을 맞추면 그것을 가져다 쓴 코드가 여기선 통과하고
-# CI 에서 떨어진다(v0.4.50, 2026-10-09). 지워도 5번이 다시 만든다.
-tsc_build() { cd "$FRONT" && rm -f src/shared/api/schema.d.ts && npx tsc -b --noEmit; }
+# **생성 타입(`schema.d.ts`)은 지우고 커밋된 openapi.json 에서 다시 만든 뒤 본다** — 커밋하지 않는
+# 생성물이다. 이 PC 에 남은 옛 파일로 타입을 맞추면 여기선 통과하고 CI 에서 떨어진다(틀 v0.4.50).
+# 중계 화면은 그 타입을 쓰므로 CI 의 `npm run build` 도 먼저 만든다(`prebuild`, 2026-11-06 첫 CI) —
+# 여기도 같은 순서로 본다.
+tsc_build() {
+  cd "$FRONT" && rm -f src/shared/api/schema.d.ts && npm run -s api:types >/dev/null && npx tsc -b --noEmit
+}
 vitest_all() { cd "$FRONT" && npx vitest run --silent; }
 oxlint_all() { cd "$FRONT" && npx oxlint src; }
 vite_build() { cd "$FRONT" && npm run build; }
