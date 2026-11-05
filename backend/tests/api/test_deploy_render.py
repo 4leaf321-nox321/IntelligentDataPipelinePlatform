@@ -73,6 +73,27 @@ def render(bundle: Path, etc: Path, **env: str) -> subprocess.CompletedProcess[s
     )
 
 
+def test_ETC_없이_render_해도_실제_etc_에_쓰지_않는다(bundle: Path) -> None:
+    """운영자가 그냥 `./deploy.sh render` 를 치는 경우 — 임시 폴더에 쓰고 화면에 보인다. 설정
+    기록(`platform-instances/<slug>.conf`)까지 그 아래여야 한다. 아니면 일반 계정은 권한 오류로
+    멈추고, sudo 로 치면 「아무것도 바꾸지 않는다」 는 명령이 실제 설치의 기억을 덮는다.
+
+    ETC 를 안 주면 포트 겹침은 **이 기계에 실제로 깔린 인스턴스**와 견준다 — 시험의 slug ·
+    포트는 어느 설치와도 안 겹칠 값으로(개발 PC 에 리허설 인스턴스가 8090 에 있었다)."""
+    env = {**os.environ, "OPERATOR": "ops", "APP_SLUG": "renderprobe", "APP_PORT": "18990"}
+    env.pop("ETC", None)
+    done = subprocess.run(
+        ["bash", str(bundle / "deploy.sh"), "render"],
+        cwd=bundle,
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode == 0, done.stderr
+    assert "### /etc/platform-instances/renderprobe.conf" in done.stdout
+    assert "### /etc/systemd/system/renderprobe.service" in done.stdout
+
+
 def test_단독_서버는_설치_폴더_하나에_전부(bundle: Path, tmp_path: Path) -> None:
     etc = tmp_path / "etc"
     render(bundle, etc, INSTALL_DIR="/home/ops/apps/testplatform")

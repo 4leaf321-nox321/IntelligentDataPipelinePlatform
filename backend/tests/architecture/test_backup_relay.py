@@ -126,3 +126,47 @@ def test_중계_묶음은_덤프와_같은_세대만_남는다(tmp_path: Path) -
     assert done.returncode == 0, done.stderr
     assert not orphan.exists()
     assert len(list((backup / "relay").glob("relay-*.tar.gz"))) == 1
+
+
+def _no_createdb(root: Path, host: str = "127.0.0.1") -> tuple[Path, Path, Path]:
+    """앱 계정에 CREATEDB 가 없는 운영 설치 — prepare 가 그렇게 만든다."""
+    install = root / "install"
+    install.mkdir()
+    (install / ".env").write_text(ENV.replace("127.0.0.1", host), encoding="utf-8")
+    bin_dir = _tools(root)
+    _stub(
+        bin_dir / "psql",
+        'case "$*" in\n'
+        '  *"CREATE DATABASE"*)\n'
+        '    echo "ERROR:  permission denied to create database" >&2; exit 1 ;;\n'
+        '  *"count(*)"*) echo 3 ;;\n'
+        "esac\n",
+    )
+    calls = root / "sudo.log"
+    _stub(bin_dir / "sudo", f'echo "$*" >> "{calls}"\n')
+    backup = root / "backup"
+    done = _bash(bin_dir, str(DEPLOY / "backup.sh"), "-i", str(install), "-o", str(backup))
+    assert done.returncode == 0, done.stderr
+    return bin_dir, backup, calls
+
+
+@_no_bash
+def test_앱_계정이_DB_를_못_만들면_postgres_계정으로_만들고_주인을_넘긴다(
+    tmp_path: Path,
+) -> None:
+    """문서가 권하는 「확인용 DB 로 복원」 이 운영 설치에서 「permission denied to create
+    database」 로 멈췄다(2026-11-06 리허설) — 앱 계정의 권한은 넓히지 않는다."""
+    bin_dir, backup, calls = _no_createdb(tmp_path)
+    done = _bash(bin_dir, str(DEPLOY / "restore.sh"), "-b", str(backup), "-d", "check_db")
+    assert done.returncode == 0, done.stderr
+    said = calls.read_text(encoding="utf-8")
+    assert "-u postgres psql" in said and 'OWNER "relay"' in said and '"check_db"' in said
+
+
+@_no_bash
+def test_DB_가_다른_서버면_거기서_할_일을_말한다(tmp_path: Path) -> None:
+    bin_dir, backup, calls = _no_createdb(tmp_path, host="10.0.0.11")
+    done = _bash(bin_dir, str(DEPLOY / "restore.sh"), "-b", str(backup), "-d", "check_db")
+    assert done.returncode != 0
+    assert "sudo -u postgres createdb -O relay check_db" in done.stderr
+    assert not calls.exists()  # 남의 서버 DB 를 이 서버의 postgres 로 만들지 않는다

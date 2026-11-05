@@ -92,7 +92,29 @@ if [[ "$(psql_ "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'")" == "1" ]];
     info "기존 $DB_NAME 삭제"
     psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -c "DROP DATABASE \"$DB_NAME\"" postgres >/dev/null
 fi
-psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -c "CREATE DATABASE \"$DB_NAME\" ENCODING 'UTF8'" postgres >/dev/null
+# **앱 계정은 DB 를 만들 수 없다** — prepare 가 CREATEDB 를 주지 않는다(앱이 DB 를 만들 일은 없다). 그래서
+# 그 계정으로 만들다 권한이 없으면, 이 서버의 DB 일 때만 postgres 계정으로 만들고 주인을 앱 계정으로 넘긴다
+# (운영 계정은 sudo 가 된다 — 설치도 그렇게 만들었다). 앱 계정의 권한은 넓히지 않는다. 안 그러면 문서가
+# 권하는 「확인용 DB 로 복원」 도, 진짜 복구도 운영 서버에서 「permission denied to create database」 로
+# 멈춘다(2026-11-06 개발 PC 리허설).
+CREATE_ERR="$(mktemp)"
+if ! psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" \
+        -c "CREATE DATABASE \"$DB_NAME\" ENCODING 'UTF8'" postgres >/dev/null 2>"$CREATE_ERR"; then
+    if ! grep -q "permission denied to create database" "$CREATE_ERR"; then
+        cat "$CREATE_ERR" >&2; rm -f "$CREATE_ERR"
+        err "'$DB_NAME' 을 만들지 못했습니다."
+    fi
+    case "$DB_HOST" in
+        localhost|127.0.0.1|::1) ;;
+        *) rm -f "$CREATE_ERR"
+           err "앱 계정($DB_USER)은 DB 를 만들 수 없고, DB 가 다른 서버($DB_HOST)에 있습니다 — 그 서버에서
+    sudo -u postgres createdb -O $DB_USER $DB_NAME  을 먼저 하고, 이 명령을 -f 없이 다시 치세요." ;;
+    esac
+    info "앱 계정에 DB 를 만들 권한이 없어 postgres 계정으로 만들고 주인을 $DB_USER 로 둡니다(sudo)"
+    sudo -u postgres psql -v ON_ERROR_STOP=1 \
+        -c "CREATE DATABASE \"$DB_NAME\" OWNER \"$DB_USER\" ENCODING 'UTF8'" >/dev/null
+fi
+rm -f "$CREATE_ERR"
 
 # 이 플랫폼의 DB 는 확장(pgvector 등)을 쓰지 않는다 — 틀의 「확장을 먼저 만든다」 단계는 걷어냈다.
 # 다른 플랫폼의 덤프를 잘못 넣으면 pg_restore 가 확장에서 멈추고 그 말을 한다.

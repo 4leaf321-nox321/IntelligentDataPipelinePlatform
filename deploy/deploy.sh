@@ -326,6 +326,13 @@ ensure_dirs() {
     else
         as_op mkdir -p "$FILESTORE_HOST_DIR" "$RELAY_HOST_DIR/pipelines" "$RELAY_HOST_DIR/work" \
             "$RELAY_HOST_DIR/drop"
+        # **단독 서버에 백업 폴더를 준 경우**(`sudo BACKUP_HOST_DIR=<폴더> ./deploy.sh …`)도 만든다 — 유닛 ·
+        # 마이그레이션이 그 폴더를 /data/backup 에 걸므로, 없으면 첫 apptainer 실행이 「mount source …
+        # doesn't exist」 로 멈춘다(2026-11-06 개발 PC 리허설). 운영 계정 밖일 수 있어 root 로 만들고 넘긴다.
+        if [[ -n "$BACKUP_HOST_DIR" ]]; then
+            mkdir -p "$BACKUP_HOST_DIR"
+            chown "$OPERATOR:$OPERATOR" "$BACKUP_HOST_DIR"
+        fi
     fi
     instance_save
     ha_save
@@ -1231,6 +1238,11 @@ SQL
 cmd_render() {
     local show=0
     if [[ -z "${ETC:-}" ]]; then ETC="$(mktemp -d)"; show=1; fi
+    # **설정 기록 자리도 그 아래로 옮긴다.** 둘은 스크립트가 뜰 때 `$ETC` 로 정해져, 여기서 ETC 만 바꾸면
+    # 실제 /etc 에 쓴다 — 일반 계정이면 권한 오류로 멈추고, sudo 면 「아무것도 바꾸지 않는다」 는 명령이
+    # 그 설치의 기억(/etc/platform-instances/<slug>.conf)을 덮는다(2026-11-06, 리허설 준비에서 겪음).
+    INSTANCES_DIR="$ETC/etc/platform-instances"
+    HA_CONF="$ETC/etc/platform-ha.conf"
     local tpl unit
     mkdir -p "$ETC/etc/systemd/system"
     # 설정 파일도 그 아래에 — 실제 배포가 남길 것과 같은 모양을 본다.

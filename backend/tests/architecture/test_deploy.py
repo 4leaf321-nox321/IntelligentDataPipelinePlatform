@@ -655,3 +655,33 @@ def test_번들은_서버와_같은_우분투에서_만들고_deb_가_빠지면_
     build = next(job for job in jobs if "./deploy/build_bundle.sh" in job)
     assert "runs-on: ubuntu-24.04" in build
     assert "apptainer_debs/apptainer_" in build
+
+
+@_no_bash
+def test_단독_서버에_준_백업_폴더도_설치가_만든다(tmp_path: Path) -> None:
+    """`sudo BACKUP_HOST_DIR=<폴더> ./deploy.sh install` — 유닛 · 마이그레이션이 그 폴더를
+    /data/backup 에 거므로, 없으면 첫 apptainer 실행이 「mount source … doesn't exist」 로
+    멈춘다(2026-11-06 개발 PC 리허설에서 겪음). 이중화(`DATA_DIR`)일 때만 만들던 것을
+    단독도."""
+    text = (DEPLOY / "deploy.sh").read_text(encoding="utf-8")
+    install, backup = tmp_path / "apps" / "x", tmp_path / "elsewhere" / "backup"
+    script = "\n".join(
+        [
+            "set -euo pipefail",
+            'info() { :; }; as_op() { "$@"; }; instance_save() { :; }; ha_save() { :; }',
+            f'OPERATOR="$(id -un)"; INSTALL_DIR="{install}"; LOG_HOST_DIR="{install}/logs"',
+            f'DATA_DIR=""; FILESTORE_HOST_DIR="{install}/filestore"',
+            f'RELAY_HOST_DIR="{install}/relay"',
+            f'BACKUP_HOST_DIR="{backup}"',
+            _piece(text, "ensure_dirs"),
+            "ensure_dirs",
+        ]
+    )
+    done = subprocess.run(
+        [shutil.which("bash") or "bash", "-c", script],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert done.returncode == 0, done.stderr
+    assert backup.is_dir() and (install / "relay" / "pipelines").is_dir()
