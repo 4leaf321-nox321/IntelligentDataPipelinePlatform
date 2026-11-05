@@ -14,7 +14,15 @@ type Schemas = components['schemas']
 export type RelayMap = Schemas['RelayMap']
 export type MapNode = Schemas['MapNode']
 export type MapEdge = Schemas['MapEdge']
-export type PipelineDetail = Schemas['PipelineDetail']
+/**
+ * 상세 — 대조의 두 칸은 생성 타입보다 먼저 왔을 수 있어 여기 적는다(다시 생성해도 같은 모양이 된다:
+ * `reconcile` 은 `{[key]: unknown} | null` 이라 모양은 `reconcileOf` 가 읽는다).
+ */
+export type PipelineDetail = Schemas['PipelineDetail'] & {
+  reconcile?: unknown
+  /** 대조의 일정 — 「7일마다 03:00」 · 「수동」. */
+  reconcile_label?: string
+}
 export type LineageStep = Schemas['LineageStep']
 export type RelayJob = Schemas['RelayJob']
 export type QueuedOut = Schemas['QueuedOut']
@@ -33,6 +41,8 @@ export interface PendingPlan {
   ok: boolean
   summary: string
   at: string
+  /** 그 계획이 어디서 왔나 — `run`(원천이 바뀜) · `reconcile`(대조의 보정 계획). 옛 상태에는 없다. */
+  origin?: string
 }
 
 export interface PipelineState {
@@ -47,9 +57,11 @@ export interface PipelineState {
 export type RunCounts = Record<string, Record<string, Record<string, number>>>
 
 /**
- * 이력 한 줄 — 새것이 먼저 온다. `event` 는 planned · applied · blocked · nothing · auto_skipped.
- * 자동 적용이 적용했으면 `applied` 에 `by: "auto"` 가 붙고(사람의 적용에는 없다), 타이머의 실행이
- * 기준을 못 넘어 계획이 사람을 기다리면 `auto_skipped` 가 그 까닭(`reasons`)을 싣는다.
+ * 이력 한 줄 — 새것이 먼저 온다. `event` 는 planned · applied · blocked · nothing · auto_skipped ·
+ * reconciled. 자동 적용이 적용했으면 `applied` 에 `by: "auto"` 가 붙고(사람의 적용에는 없다), 타이머의
+ * 실행이 기준을 못 넘어 계획이 사람을 기다리면 `auto_skipped` 가 그 까닭(`reasons`)을 싣는다.
+ * 대조는 `reconciled` 에 어긋남 수(`drift`)와 한 줄(`summary`)을, 대조의 보정 계획은 `planned` 에
+ * `origin: "reconcile"` 을 싣는다.
  */
 export interface HistoryEvent {
   at?: string
@@ -60,6 +72,9 @@ export interface HistoryEvent {
   run?: string
   by?: string
   reasons?: string[]
+  origin?: string
+  drift?: number
+  summary?: string
 }
 
 /** 지도의 파이프라인 마디가 싣는 것(`services.build_map`). */
@@ -71,10 +86,123 @@ export interface PipelineNodeDetail {
   pending_link?: string
   problems?: string[]
   counts?: RunCounts
+  /** 마지막 대조의 어긋남 수 — 대조한 적이 없거나 대조하지 못했으면 0. */
+  drift?: number
+  /** 마지막 대조 — 같음 · 어긋남 · 대조 못 함(대상에 타입이 없는 등). 대조한 적이 없으면 null. */
+  reconcile_status?: 'same' | 'drift' | 'problem' | null
+  reconciled_at?: string | null
+}
+
+/** 대조의 네 갈래 — 화면의 차례도 이것이다. */
+export const DRIFT_KINDS = ['missing', 'deprecated', 'changed', 'extra'] as const
+export type DriftKind = (typeof DRIFT_KINDS)[number]
+
+export const DRIFT_LABEL: Record<DriftKind, string> = {
+  missing: '빠짐',
+  deprecated: '안 씀',
+  changed: '다름',
+  extra: '대상에만',
+}
+
+/**
+ * 대조의 한 타입(`relay_core/reconcile.TypeDrift`). 목록은 상세에서 갈래마다 앞의 20개까지
+ * (`counts` 가 참 건수다) — 전부는 `relayApi.reconcileReport`.
+ *
+ * 둘 다 `interface` 가 아니라 `type` 이다 — 생성 타입의 `reconcile` 은 `{[key]: unknown}` 이고,
+ * interface 는 그 꼴(색인 서명)에 들어가지 않는다.
+ */
+export type ReconcileType = {
+  /** 기준의 줄. */
+  rows: number
+  missing: string[]
+  deprecated: string[]
+  /** {식별자: 다른 칸}. */
+  changed: Record<string, string[]>
+  extra: string[]
+  counts?: Record<DriftKind, number>
+  /** 확인 못 한 참조 칸 — 어긋남으로 세지 않는다. */
+  unverified: number
+  /** 대상의 그 타입을 이 원천이 관리하나 — 그래야 「대상에만」 을 보정 계획이 사용 중지한다. */
+  managed: boolean
+  /** 대상에 타입이 없다. */
+  absent: boolean
+}
+
+/** 대조 보고서(`relay_core/reconcile.Report.to_json`). */
+export type ReconcileReport = {
+  at: string
+  /** 기준 — 지난번 적용된 출력(작업 폴더의 실행 이름). */
+  baseline: string
+  source: string
+  drift: number
+  summary: string
+  /** 대조하지 못한 까닭 — 있으면 보정 계획이 멈춘다. */
+  problems: string[]
+  types: Record<string, ReconcileType>
+}
+
+export function reconcileOf(detail: PipelineDetail): ReconcileReport | null {
+  const found = detail.reconcile as ReconcileReport | null | undefined
+  return found && typeof found === 'object' ? found : null
+}
+
+/** 보고서의 결 — `StatusBadge` 의 `relay_reconcile` 값(대조 작업의 결과 머리와 같다). */
+export function reconcileStatus(report: ReconcileReport): 'same' | 'drift' | 'problem' {
+  if ((report.problems ?? []).length > 0) return 'problem'
+  return report.drift > 0 ? 'drift' : 'same'
+}
+
+/** 갈래의 참 건수 — `counts` 가 없는 옛 보고서면 목록의 길이. */
+export function driftCount(one: ReconcileType, kind: DriftKind): number {
+  const counted = one.counts?.[kind]
+  if (typeof counted === 'number') return counted
+  return kind === 'changed' ? Object.keys(one.changed ?? {}).length : (one[kind] ?? []).length
+}
+
+/** 갈래의 본보기 수 — 목록에 실제로 든 것. */
+export function driftShown(one: ReconcileType, kind: DriftKind): number {
+  return kind === 'changed' ? Object.keys(one.changed ?? {}).length : (one[kind] ?? []).length
+}
+
+/** 본보기가 참 건수보다 적은 갈래가 있나 — 그러면 「전체 보고서」 를 권한다. */
+export function reportTruncated(report: ReconcileReport): boolean {
+  return Object.values(report.types ?? {}).some((one) =>
+    DRIFT_KINDS.some((kind) => driftShown(one, kind) < driftCount(one, kind)),
+  )
+}
+
+/**
+ * 보정 계획에 실을 것의 수 — 빠짐 · 안 씀 · 다름은 늘, 대상에만은 이 원천이 관리하는 타입만.
+ * 0 이면 서버가 「실을 것이 없습니다」 로 끝낸다(대상에만 있는 것은 사람이 판단한다).
+ */
+export function fixableCount(report: ReconcileReport): number {
+  let sum = 0
+  for (const one of Object.values(report.types ?? {})) {
+    sum += driftCount(one, 'missing') + driftCount(one, 'deprecated') + driftCount(one, 'changed')
+    if (one.managed) sum += driftCount(one, 'extra')
+  }
+  return sum
+}
+
+/** 이 작업이 보정 계획까지였나 — 대조 작업의 결과 한 줄 머리(`relay/jobs.reconcile_job`)로 가른다. */
+export function isPlanJob(job: Pick<RelayJob, 'kind' | 'summary'>): boolean {
+  return job.kind === 'relay_reconcile' && /^\[(planned|nothing|waiting|blocked)\]/.test(job.summary ?? '')
 }
 
 export function pipelineDetailOf(node: MapNode): PipelineNodeDetail {
   return (node.detail ?? {}) as PipelineNodeDetail
+}
+
+/** 파이프라인 마디의 마지막 대조 — 어긋남 수 · 그 시각 · 대조하지 못했나. 파이프라인이 아니거나 대조한 적이 없으면 0. */
+export function driftOf(node: MapNode): { drift: number; at: string | null; problem: boolean } {
+  if (node.kind !== 'pipeline') return { drift: 0, at: null, problem: false }
+  const detail = pipelineDetailOf(node)
+  const drift = Number(detail.drift ?? 0)
+  return {
+    drift: Number.isFinite(drift) && drift > 0 ? drift : 0,
+    at: detail.reconciled_at ?? null,
+    problem: detail.reconcile_status === 'problem',
+  }
 }
 
 export function stateOf(detail: PipelineDetail): PipelineState {
@@ -270,6 +398,14 @@ export const relayApi = {
   run: (slug: string, humanEdits: HumanEdits) =>
     api.post<QueuedOut>(`${slugPath(slug)}/run`, { human_edits: humanEdits } satisfies RunIn),
   apply: (slug: string) => api.post<QueuedOut>(`${slugPath(slug)}/apply`),
+  /**
+   * 대조 — 작업으로 넣는다(202). 대상 SP 의 객체를 읽어 기준과 견줄 뿐 아무것도 안 보낸다. `plan` 이면
+   * 어긋난 줄의 **보정 계획**(미리보기)까지 대상의 검토함에 올린다 — 적용은 사람이.
+   */
+  reconcile: (slug: string, plan: boolean) =>
+    api.post<QueuedOut>(`${slugPath(slug)}/reconcile`, { plan }),
+  /** 마지막 대조의 보고서 전부(상세는 본보기만 싣는다). 대조한 적이 없으면 404. */
+  reconcileReport: (slug: string) => api.get<ReconcileReport>(`${slugPath(slug)}/reconcile`),
   recipes: (slug: string) => api.get<RecipeVersion[]>(`${slugPath(slug)}/recipes`),
   recipe: (slug: string, version: number) => api.get<RecipeBody>(recipePath(slug, version)),
   testRecipe: (slug: string, version: number) =>

@@ -13,13 +13,13 @@ import json
 import os
 import re
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import httpx
 from dotenv import dotenv_values
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.config import BACKEND_DIR, get_settings
@@ -36,11 +36,15 @@ from app.modules.relay.schemas import (
 )
 from app.shared import extensions
 from app.shared.errors import NotFound, code
+from relay_core import reconcile
 from relay_core.describe import Described, describe, find
 
 #: 작업 종류 — `relay/jobs.py` 가 등록한다.
 RUN_KIND = "relay_run"
 APPLY_KIND = "relay_apply"
+RECONCILE_KIND = "relay_reconcile"
+#: 타이머의 자문 잠금 이름 — 이중화에서 한 대만 넣는다(`enqueue_due`).
+DUE_LOCK = "datarelay:relay_due"
 
 #: 대상에 묻는 시간 — 지도 한 장을 그리는 데 대상마다 이만큼까지.
 PROBE_SECONDS = 3.0
@@ -93,11 +97,6 @@ def catalog(db: Session | None = None) -> list[Described]:
                 one.problems.append("레시피가 없습니다 — 레시피 판을 짓고 켜세요.")
     roots = settings.relay_file_root_paths
     for one in found:
-        if one.adapter_kind == "sql" and not settings.relay_allow_sql:
-            one.problems.append(
-                "DB 를 바로 읽는 파이프라인은 이 설치에서 꺼져 있습니다"
-                "(RELAY_ALLOW_SQL) — 보안 승인 뒤에 켭니다."
-            )
         if one.adapter_kind == "file" and not one.endpoint.startswith(guard.REMOTE):
             head = Path(re.split(r"[*?\[]", one.endpoint, maxsplit=1)[0] or ".").resolve()
             if not any(head == r or head.is_relative_to(r) for r in roots):
@@ -123,10 +122,34 @@ def read_state(slug: str) -> dict[str, Any] | None:
     return body
 
 
-def recent_jobs(db: Session, slug: str, limit: int = 10) -> list[Job]:
+def read_report(slug: str) -> dict[str, Any] | None:
+    """마지막 대조의 보고서(`reconcile.json`) — 없으면 None. 읽기만 한다."""
+    file = get_settings().relay_work_dir / slug / reconcile.REPORT
+    if not file.is_file():
+        return None
+    body: dict[str, Any] = json.loads(file.read_text(encoding="utf-8"))
+    return body
+
+
+def reconcile_status(report: dict[str, Any] | None) -> str | None:
+    """마지막 대조 — `same`(대상과 같음) · `drift`(어긋남) · `problem`(대조 못 함), 안 했으면
+    None."""
+    if not report:
+        return None
+    if report.get("problems"):
+        return "problem"
+    return "drift" if int(report.get("drift") or 0) else "same"
+
+
+def recent_jobs(
+    db: Session,
+    slug: str,
+    limit: int = 10,
+    kinds: tuple[str, ...] = (RUN_KIND, APPLY_KIND, RECONCILE_KIND),
+) -> list[Job]:
     rows = db.scalars(
         select(Job)
-        .where(Job.kind.in_((RUN_KIND, APPLY_KIND)), Job.params["slug"].as_string() == slug)
+        .where(Job.kind.in_(kinds), Job.params["slug"].as_string() == slug)
         .order_by(Job.created_at.desc())
         .limit(limit)
     ).all()
@@ -138,7 +161,10 @@ def status_of(found: Described, state: dict[str, Any] | None, last_job: Job | No
         return "draft"
     if found.problems:
         return "broken"
-    history = (state or {}).get("history") or []
+    # 대조는 실행 상태가 아니다 — 멈춘 실행 뒤에 대조가 돌아도 「멈춤」 은 그대로다.
+    history = [
+        one for one in (state or {}).get("history") or [] if one.get("event") != "reconciled"
+    ]
     last_event = history[-1] if history else {}
     if last_job is not None and last_job.status == "failed":
         finished = (last_job.finished_at or last_job.created_at).isoformat()
@@ -196,9 +222,10 @@ def build_map(db: Session) -> RelayMap:
 
     for found in catalog(db):
         state = read_state(found.slug)
-        jobs = recent_jobs(db, found.slug, limit=1)
+        jobs = recent_jobs(db, found.slug, limit=1, kinds=(RUN_KIND, APPLY_KIND))
         status = status_of(found, state, jobs[0] if jobs else None)
         counts = _last_counts(state)
+        report = read_report(found.slug) or {}
         system = _node_id("system", found.system or found.source)
         nodes.setdefault(
             system, MapNode(id=system, kind="system", label=found.system, sub=found.source)
@@ -230,6 +257,9 @@ def build_map(db: Session) -> RelayMap:
                 "problems": found.problems,
                 "counts": counts,
                 "schedule": found.schedule_label,
+                "drift": int(report.get("drift") or 0),
+                "reconcile_status": reconcile_status(report),
+                "reconciled_at": report.get("at"),
             },
         )
         edges.append(MapEdge(source=system, target=endpoint))
@@ -328,7 +358,8 @@ def detail(db: Session, slug: str) -> PipelineDetail:
     found = by_slug(slug, db)
     state = read_state(slug)
     jobs = recent_jobs(db, slug)
-    status = status_of(found, state, jobs[0] if jobs else None)
+    runs = [one for one in jobs if one.kind in (RUN_KIND, APPLY_KIND)]
+    status = status_of(found, state, runs[0] if runs else None)
     schema, note = target_schema(found, secrets_env()) if found.target_server else ({}, "")
     steps: list[LineageStep] = []
     for one in found.lineage:
@@ -352,6 +383,9 @@ def detail(db: Session, slug: str) -> PipelineDetail:
         for key, value in (state or {}).items()
         if key in ("watermark", "applied_run", "applied_at", "pending", "incrementals")
     }
+    report = read_report(slug)
+    if report is not None:
+        report = reconcile.Report.from_json(report).to_json(sample=reconcile.SAMPLE)
     return PipelineDetail(
         slug=found.slug,
         system=found.system,
@@ -390,19 +424,32 @@ def detail(db: Session, slug: str) -> PipelineDetail:
         definition_label=found.origin,
         auto_apply_label=found.auto_apply_label,
         draft=found.draft,
+        reconcile=report,
+        reconcile_label=reconcile_label(),
     )
+
+
+def reconcile_label() -> str:
+    days = get_settings().relay_reconcile_days
+    at = get_settings().relay_reconcile_at
+    return f"{days}일마다 {at}" if days else "수동"
 
 
 def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
     """**적용을 기다리는 계획 · 멈춘 · 실패한 파이프라인**을 홈이 말한다 — 지도를 안 열어도."""
     if not viewer.is_system_admin:
         return []
-    counts = {"pending": 0, "blocked": 0, "failed": 0, "broken": 0}
+    counts = {"pending": 0, "blocked": 0, "failed": 0, "broken": 0, "drift": 0}
     for found in catalog(db):
-        jobs = recent_jobs(db, found.slug, limit=1)
+        jobs = recent_jobs(db, found.slug, limit=1, kinds=(RUN_KIND, APPLY_KIND))
         status = status_of(found, read_state(found.slug), jobs[0] if jobs else None)
         if status in counts:
             counts[status] += 1
+        if not found.draft and reconcile_status(read_report(found.slug)) in (
+            "drift",
+            "problem",
+        ):
+            counts["drift"] += 1
     items = [
         extensions.MaintenanceItem(
             key="relay_pending",
@@ -414,6 +461,13 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
             key="relay_trouble",
             label="멈추거나 실패한 파이프라인",
             count=counts["blocked"] + counts["failed"] + counts["broken"],
+            link="/relay/map",
+            severity="warning",
+        ),
+        extensions.MaintenanceItem(
+            key="relay_drift",
+            label="대상과 어긋나거나 대조하지 못한 파이프라인",
+            count=counts["drift"],
             link="/relay/map",
             severity="warning",
         ),
@@ -433,21 +487,57 @@ def enqueue_due(db: Session, now: datetime | None = None) -> list[str]:
 
     moment = now or datetime.now().astimezone()
     queued: list[str] = []
+    # **이중화의 두 타이머가 같은 순간에 돌아도 한 대만 넣는다** — 트랜잭션의 자문
+    # 잠금(커밋에서 풀린다). 「이미 대기 중」 검사만으로는 두 서버가 동시에 「없다」 를
+    # 보고 둘 다 넣는다.
+    if not db.scalar(text("SELECT pg_try_advisory_xact_lock(hashtext(:k))"), {"k": DUE_LOCK}):
+        return queued
     for found in catalog(db):
-        if found.draft or found.problems or not found.schedule:
+        if found.draft or found.problems:
             continue
-        jobs = [one for one in recent_jobs(db, found.slug, limit=5) if one.kind == RUN_KIND]
-        if any(one.status in ("queued", "running") for one in jobs):
-            continue
-        last = jobs[0].created_at.astimezone(moment.tzinfo) if jobs else None
-        if due(found.schedule, last, moment):
+        if found.schedule:
+            jobs = recent_jobs(db, found.slug, limit=5, kinds=(RUN_KIND,))
+            last = jobs[0].created_at.astimezone(moment.tzinfo) if jobs else None
+            busy = any(one.status in ("queued", "running") for one in jobs)
+            if not busy and due(found.schedule, last, moment):
+                job_services.enqueue(
+                    db,
+                    kind=RUN_KIND,
+                    params={"slug": found.slug, "by": "timer"},
+                    user=None,
+                    workspace_id=None,
+                )
+                queued.append(found.slug)
+        if reconcile_due(db, found.slug, moment):
             job_services.enqueue(
                 db,
-                kind=RUN_KIND,
+                kind=RECONCILE_KIND,
                 params={"slug": found.slug, "by": "timer"},
                 user=None,
                 workspace_id=None,
             )
-            queued.append(found.slug)
+            queued.append(f"{found.slug}(대조)")
     db.commit()
     return queued
+
+
+def reconcile_due(db: Session, slug: str, moment: datetime) -> bool:
+    """대조할 차례인가 — 적용한 것이 있고, `RELAY_RECONCILE_DAYS` 일에 한 번, 그날
+    `RELAY_RECONCILE_AT` 뒤 첫 차례에. 마지막 대조(작업)가 그 안에 있으면 아니다."""
+    settings = get_settings()
+    applied_at = (read_state(slug) or {}).get("applied_at")
+    if not settings.relay_reconcile_days or not applied_at:
+        return False
+    jobs = recent_jobs(db, slug, limit=1, kinds=(RECONCILE_KIND,))
+    if jobs and jobs[0].status in ("queued", "running"):
+        return False
+    hour, minute = (int(part) for part in settings.relay_reconcile_at.split(":"))
+    slot = moment.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if slot > moment:
+        slot -= timedelta(days=1)
+    if not jobs:
+        # 처음 — 첫 적용 뒤 처음 맞는 그 시각에(적용하고 5분 만에 견주지 않게).
+        first = datetime.fromisoformat(str(applied_at)).astimezone(moment.tzinfo)
+        return first < slot
+    last = jobs[0].created_at.astimezone(moment.tzinfo)
+    return last < slot - timedelta(days=settings.relay_reconcile_days - 1)

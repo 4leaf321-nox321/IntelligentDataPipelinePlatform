@@ -123,7 +123,7 @@ def test_이중화는_공용_폴더와_로컬을_가른다(bundle: Path, tmp_pat
         "scripts/relay_due.py" in sync
         and "--bind /data/common/testplatform/relay:/data/relay" in sync
     )
-    # 지표 타이머(틀의 ADR 0013)는 템플릿을 안 가져왔다 — 배포가 건너뛴다(ADR 0001).
+    # 지표 타이머(틀의 ADR 0013)는 배포에서 걷어냈다(ADR 0001) — 그 유닛은 생기지 않는다.
     assert not (etc / "etc" / "systemd/system/testplatform-metrics.service").exists()
     backup = read(etc, "systemd/system/testplatform-backup.service")
     assert (

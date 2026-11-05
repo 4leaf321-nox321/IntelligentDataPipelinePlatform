@@ -4,6 +4,9 @@
  * 파이프라인 마디는 통째로 눌러 상세로 간다. 적용을 기다리면 「계획 보기」 가 대상 SP 의 작업
  * 화면을 새 탭으로 연다 — 계획은 거기서 읽고 거기서(또는 상세의 「적용」 으로) 넣는다. 초안(꺼짐)은
  * 점선 테두리다 — 상세의 「정의 판」 에서 켜기 전까지 안 돈다.
+ *
+ * 마지막 대조에서 대상과 어긋났으면 이름 곁에 「어긋남 N건」 을 단다(`DriftBadge`) — 테두리는 실행의
+ * 상태 그대로다(대조는 흐름을 멈추지 않는다). 대조 시각은 풍선 도움말이 말한다.
  */
 
 import { Handle, Position } from '@xyflow/react'
@@ -13,6 +16,7 @@ import { Link } from 'react-router-dom'
 
 import { pipelineDetailOf } from '@/modules/relay/api'
 import type { MapNode } from '@/modules/relay/api'
+import { DriftBadge, driftTitle } from '@/modules/relay/DriftBadge'
 import { StatusBadge, statusTone } from '@/shared/components/StatusBadge'
 import type { StatusKind, Tone } from '@/shared/components/StatusBadge'
 import { cn } from '@/shared/lib/utils'
@@ -48,6 +52,7 @@ export function RelayNodeCard({ data }: NodeProps<RelayFlowNode>) {
   const pending = node.kind === 'pipeline' ? pipelineDetailOf(node) : null
   const planLink = node.status === 'pending' ? pending?.pending_link : ''
   const beyond = node.kind === 'downstream'
+  const title = [node.label, node.sub, driftTitle(node)].filter(Boolean).join('\n')
   return (
     <div
       data-testid={`relay-node-${node.kind}`}
@@ -61,21 +66,24 @@ export function RelayNodeCard({ data }: NodeProps<RelayFlowNode>) {
         node.kind === 'pipeline' && node.status === 'draft' && 'border-dashed',
         beyond && 'bg-muted/30 text-muted-foreground border-dashed shadow-none',
       )}
-      title={node.sub ? `${node.label}\n${node.sub}` : node.label}
+      title={title}
     >
       <Handle type="target" position={Position.Left} isConnectable={false} style={HIDDEN_HANDLE} />
       <div className="min-w-0">
-        {node.kind === 'pipeline' && node.link ? (
-          // **마디 전체가 눌린다** — 이름에 건 링크가 카드 전체를 덮는다(`after:inset-0`).
-          <Link
-            to={node.link}
-            className="block truncate font-mono text-sm font-medium after:absolute after:inset-0 hover:underline"
-          >
-            {node.label}
-          </Link>
-        ) : (
-          <p className="truncate text-sm font-medium">{node.label}</p>
-        )}
+        <div className="flex min-w-0 items-center gap-1.5">
+          {node.kind === 'pipeline' && node.link ? (
+            // **마디 전체가 눌린다** — 이름에 건 링크가 카드 전체를 덮는다(`after:inset-0`).
+            <Link
+              to={node.link}
+              className="block min-w-0 truncate font-mono text-sm font-medium after:absolute after:inset-0 hover:underline"
+            >
+              {node.label}
+            </Link>
+          ) : (
+            <p className="min-w-0 truncate text-sm font-medium">{node.label}</p>
+          )}
+          <DriftBadge node={node} />
+        </div>
         {node.sub && <p className="text-muted-foreground truncate text-xs">{node.sub}</p>}
       </div>
       <div className="flex min-h-5 items-center gap-2">

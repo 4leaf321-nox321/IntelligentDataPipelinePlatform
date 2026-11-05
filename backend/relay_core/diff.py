@@ -101,7 +101,7 @@ def _edge_id(row: dict[str, Any]) -> tuple[Any, ...]:
     return tuple(row.get(key) for key in _EDGE_KEYS)
 
 
-def _write_batches(
+def write_batches(
     folder: Path, kind: str, rows: dict[str, list[dict[str, Any]]], workspaces: dict[str, Any]
 ) -> list[str]:
     """타입마다 파일 — 5,000줄이 넘으면 `<slug>-001.json` … 으로 나눈다(SP 도구의 상한)."""
@@ -205,10 +205,10 @@ def delta(
             graves_edges.append(grave)
 
     out.mkdir(parents=True)
-    objects_order = _write_batches(
+    objects_order = write_batches(
         out, sp.pipeline.OBJECTS_DIR, send_objects, _workspace_of(now.objects)
     )
-    relations_order = _write_batches(out, sp.pipeline.RELATIONS_DIR, send_edges, {})
+    relations_order = write_batches(out, sp.pipeline.RELATIONS_DIR, send_edges, {})
     manifest = dict(now.manifest)
     # 차례는 이번 출력의 것을 따른다 — 참조되는 타입이 먼저다(레시피의 `types` 차례).
     manifest["objects_order"] = [

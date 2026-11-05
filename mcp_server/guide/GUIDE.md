@@ -6,8 +6,9 @@
 
 **datarelay 는 레거시 시스템(PLM · MES)의 데이터를 받아 Standard Platform(SP) 인스턴스에 넣는다.**
 AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipeline/1` — 원천 어댑터 · 대상)를 짓고
-시험하는 것**이다 — 켜기 · 적용은 사람이 한다. 새 원천(MES 의 새 API · 파일 · DB 뷰)을 붙이는 일은
-`get_guide('adapter')`, 대상 SP 에 타입이 없으면 `get_guide('types')`.
+시험하는 것**이다 — 켜기 · 적용은 사람이 한다. 새 원천(MES 의 새 API · 파일)을 붙이는 일은
+`get_guide('adapter')`, 대상 SP 에 타입이 없으면 `get_guide('types')`, 대상과 어긋났다는 말을 들으면
+`get_guide('reconcile')`.
 
 레시피를 지을 때의 차례:
 
@@ -33,6 +34,28 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
   정의를 고치거나 `collect` · `join` 으로 적는다.
 - 짐작으로 채우지 않는다. 모르면 사람에게 묻는다.
 
+## reconcile
+
+**대조는 대상 SP 에 지금 있는 것을 지난번 적용된 출력(기준)과 견준다.** 평소 실행은 자기 출력끼리만
+견주므로, 허브에서 누가 객체를 지우거나 사용 중지하거나 허브를 백업에서 되돌리면 모른다. 타이머가 며칠에
+한 번(기본 7일 · 03:00) 대조하고, 어긋나면 홈 「남은 일」 이 말한다.
+
+1. `pipeline_get(slug)` 의 `reconcile` — 마지막 대조의 요약 · 타입마다 본보기 20개. 전부는
+   `pipeline_reconcile_report(slug)`.
+2. 갈래: **빠짐**(대상에 없음) · **안 씀**(대상에서 사용 중지) · **다름**(칸 값이 다름 — 어느 칸인지
+   함께) · **대상에만**(기준에 없는데 대상에 살아 있음). `unverified` 는 상대를 확인 못 한 참조 칸이다 —
+   어긋남으로 세지 않는다.
+3. 지금 다시 견주려면 `pipeline_reconcile(slug)` → `job_status`.
+4. 고치려면 `pipeline_reconcile(slug, plan=True)` — 어긋난 줄을 기준 그대로 다시 보내는 **보정 계획**
+   (미리보기)이 대상의 검토함에 뜬다. 안 씀은 되살리고, 대상에만은 **그 타입을 이 원천이 잠갔을 때만**
+   사용 중지로 싣는다. 적용은 사람이 한다 — 계획의 수를 보이고 사람에게 적용해 달라고 말한다.
+
+지킬 것:
+
+- **다름이 많으면 먼저 까닭을 본다.** 대상에서 사람이 고친 것(잠기기 전)인지, 레시피의 값 모양(숫자 ·
+  날짜 · 여러 값)이 대상의 것과 다른 것인지 — 뒤의 것이면 보정 계획이 아니라 레시피를 고친다.
+- 적용을 기다리는 계획이 있으면 보정 계획은 올라가지 않는다 — 그 계획이 먼저다.
+
 ## adapter
 
 **새 원천을 붙인다** — 파이프라인 정의(`relay-pipeline/1`) 하나가 「어디서 받아 · 무엇을 열로 내어 · 어느 SP 에
@@ -48,7 +71,9 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    | JSON REST(쪽 넘김) | `rest` | `base_url` · `path` · `rows_path` · `paging` · `since_param` |
    | CSV · Excel(xlsx) · JSON 파일 | `file` | `location` — 서버 폴더(`/data/relay/drop/…`) · 공유 폴더(`smb://서버/공유/폴더/lots-*.csv`, 계정은 `auth: {"kind": "basic", "user": "CORP\\svc", "token_env": …}`) · URL. `*` 면 가장 늦게 바뀐 것 · `sheet` · `header_row` · `encoding` |
    | XML · SOAP | `xml` | `url` · `rows_xpath` · `namespaces` · `envelope`(SOAP, `{since}` 자리) · `soap_action` |
-   | DB 뷰(읽기 전용 — Oracle · MSSQL · PostgreSQL) | `sql` | `dsn_env`(값은 `oracle+oracledb://…?service_name=…` · `mssql+pymssql://…/<DB>`) · `table`(`스키마.뷰`) 또는 `query`(SELECT 하나) · `modified_column` |
+
+   **원천 시스템의 DB 에 바로 붙는 종류는 없다** — 원천은 API · 파일 · 공유 폴더로만 받는다. API 가 없다면
+   원천 시스템 담당에게 API(또는 내보낸 파일)를 부탁하라고 사람에게 전한다.
 
 2. `source_discover(adapter)` — 주소 · 인증만 적고 불러 본다(`key` · `columns` 는 아직 몰라도 된다). 돌려준
    `found.paths`(칸의 자리 · 보기 값)와 `found.columns`(열 이름 제안)를 본다. OData 는 `entity_set` 없이 부르면
@@ -84,14 +109,14 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
 
 지킬 것:
 
-- **비밀은 적지 않는다** — 토큰 · 비밀번호 · DSN 은 환경 변수의 **이름**(`auth.token_env` · `dsn_env` ·
+- **비밀은 적지 않는다** — 토큰 · 비밀번호는 환경 변수의 **이름**(`auth.token_env` ·
   `target.token_env`)만. 값을 적으면 저장이 거절된다. 그 변수를 서버에 넣는 일은 관리자에게 부탁한다.
 - `source` 는 **원천 시스템의 이름**(plm · mes) — 대상 타입의 잠금(`managed_by`)과 같아야 적재된다.
   이미 도는 정의와 다르면 `problems` 가 말한다.
 - `target.server` 는 **등록된 SP 인스턴스**만 — PLM 은 자주검증 Datahub, MES 는 제조 데이터허브. 다른 플랫폼에
   뿌리지 않는다(허브가 한다). 기준정보를 만들지 않는다(대표 플랫폼이 뿌린다).
 - 탐색 · 시험은 울타리 안만 닿는다 — 부를 수 있는 주소(`RELAY_SOURCE_HOSTS` · 켜진 정의의 주소) · 읽을 수 있는
-  폴더(`RELAY_FILE_ROOTS`) · DB(`RELAY_ALLOW_SQL`). 403 이면 까닭을 사람에게 그대로 전한다 — 돌아갈 길을
+  폴더(`RELAY_FILE_ROOTS`). 403 이면 까닭을 사람에게 그대로 전한다 — 돌아갈 길을
   찾지 않는다.
 - **자동 적용(`auto_apply`)은 사람이 정할 일이다 — 사람이 말하지 않았으면 적지 않는다.** 적으면 타이머의 실행이
   기준(`after_manual` 번 사람이 적용한 뒤 · 생성 + 고침 `max_changes` 이하 · 지움 없음, `allow_gone`)을 넘은 계획을

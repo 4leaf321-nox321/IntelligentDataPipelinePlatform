@@ -46,6 +46,9 @@ describe('중계 표', () => {
     expect(row.getByText('GET /models · plm.local')).toBeInTheDocument()
     expect(row.getByText('자주검증 Datahub')).toBeInTheDocument()
     expect(row.getByText('적용 대기')).toBeInTheDocument()
+    expect(row.queryByTestId('relay-drift')).not.toBeInTheDocument()
+    // 마지막 대조에서 어긋난 것은 상태 곁에 — 지도와 같은 응답 · 같은 배지.
+    expect(within(rowOf('plm-tasks')).getByTestId('relay-drift')).toHaveTextContent('어긋남3건')
   })
 
   it('파이프라인 — 초안은 「초안(꺼짐)」 회색 배지, 마지막 적용은 없다', async () => {

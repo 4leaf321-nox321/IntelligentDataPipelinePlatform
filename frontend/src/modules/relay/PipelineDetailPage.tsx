@@ -1,6 +1,7 @@
 /**
  * 파이프라인 상세 — 원천 + 레시피 + 대상. **칸 대응 표**(대상의 칸이 원천의 어디서 오나) · 지금
- * 상태 · 실행 이력 · 최근 작업, 그리고 시스템 관리자의 「지금 실행」 · 「적용」 · 정의 판 · 레시피 판.
+ * 상태 · 대조(대상에 지금 있는 것과 기준) · 실행 이력 · 최근 작업, 그리고 시스템 관리자의 「지금
+ * 실행」 · 「적용」 · 「대조」 · 정의 판 · 레시피 판.
  *
  * 초안(AI 가 지은 정의 판이 아직 안 켜진 새 파이프라인)은 돌지 않는다 — 맨 위에 그렇게 적고, 실행
  * 단추 대신 정의 판으로 보낸다.
@@ -19,6 +20,7 @@ import { DefinitionVersions } from '@/modules/relay/DefinitionVersions'
 import { LineageTable } from '@/modules/relay/LineageTable'
 import { PipelineActions } from '@/modules/relay/PipelineActions'
 import { Fact, PipelineHistory, PipelineJobs, PipelineState } from '@/modules/relay/PipelineRuns'
+import { ReconcileSection } from '@/modules/relay/ReconcileSection'
 import { RecipeVersions } from '@/modules/relay/RecipeVersions'
 import { useAuth } from '@/shared/auth/AuthContext'
 import { isSystemAdmin } from '@/shared/auth/roles'
@@ -199,6 +201,8 @@ export default function PipelineDetailPage() {
         </p>
         <LineageTable steps={data.lineage} />
       </section>
+
+      <ReconcileSection detail={data} admin={admin} onQueued={detail.reload} />
 
       {admin && <VersionPanels detail={data} onChanged={detail.reload} />}
 

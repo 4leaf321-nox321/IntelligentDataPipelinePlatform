@@ -2,17 +2,18 @@
 #
 #   .\fetch-release.ps1                          최신 → .\downloads\
 #   .\fetch-release.ps1 -Out D:\bundles          폴더 지정
-#   .\fetch-release.ps1 -Version v0.4.3          특정 버전
+#   .\fetch-release.ps1 -Version v0.1.0          특정 버전
 #   .\fetch-release.ps1 -Apptainer               apptainer .deb 도 함께(폐쇄망 서버용)
+#   .\fetch-release.ps1 -Repo <소유자>/<저장소>   릴리스를 내는 저장소가 다를 때
 #
-# 받는 것: standardplatform-<버전>.tar.gz · .sha256 (검증까지 한다)
+# 받는 것: datarelay-<버전>.tar.gz · .sha256 (검증까지 한다)
 param(
     [string]$Out = "$PSScriptRoot\downloads",
     [string]$Version = "",
-    [switch]$Apptainer
+    [switch]$Apptainer,
+    [string]$Repo = "4leaf321-nox321/IntelligentDataPipelinePlatform"
 )
 $ErrorActionPreference = "Stop"
-$Repo = "4leaf321-nox321/StandardPlatform"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 New-Item -ItemType Directory -Force -Path $Out | Out-Null
@@ -23,7 +24,7 @@ if (-not $Version) {
 }
 Write-Host "==> 버전 $Version → $Out"
 
-$name = "standardplatform-$Version.tar.gz"
+$name = "datarelay-$Version.tar.gz"
 foreach ($f in @($name, "$name.sha256")) {
     $url = "https://github.com/$Repo/releases/download/$Version/$f"
     Write-Host "    받는 중: $f"

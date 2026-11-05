@@ -57,8 +57,9 @@ def counts_of(found: Delta) -> dict[str, Any]:
     }
 
 
-def _settle_pending(state: State, submit: Submitter) -> str:
-    """대기 계획이 적용됐으면 기준으로 올린다."""
+def settle_pending(state: State, submit: Submitter) -> str:
+    """대기 계획이 적용됐으면 기준으로 올린다 — 실행 · 대조가 먼저 부른다(SP 화면에서 적용한
+    것을 모른 채 견주지 않게)."""
     pending = state.pending
     if pending is None:
         return ""
@@ -79,7 +80,7 @@ def run(
 ) -> Outcome:
     submit = submit or Submitter(pipeline.target)
     state = work.load_state()
-    note = _settle_pending(state, submit)
+    note = settle_pending(state, submit)
 
     since = state.watermark
     # **삭제 표시가 없는 원천은 전량 날에 사라진 것을 안다**(부재 대조) — 증분 `full_every`

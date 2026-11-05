@@ -1,5 +1,5 @@
 /**
- * 파이프라인 — 지도의 가운데 열을 표로. 원천 + API + 대상 + 상태 + 마지막 적용.
+ * 파이프라인 — 지도의 가운데 열을 표로. 원천 + API + 대상 + 상태(대조의 어긋남 포함) + 마지막 적용.
  *
  * 지도와 같은 응답(`/relay/map`)을 읽는다 — 목록이 따로 계산하면 지도와 다른 말을 하는 날이 온다.
  */
@@ -8,6 +8,7 @@ import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 
 import { pipelineDetailOf, relayApi } from '@/modules/relay/api'
+import { DriftBadge } from '@/modules/relay/DriftBadge'
 import { buildGraph, pipelineRows } from '@/modules/relay/graph'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
@@ -74,7 +75,10 @@ export default function PipelinesPage() {
                 </TableCell>
                 <TableCell>{targets.map((one) => one.label).join(', ') || '—'}</TableCell>
                 <TableCell>
-                  <StatusBadge kind="relay_pipeline" value={node.status} />
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <StatusBadge kind="relay_pipeline" value={node.status} />
+                    <DriftBadge node={node} />
+                  </span>
                 </TableCell>
                 <TableCell className="whitespace-nowrap">
                   {shownDateTime(pipelineDetailOf(node).applied_at)}

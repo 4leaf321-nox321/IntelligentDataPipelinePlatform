@@ -15,11 +15,9 @@ from typing import Any
 
 import httpx
 import pytest
-from sqlalchemy import create_engine, text
 
 from relay_core.adapters.file import FileAdapter, FileSource
 from relay_core.adapters.rest import SourceError
-from relay_core.adapters.sql import SqlAdapter, SqlSource
 from relay_core.adapters.xml import XmlAdapter, XmlSource
 from relay_core.definition import DefinitionError, build_adapter
 
@@ -172,65 +170,23 @@ def test_XML_탐색은_행의_자리를_보인다() -> None:
     assert "@line" in found["columns"].values() and "LINE" in found["columns"]
 
 
-# --- DB --------------------------------------------------------------------------------
+def test_정의의_비밀은_환경_변수_이름으로만() -> None:
+    rest: dict[str, Any] = {"kind": "rest", "base_url": "http://x", "path": "/r", "key": "id"}
+    rest["columns"] = {"ID": "id"}
+    bearer = {"kind": "bearer", "token": "abc"}
+    for leaked in ({**rest, "token": "abc"}, {**rest, "auth": bearer}):
+        with pytest.raises(DefinitionError, match="비밀"):
+            build_adapter(leaked, {})
+    named = {**rest, "auth": {"kind": "bearer", "token_env": "PLM_TOKEN"}}
+    assert build_adapter(named, {"PLM_TOKEN": "t"}).source.auth.token == "t"
+    with pytest.raises(DefinitionError, match="PLM_TOKEN"):
+        build_adapter(named, {})
 
 
-@pytest.fixture
-def lots_db(tmp_path: Path) -> Any:
-    engine = create_engine(f"sqlite:///{tmp_path / 'mes.db'}")
-    with engine.begin() as conn:
-        conn.execute(
-            text("CREATE TABLE v_lot (lot_id TEXT, qty INTEGER, gone INTEGER, updated TEXT)")
-        )
-        conn.execute(
-            text("INSERT INTO v_lot VALUES (:a, :b, :c, :d)"),
-            [
-                {"a": "L1", "b": 10, "c": 0, "d": "2026-11-01 00:00:00"},
-                {"a": "L2", "b": 5, "c": 1, "d": "2026-11-03 00:00:00"},
-            ],
-        )
-    return engine
-
-
-def test_DB_는_표를_읽고_증분은_바뀐_때로(lots_db: Any) -> None:
-    source = SqlSource(
-        dsn_env="X", key="lot_id", table="v_lot", modified_column="updated", deleted="gone"
-    )
-    adapter = SqlAdapter(source, engine=lots_db)
-    full = adapter.fetch(None)
-    assert [one.key for one in full.records] == ["L1", "L2"] and full.full
-    assert full.records[1].deleted and full.watermark == "2026-11-03 00:00:00"
-    later = adapter.fetch("2026-11-02 00:00:00")
-    assert [one.key for one in later.records] == ["L2"] and not later.full
-    assert adapter.discover()["table_columns"][0]["name"] == "lot_id"
-
-
-def test_DB_는_읽기_전용_한_문장만_받는다(lots_db: Any) -> None:
-    ok = SqlAdapter(
-        SqlSource(
-            dsn_env="X", key="lot_id", query="SELECT lot_id, qty FROM v_lot WHERE qty > 6"
-        ),
-        engine=lots_db,
-    )
-    assert [one.key for one in ok.fetch(None).records] == ["L1"]
-    for wrong in ("DELETE FROM v_lot", "SELECT 1; DROP TABLE v_lot", "UPDATE v_lot SET qty=0"):
-        with pytest.raises(SourceError, match="읽기 전용"):
-            SqlAdapter(SqlSource(dsn_env="X", key="lot_id", query=wrong), engine=lots_db)
-    with pytest.raises(SourceError, match="표 이름"):
-        SqlAdapter(SqlSource(dsn_env="X", key="lot_id", table="v_lot; drop"), engine=lots_db)
-
-
-def test_정의의_비밀은_환경_변수_이름으로만(tmp_path: Path) -> None:
-    with pytest.raises(DefinitionError, match="비밀"):
-        build_adapter(
-            {"kind": "sql", "dsn_env": "X", "dsn": "postgresql://u:p@h/db", "key": "k"}, {}
-        )
-    built = build_adapter(
-        {"kind": "sql", "dsn_env": "MES_DB", "key": "lot_id", "table": "v_lot"},
-        {"MES_DB": f"sqlite:///{tmp_path / 'x.db'}"},
-    )
-    assert built.source.dsn.startswith("sqlite:///")
-    with pytest.raises(DefinitionError, match="MES_DB"):
+def test_DB_를_바로_읽는_원천은_없다() -> None:
+    """원천은 API(OData · REST · XML) · 파일 · 공유 폴더로만 받는다 — 바깥 DB 에 바로 붙을
+    권한도 일도 없다(2026-11-05). 옛 정의가 `sql` 을 적었으면 조용히 넘기지 않고 거절한다."""
+    with pytest.raises(DefinitionError, match="모르는 어댑터"):
         build_adapter({"kind": "sql", "dsn_env": "MES_DB", "key": "k", "table": "t"}, {})
 
 
@@ -265,7 +221,7 @@ def test_탐색은_식별자_열을_몰라도_된다() -> None:
         check_adapter({"kind": "odata", "service_url": "http://x/odata", "entity_set": "A"})
 
 
-# --- 공유 폴더(SMB) · 시험용 상한 · Oracle · MSSQL ---------------------------------------
+# --- 공유 폴더(SMB) · 시험용 상한 -----------------------------------------------------
 
 
 class _Share:
@@ -318,17 +274,12 @@ def test_공유_폴더가_안_닿으면_되풀이하고_까닭을_말한다() ->
         FileAdapter(source, smb=Down({}), sleep=lambda _s: None).fetch(None)
 
 
-def test_시험용_상한이면_앞만_받고_덜_받았다고_적는다(tmp_path: Path, lots_db: Any) -> None:
+def test_시험용_상한이면_앞만_받고_덜_받았다고_적는다(tmp_path: Path) -> None:
     path = tmp_path / "many.csv"
     path.write_text("K\n" + "".join(f"R{i}\n" for i in range(10)), encoding="utf-8")
     got = FileAdapter(FileSource(location=str(path), key="K")).fetch(None, limit=3)
     assert [one.key for one in got.records] == ["R0", "R1", "R2"] and not got.complete
     assert FileAdapter(FileSource(location=str(path), key="K")).fetch(None, limit=50).complete
-
-    sql = SqlAdapter(SqlSource(dsn_env="X", key="lot_id", table="v_lot"), engine=lots_db)
-    capped = sql.fetch(None, limit=1)
-    assert len(capped.records) == 1 and not capped.complete
-    assert sql.fetch(None, limit=2).complete
 
     pages = [{"items": [{"id": f"A{i}"} for i in range(3)]}] * 5
     calls: list[int] = []
@@ -348,31 +299,3 @@ def test_시험용_상한이면_앞만_받고_덜_받았다고_적는다(tmp_pat
     )
     got = rest.fetch(None, limit=4)
     assert len(got.records) == 4 and not got.complete and len(calls) == 2
-
-
-def test_DB_칸_이름은_큰_작은_글자를_가리지_않고_세_마디_표_이름도_받는다(
-    tmp_path: Path,
-) -> None:
-    engine = create_engine(f"sqlite:///{tmp_path / 'o.db'}")
-    with engine.begin() as conn:
-        conn.execute(text("CREATE TABLE v_lot (lot_id TEXT, qty INTEGER, del_yn TEXT)"))
-        conn.execute(text("INSERT INTO v_lot VALUES ('L1', 3, 'N'), ('L2', 4, 'Y')"))
-    # Oracle 은 SQLAlchemy 를 거치며 이름이 작은 글자로 온다 — 정의는 대개 큰 글자로 적는다
-    source = SqlSource(
-        dsn_env="X", key="LOT_ID", table="v_lot", deleted="DEL_YN", columns={"QTY": "QTY"}
-    )
-    got = SqlAdapter(source, engine=engine).fetch(None)
-    assert [(one.key, one.deleted) for one in got.records] == [("L1", False), ("L2", True)]
-    assert dict(got.records[0].values) == {"QTY": "3"}
-    SqlAdapter(SqlSource(dsn_env="X", key="k", table="MESDB.dbo.v_lot"), engine=engine)
-    with pytest.raises(SourceError, match="표 이름"):
-        SqlAdapter(SqlSource(dsn_env="X", key="k", table="a.b.c.d"), engine=engine)
-
-
-def test_Oracle_과_MSSQL_드라이버가_이미지에_들어_있다() -> None:
-    for dsn, dialect in (
-        ("oracle+oracledb://u:p@mesdb01:1521/?service_name=MES", "oracle"),
-        ("mssql+pymssql://u:p@mesdb02:1433/MES", "mssql"),
-    ):
-        adapter = SqlAdapter(SqlSource(dsn_env="X", key="k", table="v_lot", dsn=dsn))
-        assert adapter.engine.dialect.name == dialect  # 접속은 하지 않는다 — 드라이버를 싣기만

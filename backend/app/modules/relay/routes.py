@@ -31,7 +31,7 @@ from app.modules.relay.schemas import (
     RelayMap,
 )
 from app.shared.auth import current_user, require_system_admin
-from app.shared.errors import Conflict, code
+from app.shared.errors import Conflict, NotFound, code
 from relay_core.state import Workdir
 
 router = APIRouter(prefix="/relay", tags=["relay"])
@@ -60,7 +60,7 @@ def pipeline_detail(
     return services.detail(db, slug)
 
 
-def _queue(db: Session, user: User, kind: str, params: dict[str, str]) -> QueuedOut:
+def _queue(db: Session, user: User, kind: str, params: dict[str, Any]) -> QueuedOut:
     found = services.by_slug(params["slug"], db)  # 없는 파이프라인이면 넣기 전에 404
     if found.draft:
         raise Conflict(
@@ -79,7 +79,7 @@ def pipeline_run(
     user: User = Depends(require_system_admin),
     db: Session = Depends(get_db),
 ) -> QueuedOut:
-    params = {"slug": slug}
+    params: dict[str, Any] = {"slug": slug}
     if body and body.human_edits:
         params["human_edits"] = body.human_edits
     return _queue(db, user, services.RUN_KIND, params)
@@ -90,6 +90,40 @@ def pipeline_apply(
     slug: str, user: User = Depends(require_system_admin), db: Session = Depends(get_db)
 ) -> QueuedOut:
     return _queue(db, user, services.APPLY_KIND, {"slug": slug})
+
+
+class ReconcileIn(BaseModel):
+    plan: bool = False
+    """어긋난 줄을 다시 보내는 **보정 계획**(미리보기)까지 올리나 — 적용은 사람이."""
+
+
+@router.post("/pipelines/{slug}/reconcile", response_model=QueuedOut, status_code=202)
+def pipeline_reconcile(
+    slug: str,
+    body: ReconcileIn | None = None,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> QueuedOut:
+    """대상과 대조 — 대상에 지금 있는 것을 지난번 적용된 출력과 견준다(읽기만). `plan` 이면
+    보정 계획까지 올린다(대상의 검토함에 뜬다 — 적용은 사람이)."""
+    return _queue(
+        db,
+        user,
+        services.RECONCILE_KIND,
+        {"slug": slug, "plan": bool(body and body.plan)},
+    )
+
+
+@router.get("/pipelines/{slug}/reconcile")
+def pipeline_reconcile_report(
+    slug: str, _: User = Depends(current_user), db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """마지막 대조의 보고서 **전부**(상세는 본보기만 싣는다). 대조한 적이 없으면 404."""
+    services.by_slug(slug, db)
+    report = services.read_report(slug)
+    if report is None:
+        raise NotFound(code("RELAY", 18), f"{slug} 은 아직 대조한 적이 없습니다.")
+    return report
 
 
 # --- 레시피의 판 — MCP 가 초안 · 시험, 사람이 화면에서 켠다 ------------------------------

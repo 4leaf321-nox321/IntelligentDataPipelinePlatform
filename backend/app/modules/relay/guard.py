@@ -4,11 +4,10 @@
            (사람이 켠 것)이어야 한다. 비밀(`token_env`)을 실어 엉뚱한 곳에 보내지 못하게.
     파일   로컬 파일은 `RELAY_FILE_ROOTS` 안만 — 어댑터가 실제로 고른 파일(링크의 끝)을 다시
            본다(`FileAdapter.roots`).
-    DB     `RELAY_ALLOW_SQL` 이 꺼져 있으면 탐색도 시험도 안 한다.
-    비밀   `token_env` · `dsn_env` 로 **이 플랫폼 자신의 설정**(DATABASE_URL · JWT_SECRET …)을
+    비밀   `token_env` 로 **이 플랫폼 자신의 설정**(DATABASE_URL · JWT_SECRET …)을
            가리키지 못한다 — 그 값이 원천 · 대상의 인증 머리글로 나간다.
 
-켜진 정의가 도는 길(작업)은 사람이 켠 것이라 주소 울타리를 보지 않는다. 파일 · DB 의 울타리는
+켜진 정의가 도는 길(작업)은 사람이 켠 것이라 주소 울타리를 보지 않는다. 파일의 울타리는
 도는 길에도 선다(`services.catalog` 가 문제로 적고 작업이 멈춘다).
 """
 
@@ -106,14 +105,6 @@ def check_file(location: str) -> None:
 
 
 def check_source(kind: str, spec: dict[str, Any], allowed: set[str]) -> None:
-    if kind == "sql":
-        if not get_settings().relay_allow_sql:
-            raise Forbidden(
-                code("RELAY", 12),
-                "DB 를 바로 읽는 일은 이 설치에서 꺼져 있습니다(RELAY_ALLOW_SQL) — 보안 승인 "
-                "뒤에 켭니다.",
-            )
-        return
     url = source_url(kind, spec)
     if url:
         schemes = ("http", "https", "smb") if kind == "file" else ("http", "https")
@@ -149,8 +140,8 @@ def check_no_secrets(body: Any, where: str = "") -> None:
             if key in SECRET_FIELDS:
                 raise AppError(
                     code("RELAY", 9),
-                    f"{here}: 비밀은 정의에 적지 않습니다 — 환경 변수 이름(token_env · "
-                    "dsn_env)을 적으세요.",
+                    f"{here}: 비밀은 정의에 적지 않습니다 — 환경 변수 이름(token_env)을 "
+                    "적으세요.",
                     status=422,
                 )
             check_no_secrets(value, here)

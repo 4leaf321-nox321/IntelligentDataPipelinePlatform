@@ -205,11 +205,6 @@ def describe_body(
         out.endpoint = where
         soap = checked.get("envelope") or checked.get("soap_action")
         out.endpoint_label = ("SOAP " if soap else "XML ") + where.rsplit("/", 1)[-1]
-    elif out.adapter_kind == "sql":
-        where = ""
-        what = checked.get("table") or "쿼리"
-        out.endpoint = f"{checked.get('dsn_env', '')} · {what}"
-        out.endpoint_label = f"DB {what}"
     else:
         where = str(checked.get("base_url") or "")
         out.endpoint = f"{where.rstrip('/')}{checked.get('path', '')}"

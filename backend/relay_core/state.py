@@ -32,6 +32,8 @@ class Pending:
     digest: str
     summary: str
     at: str
+    origin: str = "run"
+    """그 계획이 어디서 왔나 — `run`(원천이 바뀜) · `reconcile`(대조의 보정 계획)."""
 
 
 @dataclass
@@ -82,6 +84,14 @@ class Workdir:
         body = asdict(state)
         body["history"] = body["history"][-50:]
         self._write("state.json", body)
+
+    def read_json(self, name: str) -> Any:
+        """작업 폴더의 JSON 하나(`reconcile.json` …) — 없으면 None."""
+        file = self.root / name
+        return json.loads(file.read_text(encoding="utf-8")) if file.exists() else None
+
+    def write_json(self, name: str, body: Any) -> None:
+        self._write(name, body)
 
     def load_mirror(self) -> Mirror:
         file = self.root / "mirror.json"

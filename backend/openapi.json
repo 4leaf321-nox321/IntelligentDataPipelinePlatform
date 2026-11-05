@@ -3938,6 +3938,109 @@
         }
       }
     },
+    "/api/relay/pipelines/{slug}/reconcile": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Reconcile",
+        "description": "대상과 대조 — 대상에 지금 있는 것을 지난번 적용된 출력과 견준다(읽기만). `plan` 이면\n보정 계획까지 올린다(대상의 검토함에 뜬다 — 적용은 사람이).",
+        "operationId": "pipeline_reconcile_api_relay_pipelines__slug__reconcile_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ReconcileIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Reconcile Report",
+        "description": "마지막 대조의 보고서 **전부**(상세는 본보기만 싣는다). 대조한 적이 없으면 404.",
+        "operationId": "pipeline_reconcile_report_api_relay_pipelines__slug__reconcile_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Pipeline Reconcile Report Api Relay Pipelines  Slug  Reconcile Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/relay/pipelines/{slug}/recipes": {
       "get": {
         "tags": [
@@ -7510,6 +7613,23 @@
             "type": "boolean",
             "title": "Draft",
             "default": false
+          },
+          "reconcile": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconcile"
+          },
+          "reconcile_label": {
+            "type": "string",
+            "title": "Reconcile Label",
+            "default": "수동"
           }
         },
         "type": "object",
@@ -7948,6 +8068,17 @@
           "problems"
         ],
         "title": "RecipeSaved"
+      },
+      "ReconcileIn": {
+        "properties": {
+          "plan": {
+            "type": "boolean",
+            "title": "Plan",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "ReconcileIn"
       },
       "RejectRequest": {
         "properties": {

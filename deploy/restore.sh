@@ -85,17 +85,8 @@ if [[ "$(psql_ "SELECT 1 FROM pg_database WHERE datname='$DB_NAME'")" == "1" ]];
 fi
 psql -U "$DB_USER" -h "$DB_HOST" -p "$DB_PORT" -c "CREATE DATABASE \"$DB_NAME\" ENCODING 'UTF8'" postgres >/dev/null
 
-# **pgvector 확장은 postgres 계정만 만든다**(ADR 0050). 덤프가 그것을 들고 있으면 앱 계정의 pg_restore 가
-# 만들지 못해, 그것을 쓰는 표가 안 돌아온 채 「복구됐다」 고 끝난다. 그래서 먼저 만든다 — pg_restore 의
-# 「이미 있다」 는 무해하다.
-if pg_restore -l "$DUMP_FILE" 2>/dev/null | grep -qE 'EXTENSION - vector( |$)'; then
-    VECTOR_SQL="CREATE SCHEMA IF NOT EXISTS extensions; GRANT USAGE ON SCHEMA extensions TO PUBLIC; CREATE EXTENSION IF NOT EXISTS vector SCHEMA extensions"
-    if [[ $EUID -eq 0 ]] && sudo -u postgres psql -X -q -d "$DB_NAME" -c "$VECTOR_SQL" >/dev/null 2>&1; then
-        info "pgvector 확장 준비 (extensions 스키마)"
-    else
-        err "덤프에 pgvector 확장이 있는데 만들지 못했습니다 — 확장은 postgres 계정만 만듭니다. DB 가 있는 서버에서 sudo 로 다시 돌리세요(postgresql-<판>-pgvector 패키지가 있어야 한다 — sudo ./deploy.sh pgvector 가 깐다). 만든 빈 DB '$DB_NAME' 는 남아 있으니 -f 를 붙여 다시."
-    fi
-fi
+# 이 플랫폼의 DB 는 확장(pgvector 등)을 쓰지 않는다 — 틀의 「확장을 먼저 만든다」 단계는 걷어냈다.
+# 다른 플랫폼의 덤프를 잘못 넣으면 pg_restore 가 확장에서 멈추고 그 말을 한다.
 
 info "복구 중"
 # pg_restore 는 경고를 내며 1 로 끝날 수 있다(소유권 등). 그것으로 전체를 실패로

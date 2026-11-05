@@ -73,10 +73,9 @@ jobs:
     if: >-
       !cancelled() && needs.ci-passed.result == 'success'
       && (needs.verify.result == 'success' || needs.verify.result == 'skipped')
-    # **서버와 같은 우분투(24.04)에서 만든다** — 번들에 담는 .deb(apptainer · pgvector)를 이 러너의
-    # 저장소에서 받는다. `ubuntu-latest` 가 26.04 로 바뀐 뒤(2026-10) 거기에는 서버용
-    # `postgresql-16-pgvector` · `libfuse3-3` 이 없어 v0.4.69 · v0.4.70 번들에 .deb 가 빠졌다 — 폐쇄망
-    # 서버는 그것으로 깐다. 서버를 올리는 날 같이 올린다.
+    # **서버와 같은 우분투(24.04)에서 만든다** — 번들에 담는 .deb(apptainer)를 이 러너의 저장소에서
+    # 받는다. `ubuntu-latest` 가 26.04 로 바뀐 뒤(2026-10) 거기에는 서버용 `libfuse3-3` 이 없어 틀의
+    # v0.4.69 · v0.4.70 번들에 .deb 가 빠졌다 — 폐쇄망 서버는 그것으로 깐다. 서버를 올리는 날 같이 올린다.
     runs-on: ubuntu-24.04
 
     steps:
@@ -114,12 +113,11 @@ jobs:
           cat /tmp/have.txt
           for f in app.sif deploy.sh ha.sh pg-ha.sh backup.sh restore.sh \
                    app.service.template worker.service.template sync.service.template backup.service.template \
-                   metrics.service.template metrics.timer.template \
                    backup.timer.template .env.example BUILD_INFO README.md 쉬운-설치.md; do
             grep -qx "$f" /tmp/have.txt || { echo "번들에 $f 가 없습니다"; exit 1; }
           done
           # 폐쇄망 서버가 깔 .deb — 빌드는 받지 못하면 경고만 하고 지나가므로 **여기서** 멈춘다.
-          for deb in 'apptainer_debs/apptainer_.*\.deb' 'pgvector_debs/postgresql-16-pgvector_.*\.deb'; do
+          for deb in 'apptainer_debs/apptainer_.*\.deb'; do
             grep -qx "$deb" /tmp/have.txt || { echo "번들에 $deb 가 없습니다(폐쇄망용 .deb)"; exit 1; }
           done
           info=$(find release -name BUILD_INFO | head -1)

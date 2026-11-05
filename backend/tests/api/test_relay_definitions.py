@@ -70,13 +70,12 @@ def test_종류는_코드의_설명을_보이고_비밀_칸은_없다(client: Te
     assert got.status_code == 200, got.text
     body = got.json()
     kinds = {one["kind"]: one for one in body["kinds"]}
-    assert set(kinds) == {"rest", "odata", "file", "xml", "sql"}
+    assert set(kinds) == {"rest", "odata", "file", "xml"}
     assert kinds["odata"]["required"] == ["service_url", "entity_set", "key", "columns"]
     names = {f["name"] for one in kinds.values() for f in one["fields"]}
     assert not names & {"dsn", "token", "password", "secret"}
     sheet = next(f for f in kinds["file"]["fields"] if f["name"] == "sheet")
     assert sheet["default"] == "" and sheet["doc"]  # 칸 아래의 설명 글이 그대로 온다
-    assert kinds["sql"]["disabled"] is True
     assert "token_env" in {one["name"] for one in body["auth"]}
 
 
@@ -97,8 +96,6 @@ def test_탐색은_울타리_안만_닿는다(client: TestClient, admin: Signed,
     assert outside.status_code == 403 and _code(outside).endswith("RELAY-0011")
     far = refused({"kind": "rest", "base_url": "http://evil.test", "path": "/x"})
     assert far.status_code == 403 and _code(far).endswith("RELAY-0010")
-    sql = refused({"kind": "sql", "dsn_env": "MES_DB", "table": "v_lot"})
-    assert sql.status_code == 403 and _code(sql).endswith("RELAY-0012")
     own = refused(
         {
             "kind": "rest",

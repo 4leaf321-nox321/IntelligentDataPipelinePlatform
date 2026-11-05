@@ -296,9 +296,6 @@ class Settings(BaseSettings):
     relay_work_dir: Path = REPO_DIR / ".work" / "relay"
     """파이프라인마다의 작업 폴더 — 미러 · 워터마크 · 지난번 적용된 출력 · 대기
     계획(`relay_core.state`)."""
-    relay_allow_sql: bool = False
-    """DB 를 바로 읽는 파이프라인(`kind: "sql"`)을 돌려도 되나. **기본은 꺼짐** — 원천 DB 를
-    바로 읽는 일은 사내 보안 승인이 필요하다. 켜도 정의는 읽기 전용(SELECT)만 받는다."""
     relay_secrets_file: Path | None = None
     """정의의 `token_env` 를 풀 곳 — 프로세스 환경 변수가 먼저, 없으면 이 파일(dotenv 모양),
     그다음 `backend/.env`. 비밀은 정의에 적지 않는다."""
@@ -315,6 +312,14 @@ class Settings(BaseSettings):
     여럿) — 원천과 대상 둘 다. **켜진 정의가 쓰는 주소는 적지 않아도 된다**(사람이 켠 것).
     비우면 운영은 켜진 정의의 주소만, 그 밖은 `127.0.0.1` · `localhost` 도. 비밀(`token_env`)이
     엉뚱한 곳으로 나가지 않게 하는 울타리다."""
+
+    relay_reconcile_days: int = 7
+    """**대상과의 대조**(`relay_core.reconcile`)를 며칠마다 하나 — 타이머가 적용한 것이 있는
+    파이프라인마다 작업으로 넣는다. 대상에서 지워지거나 사용 중지된 것 · 백업에서 되돌려진 것을
+    찾는다(읽기만 — 고치는 「보정 계획」 은 사람이 올린다). 0 이면 화면 · MCP 에서만."""
+    relay_reconcile_at: str = "03:00"
+    """대조를 넣는 시각(서버의 현지 시각, HH:MM) — 그날 이 시각 뒤 첫 차례에. 원천의 야간
+    실행과 겹치지 않게 둔다."""
 
     @property
     def relay_file_root_paths(self) -> tuple[Path, ...]:
@@ -447,6 +452,13 @@ class Settings(BaseSettings):
             self.portal_audience = self.app_slug
         if not self.portal_issuer.strip():
             self.portal_issuer = DEFAULT_PORTAL_ISSUER
+        # 틀린 대조 시각 · 간격은 조용히 안 도는 대조가 된다 — 뜰 때 거절한다.
+        if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", self.relay_reconcile_at):
+            raise ValueError(
+                f"RELAY_RECONCILE_AT 은 HH:MM(24시)이어야 합니다: {self.relay_reconcile_at!r}"
+            )
+        if self.relay_reconcile_days < 0:
+            raise ValueError("RELAY_RECONCILE_DAYS 는 0(끔) 이상입니다.")
         return self
 
     @property

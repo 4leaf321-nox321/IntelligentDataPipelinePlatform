@@ -70,6 +70,25 @@ describe('연결 지도', () => {
     expect(screen.getByText('초안(꺼짐 — 정의 판을 켜야 돕니다)')).toBeInTheDocument()
   })
 
+  it('마지막 대조에서 어긋난 파이프라인은 「어긋남 N건」 — 대조 시각은 풍선 도움말에, 범례도 말한다', async () => {
+    relayApi.map.mockResolvedValue(sampleMap())
+    await mount()
+    await screen.findByText('plm-tasks')
+    const flow = within(document.querySelector<HTMLElement>('.react-flow')!)
+    const card = flow.getByText('plm-tasks').closest<HTMLElement>('[data-testid="relay-node-pipeline"]')!
+    const drift = within(card).getByTestId('relay-drift')
+    expect(drift).toHaveTextContent('어긋남3건')
+    expect(within(drift).getByText('어긋남')).toHaveClass('bg-amber-500/10')
+    expect(card.getAttribute('title')).toMatch(/마지막 대조 .+ — 대상과 어긋남 3건/)
+    // 테두리는 실행의 상태 그대로 — 대조는 흐름을 멈추지 않는다.
+    expect(card).toHaveClass('border-emerald-500/50')
+    // 어긋남이 0 이거나 대조한 적이 없으면 아무것도 안 단다.
+    expect(flow.getAllByTestId('relay-drift')).toHaveLength(1)
+    const models = flow.getByText('plm-models').closest<HTMLElement>('[data-testid="relay-node-pipeline"]')!
+    expect(models.getAttribute('title')).not.toMatch(/대조/)
+    expect(screen.getByText(/N건 = 마지막 대조에서 대상 SP 가 기준과 다른 객체 수/)).toBeInTheDocument()
+  })
+
   it('원천으로 거르면 다른 원천의 길이 사라진다', async () => {
     relayApi.map.mockResolvedValue(sampleMap())
     await mount()

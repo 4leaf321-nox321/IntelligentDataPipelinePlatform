@@ -2,7 +2,8 @@
  * 파이프라인 상세 — 칸 대응 표가 대상에 없는 칸을 빨갛게 말하고, 실행 · 적용 · 정의 판 · 레시피 판은
  * 시스템 관리자에게만 선다. 넣은 작업은 작업 화면으로 가는 링크를 남긴다. 초안은 돌지 않는다고 말하고
  * 실행 단추를 세우지 않는다. 초안 판은 버릴 수 있고, 새 파이프라인의 마지막 초안을 버리면 목록으로
- * 돌아간다. 자동 적용은 사실 목록 · 이력 · 켜기 확인 창이 말한다.
+ * 돌아간다. 자동 적용은 사실 목록 · 이력 · 켜기 확인 창이 말한다. 대조는 타입마다 건수와 본보기를
+ * 보이고, 본보기가 잘렸으면 전체 보고서를 권한다. 보정 계획은 적용을 기다리는 계획이 있으면 막힌다.
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -17,6 +18,7 @@ import type {
   RecipeTrial,
   RecipeVersion,
 } from '@/modules/relay/api'
+import { fullReconcile, sampleReconcile } from '@/modules/relay/fixtures'
 import { ApiError } from '@/shared/api/client'
 import { statusLabel } from '@/shared/components/StatusBadge'
 
@@ -24,6 +26,8 @@ const relayApi = vi.hoisted(() => ({
   pipeline: vi.fn(),
   run: vi.fn(),
   apply: vi.fn(),
+  reconcile: vi.fn(),
+  reconcileReport: vi.fn(),
   recipes: vi.fn(),
   recipe: vi.fn(),
   testRecipe: vi.fn(),
@@ -126,6 +130,8 @@ function detail(over: Partial<PipelineDetail> = {}): PipelineDetail {
       },
     ],
     target_schema_note: '',
+    reconcile: null,
+    reconcile_label: '수동',
     ...over,
   }
 }
@@ -217,7 +223,7 @@ describe('파이프라인 상세', () => {
     await userEvent.click(screen.getByRole('button', { name: /지금 실행/ }))
 
     await waitFor(() => expect(relayApi.run).toHaveBeenCalledWith('plm-tasks', 'overwrite'))
-    expect(await screen.findByText('실행 작업을 넣었습니다')).toBeInTheDocument()
+    expect(await screen.findByText('실행 작업을 등록했습니다')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '작업 화면에서 진행 보기' })).toHaveAttribute(
       'href',
       '/jobs?job=job-9',
@@ -287,7 +293,7 @@ describe('파이프라인 상세', () => {
     await mount()
     await userEvent.click(screen.getByRole('button', { name: /적용/ }))
     await waitFor(() => expect(relayApi.apply).toHaveBeenCalledWith('plm-tasks'))
-    expect(await screen.findByText('적용 작업을 넣었습니다')).toBeInTheDocument()
+    expect(await screen.findByText('적용 작업을 등록했습니다')).toBeInTheDocument()
   })
 })
 
@@ -319,7 +325,8 @@ describe('파이프라인 상세 · 레시피 판', () => {
     await waitFor(() => expect(relayApi.testRecipe).toHaveBeenCalledWith('plm-tasks', 2))
     expect(await screen.findByText('판 2 시험')).toBeInTheDocument()
     expect(screen.getAllByText('깨끗함').length).toBeGreaterThan(0)
-    expect(screen.getByText(/지난번 적용된 출력/)).toBeInTheDocument()
+    // 대조 칸도 같은 말(지난번 적용된 출력)을 쓴다 — 견준 것 한 줄에서 찾는다.
+    expect(screen.getByText(/견준 것: 지난번 적용된 출력/)).toBeInTheDocument()
     const sendTable = screen.getByText('켜면 보낼 것').parentElement!
     expect(within(sendTable).getByText('plm_task')).toBeInTheDocument()
     expect(within(sendTable).queryByText('plm_project')).not.toBeInTheDocument()
@@ -778,5 +785,227 @@ describe('파이프라인 상세 · 정의 판', () => {
     // 켜는 길은 정의 판에 있다.
     expect(await screen.findByRole('button', { name: '정의 판 4 켜기' })).toBeInTheDocument()
     expect(within(panel()).getByText(/초안 4 — 켜진 판이 없어 돌지 않습니다/)).toBeInTheDocument()
+  })
+})
+
+describe('파이프라인 상세 · 대조', () => {
+  /** 대조 칸 — 제목 「대조」 의 section. */
+  const section = () => screen.getByRole('heading', { name: '대조' }).closest('section')!
+  const NO_PENDING = { watermark: '2026-11-04T09:00:00Z', applied_run: 'runs/1', applied_at: '2026-11-03T09:00:00Z' }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    auth.admin = true
+    relayApi.pipeline.mockResolvedValue(detail())
+    relayApi.recipes.mockResolvedValue(VERSIONS)
+    relayApi.definitions.mockResolvedValue([])
+  })
+
+  it('대조한 적이 없으면 그렇다고 말하고, 일정을 적는다', async () => {
+    await mount()
+    const box = within(section())
+    expect(box.getByText('아직 대조한 적이 없습니다')).toBeInTheDocument()
+    expect(box.getByText('수동')).toHaveClass('text-muted-foreground')
+    expect(box.getByText(/「대조」 를 클릭하면 대상 SP 의 객체를 읽어 기준과 견줍니다/)).toBeInTheDocument()
+    // 어긋남이 없으므로 보정 계획 단추는 서지 않는다.
+    expect(box.getByRole('button', { name: '대조' })).toBeEnabled()
+    expect(box.queryByRole('button', { name: /보정 계획 올리기/ })).not.toBeInTheDocument()
+  })
+
+  it('타입마다 건수 · 본보기 — 잘린 본보기는 그렇다고 말하고 전체 보고서를 불러온다', async () => {
+    auth.admin = false
+    relayApi.pipeline.mockResolvedValue(
+      detail({ reconcile: sampleReconcile(), reconcile_label: '7일마다 03:00' }),
+    )
+    relayApi.reconcileReport.mockResolvedValue(fullReconcile())
+    await mount()
+    const box = within(section())
+    expect(box.getByText('7일마다 03:00')).not.toHaveClass('text-muted-foreground')
+    expect(box.getByText(/대상과 어긋남 29건/)).toBeInTheDocument()
+    expect(box.getByText('어긋남')).toBeInTheDocument()
+
+    // 건수 — 기준 객체 · 빠짐 · 안 씀 · 다름 · 대상에만 · 확인 못 한 참조.
+    const task = within(screen.getByTestId('reconcile-type-plm_task'))
+    const cells = screen.getByTestId('reconcile-type-plm_task').querySelectorAll('td')
+    expect(Array.from(cells).slice(1, 7).map((one) => one.textContent)).toEqual(['30', '25', '1', '1', '1', '2'])
+    expect(task.queryByText('(사람이 판단)')).not.toBeInTheDocument()
+    // 관리하지 않는 타입의 「대상에만」 은 보정 계획에서 빠진다 — 사람이 판단.
+    const project = within(screen.getByTestId('reconcile-type-plm_project'))
+    expect(project.getByText('(사람이 판단)')).toBeInTheDocument()
+
+    // 본보기 — 다름은 식별자 → 다른 칸.
+    expect(screen.queryByText('T001')).not.toBeInTheDocument()
+    await userEvent.click(box.getByRole('button', { name: 'plm_task 본보기 펼치기' }))
+    expect(screen.getByText('T001')).toBeInTheDocument()
+    expect(screen.getByText('T020')).toBeInTheDocument()
+    expect(screen.queryByText('T021')).not.toBeInTheDocument()
+    expect(screen.getByText('— 앞의 20건만 표시')).toBeInTheDocument()
+    expect(screen.getByText('T200').parentElement).toHaveTextContent('T200 — label · due')
+    await userEvent.click(box.getByRole('button', { name: 'plm_project 본보기 펼치기' }))
+    expect(screen.getByText(/보정 계획에 포함하지 않으며 사람이 판단합니다/)).toBeInTheDocument()
+
+    // 전체 보고서 — 불러오면 잘린 본보기가 다 서고 단추는 사라진다.
+    await userEvent.click(box.getByRole('button', { name: '전체 보고서 불러오기' }))
+    await waitFor(() => expect(relayApi.reconcileReport).toHaveBeenCalledWith('plm-tasks'))
+    expect(await screen.findByText('T025')).toBeInTheDocument()
+    expect(screen.queryByText('— 앞의 20건만 표시')).not.toBeInTheDocument()
+    expect(box.getByText('전체 보고서를 표시하고 있습니다.')).toBeInTheDocument()
+    expect(box.queryByRole('button', { name: '전체 보고서 불러오기' })).not.toBeInTheDocument()
+  })
+
+  it('시스템 관리자가 아니면 대조 · 보정 계획 단추가 안 선다', async () => {
+    auth.admin = false
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile(), state: NO_PENDING }))
+    await mount()
+    const box = within(section())
+    expect(box.queryByRole('button', { name: '대조' })).not.toBeInTheDocument()
+    expect(box.queryByRole('button', { name: /보정 계획 올리기/ })).not.toBeInTheDocument()
+    expect(box.getByText('「대조」 · 「보정 계획 올리기」 는 시스템 관리자가 합니다.')).toBeInTheDocument()
+  })
+
+  it('대조 — plan 없이 넣고, 작업 화면 링크를 남기고, 다시 읽는다', async () => {
+    relayApi.reconcile.mockResolvedValue({ job_id: 'job-r1', kind: 'relay_reconcile' })
+    await mount()
+    await userEvent.click(within(section()).getByRole('button', { name: '대조' }))
+    await waitFor(() => expect(relayApi.reconcile).toHaveBeenCalledWith('plm-tasks', false))
+    expect(await screen.findByText('대조 작업을 등록했습니다')).toBeInTheDocument()
+    expect(within(section()).getByRole('link', { name: '작업 화면에서 진행 보기' })).toHaveAttribute(
+      'href',
+      '/jobs?job=job-r1',
+    )
+    await waitFor(() => expect(relayApi.pipeline).toHaveBeenCalledTimes(2))
+  })
+
+  it('보정 계획 — 적용을 기다리는 계획이 있으면 막고 까닭을 말한다', async () => {
+    // 기본 상세는 원천의 계획(plan-1)이 적용을 기다린다.
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile() }))
+    await mount()
+    const box = within(section())
+    expect(box.getByRole('button', { name: /보정 계획 올리기/ })).toBeDisabled()
+    expect(box.getByText(/적용을 기다리는 계획이 있어 보정 계획을 올릴 수 없습니다/)).toBeInTheDocument()
+  })
+
+  it('보정 계획 — 확인 창이 갈래마다 무엇을 하는지 말하고, plan 으로 넣는다', async () => {
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile(), state: NO_PENDING }))
+    relayApi.reconcile.mockResolvedValue({ job_id: 'job-r2', kind: 'relay_reconcile' })
+    await mount()
+    const button = within(section()).getByRole('button', { name: /보정 계획 올리기/ })
+    expect(button).toBeEnabled()
+    await userEvent.click(button)
+
+    const dialog = within(await screen.findByRole('dialog'))
+    expect(dialog.getByText('보정 계획을 올립니다')).toBeInTheDocument()
+    expect(dialog.getByText(/대상 SP 의 검토함에 올립니다/)).toBeInTheDocument()
+    expect(dialog.getByText('빠짐 25건 — 기준 그대로 다시 추가')).toBeInTheDocument()
+    expect(dialog.getByText('안 씀 1건 — 다시 「사용」 으로 표시')).toBeInTheDocument()
+    expect(dialog.getByText('다름 1건 — 기준 값으로 수정')).toBeInTheDocument()
+    expect(dialog.getByText('대상에만 1건 — 사용 중지(이 원천이 관리하는 타입)')).toBeInTheDocument()
+    expect(
+      dialog.getByText('대상에만 1건 — 포함하지 않음(이 원천이 관리하지 않는 타입 — 사람이 판단)'),
+    ).toBeInTheDocument()
+    expect(relayApi.reconcile).not.toHaveBeenCalled()
+
+    await userEvent.click(dialog.getByRole('button', { name: '올리기' }))
+    await waitFor(() => expect(relayApi.reconcile).toHaveBeenCalledWith('plm-tasks', true))
+    expect(await screen.findByText('보정 계획 작업을 등록했습니다')).toBeInTheDocument()
+    await waitFor(() => expect(relayApi.pipeline).toHaveBeenCalledTimes(2))
+  })
+
+  it('보정 계획 — 관리하지 않는 타입의 「대상에만」 뿐이면 실을 것이 없다고 말한다', async () => {
+    const report = sampleReconcile({ drift: 1 })
+    delete (report.types as Record<string, unknown>).plm_task
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: report, state: NO_PENDING }))
+    await mount()
+    const box = within(section())
+    expect(box.getByRole('button', { name: /보정 계획 올리기/ })).toBeDisabled()
+    expect(box.getByText(/보정 계획에 실을 것이 없습니다 — 사람이 판단합니다/)).toBeInTheDocument()
+  })
+
+  it('보정 계획 — 대조하지 못한 것이 있으면 막고, 그 까닭을 늘어놓는다', async () => {
+    const report = sampleReconcile({ problems: ['대상에 타입이 없습니다: plm_task'] })
+    report.types.plm_task.absent = true
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: report, state: NO_PENDING }))
+    await mount()
+    const box = within(section())
+    expect(box.getByText('대조 못 함')).toBeInTheDocument()
+    expect(box.getByText('대상에 타입이 없습니다: plm_task')).toBeInTheDocument()
+    expect(box.getByText('대상에 없는 타입')).toBeInTheDocument()
+    expect(box.getByRole('button', { name: /보정 계획 올리기/ })).toBeDisabled()
+    expect(box.getByText(/마지막 대조를 마치지 못해 보정 계획을 올릴 수 없습니다/)).toBeInTheDocument()
+  })
+
+  it('이력 · 작업 · 대기 계획 — 대조는 「대조」, 대조가 올린 계획은 「보정 계획」', async () => {
+    relayApi.pipeline.mockResolvedValue(
+      detail({
+        reconcile: sampleReconcile(),
+        state: {
+          ...NO_PENDING,
+          pending: { job_id: 'fix-1', ok: true, summary: '고침 2', at: '2026-11-05T03:10:00Z', origin: 'reconcile' },
+        },
+        history: [
+          {
+            at: '2026-11-05T03:10:00Z',
+            event: 'planned',
+            origin: 'reconcile',
+            job_id: 'fix-1',
+            ok: true,
+            counts: { objects: { plm_task: { created: 1, changed: 1, unchanged: 0, gone: 0 } } },
+          },
+          { at: '2026-11-05T03:05:00Z', event: 'reconciled', drift: 2, summary: '대상과 어긋남 2건(빠짐 1 · 다름 1) — 기준 객체 9건.' },
+          { at: '2026-10-29T03:00:00Z', event: 'reconciled', drift: 0, summary: '대상과 같습니다(객체 9건).' },
+          { at: '2026-10-28T09:00:00Z', event: 'planned', job_id: 'plan-0', ok: true },
+        ],
+        jobs: [
+          {
+            id: 'job-r2',
+            kind: 'relay_reconcile',
+            status: 'done',
+            created_at: '2026-11-05T03:10:00Z',
+            finished_at: '2026-11-05T03:10:10Z',
+            summary: '[planned] 대상과 어긋남 2건 보정 계획: 고침 2',
+            error: null,
+          },
+          {
+            id: 'job-r1',
+            kind: 'relay_reconcile',
+            status: 'done',
+            created_at: '2026-11-05T03:05:00Z',
+            finished_at: '2026-11-05T03:05:10Z',
+            summary: '[drift] 대상과 어긋남 2건(빠짐 1 · 다름 1) — 기준 객체 9건.',
+            error: null,
+          },
+        ],
+      }),
+    )
+    await mount()
+
+    const list = screen.getByRole('heading', { name: '실행 이력' }).closest('section')!.querySelector('ul')!
+    const items = Array.from(list.children) as HTMLElement[]
+    expect(within(items[0]).getByText('보정 계획')).toBeInTheDocument()
+    expect(within(items[0]).getByText('새 1 · 바뀜 1 · 무덤 0')).toBeInTheDocument()
+    expect(within(items[1]).getByText('대조')).toBeInTheDocument()
+    expect(within(items[1]).getByText('어긋남')).toHaveClass('bg-amber-500/10')
+    expect(within(items[1]).getByText('대상과 어긋남 2건(빠짐 1 · 다름 1) — 기준 객체 9건.')).toBeInTheDocument()
+    expect(within(items[2]).getByText('대상과 같음')).toHaveClass('bg-muted')
+    expect(within(items[3]).getByText('계획 올림')).toBeInTheDocument()
+
+    const jobs = screen.getByRole('heading', { name: '최근 작업' }).closest('section')!
+    const rows = within(jobs).getAllByRole('row').slice(1)
+    expect(within(rows[0]).getByText('대조 · 보정 계획')).toBeInTheDocument()
+    expect(within(rows[1]).getByText('대조')).toBeInTheDocument()
+
+    // 대기 계획이 보정 계획이면 그렇게 적고, 보정 계획을 또 올리지 않는다.
+    expect(screen.getByText('적용 대기 계획').closest('div')).toHaveTextContent('보정 계획')
+    expect(within(section()).getByRole('button', { name: /보정 계획 올리기/ })).toBeDisabled()
+    expect(within(section()).getByText(/보정 계획이 이미 적용을 기다리고 있습니다/)).toBeInTheDocument()
+  })
+
+  it('초안에는 대조 단추가 없다', async () => {
+    relayApi.pipeline.mockResolvedValue(detail({ draft: true, status: 'draft', definition_label: '초안 4' }))
+    relayApi.definitions.mockResolvedValue([])
+    await mount()
+    const box = within(section())
+    expect(box.queryByRole('button', { name: '대조' })).not.toBeInTheDocument()
+    expect(box.getByText(/초안은 돌지 않아 견줄 기준이 없습니다/)).toBeInTheDocument()
   })
 })

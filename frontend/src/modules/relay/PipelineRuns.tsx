@@ -7,14 +7,17 @@
  *
  * 이력은 자동 적용이 한 적용(「자동 적용」)을 사람의 적용과 가른다. 타이머의 실행이 기준을 못 넘어
  * 계획이 사람을 기다리면(「자동 적용 안 함」) 그 까닭을 줄 아래에 늘어놓는다.
+ *
+ * 대조(「대조」)는 결과 한 줄과 함께 — 어긋남이 있으면 주의의 배지. 대조가 올린 계획은 원천이 바뀌어
+ * 올린 계획과 다른 이름(「보정 계획」)을 쓴다 — 같은 「계획 올림」 이면 원천이 바뀐 줄로 읽힌다.
  */
 
 import type { ReactNode } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { countsLine, historyOf, jobLink, stateOf, targetJobLink } from '@/modules/relay/api'
-import type { HistoryEvent, PipelineDetail } from '@/modules/relay/api'
+import { countsLine, historyOf, isPlanJob, jobLink, stateOf, targetJobLink } from '@/modules/relay/api'
+import type { HistoryEvent, PipelineDetail, RelayJob } from '@/modules/relay/api'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import {
   Table,
@@ -32,15 +35,30 @@ const EVENT_LABEL: Record<string, string> = {
   blocked: '멈춤',
   nothing: '보낼 것 없음',
   auto_skipped: '자동 적용 안 함',
+  reconciled: '대조',
 }
 
-/** 이력 한 줄의 이름 — 자동 적용이 한 적용은 사람의 적용과 다른 이름을 쓴다. */
+/**
+ * 이력 한 줄의 이름 — 자동 적용이 한 적용은 사람의 적용과, 대조가 올린 계획은 원천이 바뀌어 올린
+ * 계획과 다른 이름을 쓴다.
+ */
 function eventLabel(one: HistoryEvent): string {
   if (one.event === 'applied' && one.by === 'auto') return '자동 적용'
+  if (one.event === 'planned' && one.origin === 'reconcile') return '보정 계획'
   return EVENT_LABEL[one.event ?? ''] ?? one.event ?? '—'
 }
 
-const JOB_KIND: Record<string, string> = { relay_run: '실행', relay_apply: '적용' }
+const JOB_KIND: Record<string, string> = {
+  relay_run: '실행',
+  relay_apply: '적용',
+  relay_reconcile: '대조',
+}
+
+/** 작업의 종류 — 대조 작업 중 보정 계획까지 간 것은 그렇다고 적는다. */
+function jobKind(one: RelayJob): string {
+  if (isPlanJob(one)) return '대조 · 보정 계획'
+  return JOB_KIND[one.kind] ?? one.kind
+}
 
 /** 이름 · 값 한 줄 — 상세의 사실 목록이 같은 꼴을 쓴다. */
 export function Fact({ label, children }: { label: string; children: ReactNode }) {
@@ -69,6 +87,9 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge kind="relay_pipeline" value={pending.ok ? 'pending' : 'blocked'} />
+              {pending.origin === 'reconcile' && (
+                <span className="text-xs font-medium">보정 계획</span>
+              )}
               <span className="text-muted-foreground text-xs">{shownDateTime(pending.at)}</span>
               {detail.target_server && pending.job_id && (
                 <a
@@ -119,7 +140,13 @@ export function PipelineHistory({ detail }: { detail: PipelineDetail }) {
                 <span className="text-destructive ml-1 text-xs">(계획 오류)</span>
               )}
             </span>
+            {one.event === 'reconciled' && (
+              <StatusBadge kind="relay_reconcile" value={one.drift ? 'drift' : 'same'} />
+            )}
             {line && <span className="text-muted-foreground text-xs">{line}</span>}
+            {one.event === 'reconciled' && one.summary && (
+              <span className="text-muted-foreground text-xs">{one.summary}</span>
+            )}
             {one.job_id && (
               <span className="text-muted-foreground font-mono text-xs">{one.job_id.slice(0, 8)}</span>
             )}
@@ -156,7 +183,7 @@ export function PipelineJobs({ detail }: { detail: PipelineDetail }) {
         {detail.jobs.map((one) => (
           <TableRow key={one.id}>
             <TableCell className="whitespace-nowrap">{shownDateTime(one.created_at)}</TableCell>
-            <TableCell>{JOB_KIND[one.kind] ?? one.kind}</TableCell>
+            <TableCell className="whitespace-nowrap">{jobKind(one)}</TableCell>
             <TableCell>
               <StatusBadge kind="job" value={one.status} />
             </TableCell>

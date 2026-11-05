@@ -5,10 +5,11 @@
 - **사용자의 토큰으로** 동작한다 — 들어온 `Authorization` 을 백엔드(`DATARELAY_API`)로
   그대로 넘긴다. 서버에는 자격이 없다. 백엔드가 토큰 이름 · `X-Client: mcp` 를 감사 기록에
   남긴다.
-- 도구는 넷으로 갈린다: **보기**(지도 · 상세 · 원천 표본 · 대상 정의 · 레시피 · 정의) ·
+- 도구는 다섯으로 갈린다: **보기**(지도 · 상세 · 원천 표본 · 대상 정의 · 레시피 · 정의) ·
   **원천 탐색**(어댑터 설정으로 원천에 닿아 칸을 본다 — 저장 안 함) · **짓기**(레시피 ·
   정의의 초안 저장 · 시험 — 대상에 아무것도 안 보낸다) · **미리 보기 실행**(대상 SP 에
-  계획을 올린다, 적용은 아님).
+  계획을 올린다, 적용은 아님) · **대조**(대상에 지금 있는 것과 견준다 — 읽기만, 보정 계획은
+  미리보기).
 - **없는 도구가 뜻이다**: 레시피 켜기 · 정의 켜기 · 계획 적용. 켜기는 백엔드가 토큰 요청을
   거절하고(`RELAY-0007` · `RELAY-0014`), 적용은 사람이 대상 SP 화면이나 datarelay 화면에서
   한다.
@@ -93,7 +94,8 @@ async def _call(
 @mcp.tool()
 def get_guide(topic: str = "start") -> str:
     """사용 안내 — topic: start(차례 · 지킬 것) · recipe(sp-table/1 문법 전부) ·
-    adapter(새 원천 붙이기 — 탐색 · 정의 초안 · 시험) · types(대상에 타입이 없을 때)."""
+    adapter(새 원천 붙이기 — 탐색 · 정의 초안 · 시험) · types(대상에 타입이 없을 때) ·
+    reconcile(대상과의 대조 — 어긋남 읽기 · 보정 계획)."""
     text = GUIDE.read_text(encoding="utf-8")
     parts = re.split(r"(?m)^## ", text)
     for part in parts[1:]:
@@ -201,9 +203,8 @@ async def recipe_test(ctx: Context, slug: str, version: int) -> Any:
 
 @mcp.tool()
 async def adapter_kinds(ctx: Context) -> Any:
-    """어댑터 종류(rest · odata · file · xml · sql)마다 — 설명, 꼭 적을 칸(required), 모든 칸의
-    기본값 · 설명, auth 의 칸. 비밀 칸은 없다 — 비밀은 환경 변수의 이름(token_env · dsn_env)만
-    적는다. disabled 면 이 설치에서 꺼진 종류다."""
+    """어댑터 종류(rest · odata · file · xml)마다 — 설명, 꼭 적을 칸(required), 모든 칸의
+    기본값 · 설명, auth 의 칸. 비밀 칸은 없다 — 비밀은 환경 변수의 이름(token_env)만 적는다."""
     return await _call(ctx, "GET", "/relay/adapter-kinds")
 
 
@@ -285,6 +286,22 @@ async def pipeline_run(ctx: Context, slug: str) -> Any:
     사람이 대상 SP 화면이나 datarelay 화면에서 적용한다(자동 적용은 타이머의 실행에만).
     진행은 job_status 로."""
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/run", body={})
+
+
+@mcp.tool()
+async def pipeline_reconcile(ctx: Context, slug: str, plan: bool = False) -> Any:
+    """대상 SP 에 **지금 있는 것**을 지난번 적용된 출력과 대조한다(작업 — 대상은 읽기만).
+    빠짐 · 안 씀(사용 중지) · 다름 · 대상에만을 센다. `plan=True` 면 어긋난 줄을 다시 보내는
+    **보정 계획**(미리보기)까지 올린다 — 적용은 사람이. 진행은 job_status, 결과는
+    pipeline_reconcile_report."""
+    return await _call(ctx, "POST", f"/relay/pipelines/{slug}/reconcile", body={"plan": plan})
+
+
+@mcp.tool()
+async def pipeline_reconcile_report(ctx: Context, slug: str) -> Any:
+    """마지막 대조의 보고서 — 타입마다 빠짐 · 안 씀 · 다름(키 → 칸) · 대상에만의 식별자
+    전부."""
+    return await _call(ctx, "GET", f"/relay/pipelines/{slug}/reconcile")
 
 
 @mcp.tool()

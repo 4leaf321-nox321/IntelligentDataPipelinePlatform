@@ -19,6 +19,19 @@ import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert'
 import { Button } from '@/shared/components/ui/button'
 
+/** 넣은 작업 — 작업 화면으로 가는 링크를 남긴다. 실행 · 적용 · 대조가 같은 꼴을 쓴다. */
+export function QueuedNotice({ queued }: { queued: QueuedOut & { what: string } }) {
+  return (
+    <Alert>
+      <AlertTitle>{queued.what} 작업을 등록했습니다</AlertTitle>
+      <AlertDescription>
+        워커가 집으면 돕니다.{' '}
+        <Link to={jobLink(queued.job_id)}>작업 화면에서 진행 보기</Link>
+      </AlertDescription>
+    </Alert>
+  )
+}
+
 export function PipelineActions({
   detail,
   onQueued,
@@ -98,15 +111,7 @@ export function PipelineActions({
         {overwrite && ' 덮기를 켜면 대상에서 사람이 고친 칸도 원천 값으로 바뀝니다(계획에 적힙니다).'}
       </p>
       <ErrorNotice error={failed} />
-      {queued && (
-        <Alert>
-          <AlertTitle>{queued.what} 작업을 넣었습니다</AlertTitle>
-          <AlertDescription>
-            워커가 집으면 돕니다.{' '}
-            <Link to={jobLink(queued.job_id)}>작업 화면에서 진행 보기</Link>
-          </AlertDescription>
-        </Alert>
-      )}
+      {queued && <QueuedNotice queued={queued} />}
     </section>
   )
 }

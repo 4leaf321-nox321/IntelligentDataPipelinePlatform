@@ -92,6 +92,11 @@ class PipelineDetail(BaseModel):
     """지금 서 있는 정의 — 「파일」 · 「판 N」(켜진 판) · 「초안 N」(켜진 판이 없는 새 것)."""
     draft: bool = False
     """켜진 정의가 없다 — 돌지 않는다. 화면이 「켜기」 를 권한다."""
+    reconcile: dict[str, Any] | None = None
+    """마지막 대조(`relay_core.reconcile.Report`) — 타입 · 갈래마다 본보기 20개까지. 전부는
+    `GET /pipelines/{slug}/reconcile`. 대조한 적이 없으면 None."""
+    reconcile_label: str = "수동"
+    """대조의 일정 — 「7일마다 03:00」 · 「수동」(`RELAY_RECONCILE_DAYS` · `_AT`)."""
 
 
 class RecipeOut(BaseModel):

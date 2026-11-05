@@ -28,6 +28,8 @@ def test_켜기와_적용_도구는_없다() -> None:
         "source_discover",
         "pipeline_draft_save",
         "pipeline_test",
+        "pipeline_reconcile",
+        "pipeline_reconcile_report",
     } <= names
     assert not {name for name in names if "activate" in name or "apply" in name}
 

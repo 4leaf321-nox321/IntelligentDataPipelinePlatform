@@ -25,7 +25,6 @@ import {
 } from '@/shared/components/ui/table'
 import { useResource } from '@/shared/hooks/useResource'
 import { McpSetupGuide } from './McpSetupGuide'
-import { PipelineKitGuide } from './PipelineKitGuide'
 import { shownDate } from '@/shared/lib/datetime'
 
 export default function ProfilePage() {
@@ -137,8 +136,6 @@ export default function ProfilePage() {
 
         {/* 받아 든 토큰을 어디에 넣는지 — 발급한 자리에서 바로. */}
         <McpSetupGuide token={issued} />
-        {/* 한꺼번에(수만 줄) 넣는 길 — 사용자 PC 에 푸는 키트. 서버가 같은 판을 내려준다. */}
-        <PipelineKitGuide token={issued} onIssued={tokens.reload} />
 
         <form onSubmit={createToken} className="space-y-3 rounded-md border p-4">
           <div className="flex gap-2">

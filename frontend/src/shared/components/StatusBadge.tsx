@@ -194,6 +194,17 @@ const RELAY_TRIAL: Record<string, { label: string; tone: Tone }> = {
   no_recipe: { label: '레시피 없음', tone: 'warn' },
 }
 
+/** 중계의 대조 — 대상에 지금 있는 것이 지난번 적용된 출력과 같은가. 값은 대조 작업의 결과
+ *  머리(`relay/jobs.reconcile_job` 의 `[same]` · `[drift]` · `[problem]`)와 같다. */
+const RELAY_RECONCILE: Record<string, { label: string; tone: Tone }> = {
+  // 같음은 평소다 — 눈에 띌 일이 아니다.
+  same: { label: '대상과 같음', tone: 'neutral' },
+  // **어긋남은 사고가 아니라 주의다** — 보정 계획을 올려 사람이 적용하면 된다.
+  drift: { label: '어긋남', tone: 'warn' },
+  // 견주지 못했다 — 기준이 없거나 대상에 타입이 없다. 흐름은 멎지 않으므로 주의다.
+  problem: { label: '대조 못 함', tone: 'warn' },
+}
+
 /** 정의 판 시험의 원천 — 그 판의 어댑터로 받아 봤나. */
 const RELAY_SOURCE: Record<string, { label: string; tone: Tone }> = {
   ok: { label: '받음', tone: 'good' },
@@ -215,6 +226,7 @@ const TABLES = {
   relay_pipeline: RELAY_PIPELINE,
   relay_definition: RELAY_VERSION,
   relay_recipe: RELAY_VERSION,
+  relay_reconcile: RELAY_RECONCILE,
   relay_source: RELAY_SOURCE,
   relay_target: RELAY_TARGET,
   relay_trial: RELAY_TRIAL,

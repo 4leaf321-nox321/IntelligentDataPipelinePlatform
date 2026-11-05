@@ -200,7 +200,6 @@ def kinds() -> dict[str, Any]:
                 "doc": doc,
                 "required": list(need),
                 "fields": _fields_of(shape, need),
-                "disabled": kind == "sql" and not get_settings().relay_allow_sql,
             }
         )
     auth = [one for one in _fields_of(Auth, ()) if one["name"] != "token"]
@@ -382,10 +381,8 @@ def activate(
         raise _invalid(str(failure)) from failure
     guard.check_env(row.body)
     kind, spec = check_adapter(dict(row.body["adapter"]))
-    if kind == "sql" or (kind == "file" and not guard.source_url(kind, spec)):
-        guard.check_source(
-            kind, spec, set()
-        )  # DB 문 · 파일 폴더의 울타리는 켜는 사람도 넘지 못한다
+    if kind == "file" and not guard.source_url(kind, spec):
+        guard.check_source(kind, spec, set())  # 파일 폴더의 울타리는 켜는 사람도 넘지 못한다
     before = active(db, slug)
     db.execute(
         update(RelayDefinition)

@@ -4,9 +4,17 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { countsLine } from '@/modules/relay/api'
+import {
+  countsLine,
+  driftCount,
+  driftOf,
+  fixableCount,
+  isPlanJob,
+  reconcileStatus,
+  reportTruncated,
+} from '@/modules/relay/api'
 import type { RelayMap } from '@/modules/relay/api'
-import { sampleMap, withDraft } from '@/modules/relay/fixtures'
+import { fullReconcile, sampleMap, sampleReconcile, withDraft } from '@/modules/relay/fixtures'
 import {
   NO_FILTER,
   buildGraph,
@@ -109,5 +117,47 @@ describe('지도 읽기', () => {
         relations: { r: { created: 2, changed: 0, gone: 1 } },
       }),
     ).toBe('새 1 · 바뀜 0 · 무덤 0 (관계 새 2 · 바뀜 0 · 무덤 1)')
+  })
+})
+
+describe('대조 읽기', () => {
+  it('마디의 어긋남 — 파이프라인만, 0 · 없음은 0', () => {
+    const tasks = graph.byId.get('pipeline:plm-tasks')!
+    expect(driftOf(tasks)).toEqual({ drift: 3, at: '2026-11-05T03:00:00+00:00', problem: false })
+    expect(driftOf(graph.byId.get('pipeline:plm-models')!).drift).toBe(0)
+    expect(driftOf(graph.byId.get('pipeline:mes-lots')!)).toEqual({ drift: 0, at: null, problem: false })
+    expect(driftOf(graph.byId.get('target:hub')!).drift).toBe(0)
+    // 대조하지 못했으면 어긋남 수(0)가 아니라 「대조 못 함」 이다
+    const broken = { ...tasks, detail: { ...tasks.detail, drift: 0, reconcile_status: 'problem' } }
+    expect(driftOf(broken)).toMatchObject({ drift: 0, problem: true })
+  })
+
+  it('보고서 — 참 건수는 counts, 본보기가 잘렸으면 그렇다고, 결은 problems · drift 순', () => {
+    const report = sampleReconcile()
+    expect(driftCount(report.types.plm_task, 'missing')).toBe(25)
+    expect(reportTruncated(report)).toBe(true)
+    expect(reportTruncated(fullReconcile())).toBe(false)
+    expect(reconcileStatus(report)).toBe('drift')
+    expect(reconcileStatus(sampleReconcile({ drift: 0, types: {} }))).toBe('same')
+    expect(reconcileStatus(sampleReconcile({ problems: ['대상에 타입이 없습니다: x'] }))).toBe('problem')
+    // counts 가 없는 옛 보고서는 목록의 길이로 센다.
+    const old = { ...report.types.plm_task, counts: undefined }
+    expect(driftCount(old, 'missing')).toBe(20)
+    expect(driftCount(old, 'changed')).toBe(1)
+  })
+
+  it('보정 계획에 실을 것 — 관리하지 않는 타입의 「대상에만」 은 빠진다', () => {
+    // plm_task: 빠짐 25 + 안 씀 1 + 다름 1 + 대상에만 1(관리함) · plm_project: 대상에만 1(관리 안 함).
+    expect(fixableCount(sampleReconcile())).toBe(28)
+    const report = sampleReconcile()
+    delete (report.types as Record<string, unknown>).plm_task
+    expect(fixableCount(report)).toBe(0)
+  })
+
+  it('대조 작업 중 보정 계획까지 간 것 — 결과 한 줄의 머리로 가른다', () => {
+    expect(isPlanJob({ kind: 'relay_reconcile', summary: '[planned] 보정 계획: 고침 2' })).toBe(true)
+    expect(isPlanJob({ kind: 'relay_reconcile', summary: '[waiting] 적용을 기다리는 계획' })).toBe(true)
+    expect(isPlanJob({ kind: 'relay_reconcile', summary: '[drift] 대상과 어긋남 2건' })).toBe(false)
+    expect(isPlanJob({ kind: 'relay_run', summary: '[planned] 계획을 올렸습니다' })).toBe(false)
   })
 })

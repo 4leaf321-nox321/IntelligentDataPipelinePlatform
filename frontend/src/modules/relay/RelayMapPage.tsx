@@ -23,6 +23,7 @@ import { RelayFlow } from '@/modules/relay/RelayFlow'
 import { EmptyState } from '@/shared/components/EmptyState'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
+import { StatusBadge } from '@/shared/components/StatusBadge'
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert'
 import { Button } from '@/shared/components/ui/button'
 import { useResource } from '@/shared/hooks/useResource'
@@ -62,6 +63,10 @@ function Legend() {
         {line('text-muted-foreground/40', true)}그 너머(이 플랫폼이 보내지 않음)
       </li>
       <li>선 굵기 = 지난 실행에서 그 길로 보낸 건수</li>
+      <li className="flex items-center gap-1">
+        <StatusBadge kind="relay_reconcile" value="drift" />
+        N건 = 마지막 대조에서 대상 SP 가 기준과 다른 객체 수
+      </li>
     </ul>
   )
 }

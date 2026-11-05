@@ -1,5 +1,5 @@
 [Unit]
-Description=@@APP_NAME@@ 데이터 소스 동기화 타이머
+Description=@@APP_NAME@@ 중계 타이머 — 차례가 된 파이프라인 · 대조
 
 [Timer]
 # 몇 분마다 「차례가 된 것」 을 묻는다. 소스마다의 간격은 화면에서 정한다 — 이 값은

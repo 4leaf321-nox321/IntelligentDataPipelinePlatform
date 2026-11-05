@@ -53,8 +53,7 @@ class RelayRecipe(Base):
 class RelayDefinition(Base):
     """파이프라인 정의(`relay-pipeline/1`)의 판 — 원천(어댑터) · 대상 · `source` · 일정.
     레시피와 같은 길: AI(MCP)가 **초안을 짓고 시험**, **켜는 것은 사람이 화면에서**. 켜진
-    판이 같은 slug 의 정의 파일을 이긴다. 비밀은 여기에도 적지 않는다(`token_env` ·
-    `dsn_env` 이름만)."""
+    판이 같은 slug 의 정의 파일을 이긴다. 비밀은 여기에도 적지 않는다(`token_env` 이름만)."""
 
     __tablename__ = "relay_definitions"
     __table_args__ = (UniqueConstraint("pipeline_slug", "version"),)

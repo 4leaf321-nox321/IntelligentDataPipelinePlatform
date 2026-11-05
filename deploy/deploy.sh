@@ -101,9 +101,6 @@ derive_unit_names() {
     SYNC_SERVICE_NAME="${APP_SLUG}-sync"
     SYNC_SERVICE_UNIT="/etc/systemd/system/${SYNC_SERVICE_NAME}.service"
     SYNC_TIMER_UNIT="/etc/systemd/system/${SYNC_SERVICE_NAME}.timer"
-    METRICS_SERVICE_NAME="${APP_SLUG}-metrics"
-    METRICS_SERVICE_UNIT="/etc/systemd/system/${METRICS_SERVICE_NAME}.service"
-    METRICS_TIMER_UNIT="/etc/systemd/system/${METRICS_SERVICE_NAME}.timer"
     MCP_SERVICE_NAME="${APP_SLUG}-mcp"
     MCP_SERVICE_UNIT="/etc/systemd/system/${MCP_SERVICE_NAME}.service"
     BACKUP_SERVICE_NAME="${APP_SLUG}-backup"
@@ -166,14 +163,12 @@ elif [[ "$HA_ROLE" == "master" ]]; then DB_HOST="$SELF_IP"
 else DB_HOST="localhost"; fi
 DB_HOST="${DB_HOST_OVERRIDE:-$DB_HOST}"
 
-# 데이터 소스 동기화 타이머 — 화면에서 간격을 정한 소스를 몇 분마다 돌린다. 앱과 같은 SIF.
-# 이름은 `derive_unit_names` 가 만든다(위).
+# 중계 타이머(`<slug>-sync`) — 몇 분마다 차례가 된 파이프라인을 작업으로 넣는다(`scripts/relay_due.py`).
+# 돌리는 것은 작업 워커다. 앱과 같은 SIF. 이름은 `derive_unit_names` 가 만든다(위).
 SYNC_ENABLED="${SYNC_ENABLED:-1}"                      # 0 으로 두면 타이머 안 설치
-# 지표 다시 계산 타이머 — 매시간 차례가 된 지표를 작업으로 넣는다(ADR 0013 · 「N일마다 밤」 은 밤에만). 앱과 같은 SIF.
-METRICS_ENABLED="${METRICS_ENABLED:-1}"                # 0 으로 두면 타이머 안 설치
 
-# 작업 워커 — 파일 가져오기처럼 오래 걸리는 일을 요청 밖에서 돌린다. 앱과 같은 SIF.
-# **없으면 파일 가져오기가 영영 「대기」 다.** 두 서버에 하나씩 뜬다(docs/sp/작업-워커-설계.md).
+# 작업 워커 — 파이프라인 실행처럼 오래 걸리는 일을 요청 밖에서 돌린다. 앱과 같은 SIF.
+# **없으면 파이프라인 실행이 영영 「대기」 다.** 두 서버에 하나씩 뜬다(docs/sp/작업-워커-설계.md).
 
 # ───────────────────────── MCP 서버 (Claude 연동, 선택) ─────────────────────────
 # 별도 venv + 별도 systemd 유닛. 백엔드 SIF 와 의존성이 충돌해 컨테이너에 못 넣는다.
@@ -610,221 +605,6 @@ grant_temp_limit() {
     fi
 }
 
-# ───────────────────────── 뜻으로 찾기의 바탕(ADR 0050) ─────────────────────────
-# **pgvector** — 임베딩(글의 뜻을 숫자 1,024개로 적은 것)을 DB 에 담고 가까운 것을 찾는 확장. pg_trgm 과 달리
-# 「신뢰된 확장」 이 아니라 superuser 만 만든다 — 그래서 마이그레이션이 아니라 여기서 postgres 계정으로 만든다.
-#
-# **이 판은 갖추기만 한다 — 못 갖춰도 갱신은 끝난다.** 그것을 쓰는 표가 아직 없어서다. 서버 화면의 「뜻으로
-# 찾기」 가 무엇이 빠졌는지 말하고, 고친 뒤 `sudo ./deploy.sh pgvector` 로 이것만 다시. 그래서 스크립트로 도는
-# 갱신도, 이중화의 갱신 순서(B 먼저 — 대기는 못 만든다)도 사람 손 없이 지나간다: A 의 갱신이 만들고 복제로 온다.
-# 쓰는 표가 드는 판부터는 없으면 서비스를 내리기 전에 멈춘다(ADR 0050 「다음」).
-#
-# `extensions` 스키마에 둔다 — 앱의 표(public)와 섞이지 않고, 시험이 public 을 통째로 지웠다 세워도 남는다.
-# 앱은 `extensions.vector` 로 적는다(search_path 에 기대지 않는다 — 복구한 DB 에는 그 설정이 따라오지 않는다).
-VECTOR_SQL="SET client_min_messages = warning;
-CREATE SCHEMA IF NOT EXISTS extensions;
-GRANT USAGE ON SCHEMA extensions TO PUBLIC;
-DO \$\$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
-        CREATE EXTENSION vector SCHEMA extensions;
-    ELSIF (SELECT extnamespace::regnamespace::text FROM pg_extension WHERE extname = 'vector') <> 'extensions' THEN
-        ALTER EXTENSION vector SET SCHEMA extensions;
-    END IF;
-END \$\$;
-ALTER EXTENSION vector UPDATE;"
-PG_SHARE="${PG_SHARE:-/usr/share/postgresql}"
-
-# apt 는 **묻지 않게** — 스크립트로 도는 갱신에서 needrestart 의 「어느 서비스를 다시 띄울까」 창이 기다리면
-# 갱신이 거기서 멈춘다. 다른 서비스를 다시 띄우지도 않는다(그것이 이 서버의 PostgreSQL 일 수 있다).
-apt_quiet() { DEBIAN_FRONTEND=noninteractive NEEDRESTART_SUSPEND=1 apt-get "$@"; }
-
-# 패키지 — **대기 서버에도 깐다.** 확장은 복제로 오지만 그것을 읽는 라이브러리는 서버마다 있어야 하고,
-# 승격하는 날 없으면 그 표를 못 읽는다. 번들의 .deb(빌드 머신 = 운영과 같은 우분투 24.04)가 1순위 —
-# 폐쇄망에서도 되고 두 서버의 판이 같다. 없으면 apt.
-ensure_vector_package() {  # $1=PostgreSQL 주 판(16)
-    local major="$1" debs
-    [[ -f "$PG_SHARE/$major/extension/vector.control" ]] && return 0
-    info "pgvector 설치 (postgresql-$major-pgvector)"
-    debs="$(compgen -G "${HERE:-.}/pgvector_debs/postgresql-$major-pgvector_*.deb" || true)"
-    if [[ -n "$debs" ]]; then
-        # apt 가 닿으면 의존성까지 함께 풀고, 완전 차단이면 dpkg 로 바로(의존성은 PostgreSQL 자신뿐이다).
-        # shellcheck disable=SC2086
-        apt_quiet install -y $debs 2>/dev/null || dpkg -i $debs 2>/dev/null || true
-    fi
-    [[ -f "$PG_SHARE/$major/extension/vector.control" ]] && return 0
-    apt_quiet install -y --no-install-recommends "postgresql-$major-pgvector" && return 0
-    warn "pgvector 를 깔지 못했습니다 — 저장소에 닿지 않고 번들에도 postgresql-$major-pgvector .deb 가 없습니다. 닿는 PC 에서 'apt-get download postgresql-$major-pgvector' 로 받아 옮겨 'sudo dpkg -i' 로 깐 뒤 sudo ./deploy.sh pgvector"
-    return 1
-}
-
-ensure_vector() {
-    local version major found
-    version="$(sudo -u postgres psql -X -tAqc 'SHOW server_version_num' 2>/dev/null)" || version=""
-    if [[ -z "$version" ]]; then
-        warn "이 서버의 PostgreSQL 에 붙지 못해 pgvector 를 건너뜁니다 — DB 가 다른 서버면 그 서버에서 postgresql-<판>-pgvector 를 깔고: sudo -u postgres psql -d $DB_NAME -c 'CREATE SCHEMA IF NOT EXISTS extensions; GRANT USAGE ON SCHEMA extensions TO PUBLIC; CREATE EXTENSION IF NOT EXISTS vector SCHEMA extensions'"
-        return 1
-    fi
-    major=$(( version / 10000 ))
-    ensure_vector_package "$major" || return 1
-    if pg_in_recovery; then
-        # 대기는 만들 수 없다 — 주에서 만든 것이 복제로 온다. 아직 없으면 주 서버의 갱신이 만든다(B 먼저인
-        # 이중화 갱신에서 B 가 여기 온다). 패키지는 깔았으니 그것으로 이 서버의 몫은 끝났다.
-        found="$(sudo -u postgres psql -X -tAqd "$DB_NAME" -c "SELECT extversion FROM pg_extension WHERE extname = 'vector'" 2>/dev/null)" || found=""
-        if [[ -n "$found" ]]; then
-            info "pgvector: $found (주 DB 에서 복제로 왔다)"
-        else
-            info "pgvector: 패키지만 — 확장은 주 서버의 갱신이 만들어 복제로 온다"
-        fi
-        return 0
-    fi
-    if ! sudo -u postgres psql -X -v ON_ERROR_STOP=1 -q -d "$DB_NAME" -c "$VECTOR_SQL" >/dev/null; then
-        warn "pgvector 확장을 만들지 못했습니다($DB_NAME) — 위의 psql 출력을 보세요"
-        return 1
-    fi
-    found="$(sudo -u postgres psql -X -tAqd "$DB_NAME" -c "SELECT extversion FROM pg_extension WHERE extname = 'vector'")"
-    info "pgvector: $found (extensions 스키마 · $DB_NAME)"
-}
-
-# **임베딩 모델 — Ollama 의 bge-m3**(ADR 0050). 글을 뜻의 자리로 바꾸는 모델을 이 서버 안에서 돌린다 — 글이
-# 서버 밖으로 나가지 않는다. Ollama 는 **서버에 하나**(127.0.0.1:11434)고 이 서버의 플랫폼들 · 다른 제품이
-# 함께 쓴다 — 이미 있으면(다른 제품이 깐 것이라도) 판도 유닛도 건드리지 않는다. 앱 · 워커는 컨테이너 안에서
-# 그 주소로 부른다(apptainer 는 호스트의 네트워크를 쓴다).
-#
-# **실패해도 배포를 멈추지 않는다** — 앱은 모델 없이도 돌고, 서버 화면의 「뜻으로 찾기」 가 무엇이 빠졌는지
-# 말한다. 고친 뒤 `sudo ./deploy.sh ollama` 로 이것만 다시. 폐쇄망이면 인터넷 대신 임베딩 꾸러미
-# (`build_ai_bundle.sh`)를 번들 안 `ai/` 에 풀거나 `AI_BUNDLE=<폴더>` 로 준다.
-OLLAMA_VERSION="${OLLAMA_VERSION:-v0.30.10}"   # bge-m3 을 재 본 판(개발 PC) — 새로 깔 때만 쓴다
-OLLAMA_PREFIX="${OLLAMA_PREFIX:-/usr/local}"   # 공식 설치와 같은 자리(bin/ollama · lib/ollama)
-OLLAMA_UNIT="${OLLAMA_UNIT:-/etc/systemd/system/ollama.service}"
-AI_BUNDLE="${AI_BUNDLE:-$HERE/ai}"
-EMBEDDING_DIM=1024                              # 담는 칸의 차원 — app/shared/vectors.py 의 DIM
-
-setup_embedding() {
-    local backend url model port
-    backend="$(env_file_get EMBEDDING_BACKEND)"; backend="${backend:-ollama}"
-    if [[ "$backend" != "ollama" ]]; then
-        info "임베딩: 끔(EMBEDDING_BACKEND=$backend) — Ollama 를 건너뜁니다"
-        return 0
-    fi
-    url="$(env_file_get OLLAMA_BASE_URL)"; url="${url:-http://127.0.0.1:11434}"; url="${url%/}"
-    model="$(env_file_get EMBEDDING_MODEL)"; model="${model:-bge-m3}"
-    if [[ ! "$url" =~ ^http://(127\.0\.0\.1|localhost)(:([0-9]+))?$ ]]; then
-        info "임베딩: 다른 서버의 Ollama($url) — 여기 깔지 않습니다"
-        return 0
-    fi
-    port="${BASH_REMATCH[3]:-11434}"
-    ensure_ollama "$url" "$port" || return 1
-    ensure_ollama_model "$url" "$model" || return 1
-    check_embedding "$url" "$model"
-}
-
-ollama_up() { curl -sf --max-time 5 "$1/api/version" >/dev/null 2>&1; }
-
-ensure_ollama() {  # $1=주소 $2=포트
-    local url="$1" port="$2" tmp group i
-    if ! command -v ollama >/dev/null 2>&1 && [[ ! -x "$OLLAMA_PREFIX/bin/ollama" ]]; then
-        if [[ -f "$AI_BUNDLE/ollama-linux-amd64.tgz" ]]; then
-            info "Ollama 설치 (임베딩 꾸러미: $AI_BUNDLE)"
-            tar -C "$OLLAMA_PREFIX" -xzf "$AI_BUNDLE/ollama-linux-amd64.tgz" || { warn "Ollama 를 풀지 못했습니다"; return 1; }
-        else
-            [[ "$(uname -m)" == "x86_64" ]] || { warn "Ollama 를 받을 수 없는 아키텍처입니다($(uname -m))"; return 1; }
-            command -v zstd >/dev/null 2>&1 || apt_quiet install -y --no-install-recommends zstd >/dev/null 2>&1 \
-                || { warn "Ollama 를 풀 zstd 가 없습니다 — 폐쇄망이면 임베딩 꾸러미를 ai/ 에 푸세요(build_ai_bundle.sh)"; return 1; }
-            tmp="$(mktemp -d /var/tmp/ollama.XXXXXX)"
-            info "Ollama $OLLAMA_VERSION 받는 중 (약 1.4GB · 풀면 약 2GB)"
-            # 진행 막대는 사람이 볼 때만 — 스크립트의 기록에는 몇 MB 의 줄바꿈 없는 줄로 남는다.
-            local quiet=(-sS)
-            [[ -t 2 ]] && quiet=()
-            if ! curl -fL --retry 3 ${quiet[@]+"${quiet[@]}"} -o "$tmp/ollama.tar.zst" \
-                    "https://github.com/ollama/ollama/releases/download/$OLLAMA_VERSION/ollama-linux-amd64.tar.zst" \
-                    || ! zstd -dc "$tmp/ollama.tar.zst" | tar -C "$OLLAMA_PREFIX" -x; then
-                rm -rf "$tmp"
-                warn "Ollama 를 받지 못했습니다(github.com) — 폐쇄망이면 임베딩 꾸러미를 ai/ 에 푸세요(build_ai_bundle.sh)"
-                return 1
-            fi
-            rm -rf "$tmp"
-        fi
-    fi
-    if ! systemctl cat ollama.service >/dev/null 2>&1; then
-        id ollama >/dev/null 2>&1 || useradd -r -s /bin/false -U -m -d /usr/share/ollama ollama
-        # GPU 장치(/dev/dri · /dev/nvidia*)를 읽는 그룹 — 없으면 CPU 로 돈다(느릴 뿐).
-        for group in render video; do
-            getent group "$group" >/dev/null && usermod -aG "$group" ollama
-        done
-        cat > "$OLLAMA_UNIT" <<UNIT
-[Unit]
-Description=Ollama — 임베딩 모델 서버 (deploy.sh 가 깔았다 · 이 서버의 플랫폼들이 함께 쓴다)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-ExecStart=$OLLAMA_PREFIX/bin/ollama serve
-User=ollama
-Group=ollama
-# 이 서버 안에서만 — 앱 · 워커는 컨테이너 안에서 127.0.0.1 로 부른다.
-Environment=OLLAMA_HOST=127.0.0.1:$port
-Restart=always
-RestartSec=3
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-        systemctl daemon-reload
-        info "Ollama 유닛: $OLLAMA_UNIT"
-    fi
-    systemctl enable --now ollama >/dev/null 2>&1 || true
-    for i in $(seq 1 30); do
-        ollama_up "$url" && return 0
-        sleep 1
-    done
-    warn "Ollama 가 $url 에서 답하지 않습니다 — sudo journalctl -u ollama"
-    return 1
-}
-
-# 모델은 Ollama 의 저장소(유닛의 OLLAMA_MODELS, 없으면 ollama 계정 집의 .ollama/models)에 산다.
-ollama_models_dir() {
-    local dir home
-    dir="$(systemctl show -p Environment ollama 2>/dev/null | tr ' ' '\n' | sed -n 's/^OLLAMA_MODELS=//p' | tail -n1)"
-    if [[ -z "$dir" ]]; then
-        home="$(getent passwd ollama | cut -d: -f6)"
-        dir="${home:-/usr/share/ollama}/.ollama/models"
-    fi
-    printf '%s\n' "$dir"
-}
-
-ensure_ollama_model() {  # $1=주소 $2=모델
-    local url="$1" model="$2" store
-    curl -sf --max-time 10 "$url/api/show" -d "{\"model\":\"$model\"}" >/dev/null 2>&1 && return 0
-    if [[ -d "$AI_BUNDLE/models/manifests" ]]; then
-        store="$(ollama_models_dir)"
-        info "임베딩 모델 $model — 꾸러미에서 ($store)"
-        install -d -o ollama -g ollama "$store"
-        cp -r "$AI_BUNDLE/models/." "$store/"
-        chown -R ollama:ollama "$store"
-    else
-        info "임베딩 모델 $model 받는 중 (약 1.2GB)"
-        curl -sf --max-time 3600 "$url/api/pull" -d "{\"model\":\"$model\",\"stream\":false}" >/dev/null \
-            || { warn "모델 $model 을 받지 못했습니다(registry.ollama.ai) — 폐쇄망이면 임베딩 꾸러미를 ai/ 에 푸세요"; return 1; }
-    fi
-    curl -sf --max-time 10 "$url/api/show" -d "{\"model\":\"$model\"}" >/dev/null 2>&1 \
-        || { warn "모델 $model 이 Ollama 에 안 보입니다"; return 1; }
-}
-
-# 한 번 바꿔 본다 — 차원이 담는 칸과 같은지까지. 처음 부르면 모델을 메모리에 올리느라 몇 초 걸린다.
-check_embedding() {  # $1=주소 $2=모델
-    local dims where="CPU"
-    dims="$(curl -sf --max-time 300 "$1/api/embed" -d "{\"model\":\"$2\",\"input\":\"확인\"}" \
-        | python3 -c 'import json, sys; print(len(json.load(sys.stdin)["embeddings"][0]))' 2>/dev/null)" || dims=""
-    if [[ "$dims" != "$EMBEDDING_DIM" ]]; then
-        warn "임베딩 모델이 답하지 않거나 차원이 다릅니다($2 → ${dims:-답 없음}, 담는 칸 $EMBEDDING_DIM)"
-        return 1
-    fi
-    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
-        where="GPU — $(nvidia-smi -L | head -n1 | sed 's/ (UUID.*//')"
-    fi
-    info "임베딩: $2 · ${dims}차원 · $where"
-}
-
 run_seed() {
     # 뿌리 부서와 관리자 계정. **이것 없이는 아무도 로그인할 수 없다** —
     # 가입은 승인이 필요한데 승인할 사람이 없기 때문이다. 멱등하다.
@@ -938,7 +718,7 @@ setup_mcp() {
     info "  (앱은 $APP_PORT, MCP 는 +2 다. 접두어(/$APP_SLUG)는 메인 서버 nginx 뒤에서만 붙는다)"
 }
 
-# ── 작업 워커 — 같은 SIF 재사용. **치명적이다**: 없으면 파일 가져오기가 안 돈다. ──
+# ── 작업 워커 — 같은 SIF 재사용. **치명적이다**: 없으면 파이프라인 실행이 안 돈다. ──
 setup_worker() {
     [[ -f "$HERE/worker.service.template" ]] || err "worker.service.template 없음 — 번들이 깨졌습니다"
     local had_unit=0
@@ -955,7 +735,7 @@ setup_worker() {
     fi
     systemctl enable "$WORKER_SERVICE_NAME" >/dev/null 2>&1 || true
     systemctl restart "$WORKER_SERVICE_NAME" \
-        || warn "작업 워커 기동 실패 — 'journalctl -u $WORKER_SERVICE_NAME' 확인. 파일 가져오기가 「대기」 에 머뭅니다"
+        || warn "작업 워커 기동 실패 — 'journalctl -u $WORKER_SERVICE_NAME' 확인. 파이프라인 실행이 「대기」 에 머뭅니다"
 }
 
 # ── 동기화 타이머 — 같은 SIF 재사용, 별도 venv 없음. 비치명적. ──
@@ -970,22 +750,7 @@ setup_sync_timer() {
     systemctl daemon-reload
     systemctl enable --now "${SYNC_SERVICE_NAME}.timer" >/dev/null 2>&1 \
         || warn "동기화 타이머 기동 실패 — 'systemctl status ${SYNC_SERVICE_NAME}.timer' 확인"
-    info "동기화 타이머: 5분마다 차례가 된 데이터 소스를 돌립니다 (journalctl -u $SYNC_SERVICE_NAME)"
-}
-
-# ── 지표 타이머 — 매시간(:30) 차례가 된 지표를 작업으로 넣는다. 같은 SIF. 비치명적. ──
-setup_metrics_timer() {
-    [[ "$METRICS_ENABLED" == "1" ]] || { info "지표 타이머 비활성(METRICS_ENABLED=0) — 건너뜀"; return 0; }
-    [[ -f "$HERE/metrics.service.template" && -f "$HERE/metrics.timer.template" ]] \
-        || { warn "metrics.*.template 없음 — 지표 타이머 건너뜀"; return 0; }
-    info "지표 타이머 렌더 → $METRICS_TIMER_UNIT"
-    render_unit_paths "$HERE/metrics.service.template" > "$METRICS_SERVICE_UNIT"
-    sed -e "s|@@APP_NAME@@|$APP_NAME|g" "$HERE/metrics.timer.template" > "$METRICS_TIMER_UNIT"
-    chmod 644 "$METRICS_SERVICE_UNIT" "$METRICS_TIMER_UNIT"
-    systemctl daemon-reload
-    systemctl enable --now "${METRICS_SERVICE_NAME}.timer" >/dev/null 2>&1 \
-        || warn "지표 타이머 기동 실패 — 'systemctl status ${METRICS_SERVICE_NAME}.timer' 확인"
-    info "지표 타이머: 매시간 차례가 된 지표를 다시 셉니다 — 「매일 밤」 은 2시대 (journalctl -u $METRICS_SERVICE_NAME)"
+    info "동기화 타이머: 5분마다 차례가 된 파이프라인을 작업으로 넣습니다 — 돌리는 것은 $WORKER_SERVICE_NAME (journalctl -u $SYNC_SERVICE_NAME)"
 }
 
 # ── 백업 타이머 — 백업 폴더를 알 때만. 이중화면 두 서버 모두 걸리고, backup.sh 가 「오늘
@@ -1042,8 +807,6 @@ cmd_prepare() {
 
     if pg_in_recovery; then
         info "이 서버의 DB 는 대기(복제본) — 역할 · 데이터베이스는 주에서 만든 것이 넘어온다. 건너뜁니다."
-        # pgvector 는 패키지만 — 확장은 주에서 만든 것이 복제로 온다(승격하는 날 라이브러리가 있어야 한다).
-        ensure_vector_package "$PG_VERSION" || true
         ensure_apptainer
         cat <<MSG
 
@@ -1070,7 +833,6 @@ MSG
         info "데이터베이스가 이미 있습니다: $DB_NAME"
     fi
     grant_temp_limit
-    ensure_vector || warn "pgvector 를 갖추지 못했습니다(비치명적 — 이 판은 아직 쓰지 않는다) — 고친 뒤: sudo ./deploy.sh pgvector"
 
     # **맨 끝에 둔다.** PPA 에 닿지 않는 서버에서 여기서 멈춰도 DB·폴더는 이미 서 있고,
     # apptainer 만 따로 깐 뒤 prepare 를 다시 돌리면 된다(앞 단계는 멱등하다).
@@ -1092,8 +854,6 @@ cmd_install() {
     sync_env_identity
     sync_env_portal
     place_sif
-    # 마이그레이션 앞에서 — 확장을 쓰는 표가 드는 판부터는 마이그레이션이 그것을 본다.
-    ensure_vector || warn "pgvector 를 갖추지 못했습니다(비치명적 — 이 판은 아직 쓰지 않는다) — 고친 뒤: sudo ./deploy.sh pgvector"
     run_migrations
     run_seed
     render_service_unit
@@ -1105,17 +865,14 @@ cmd_install() {
     setup_worker
     setup_mcp || warn "MCP 설정 건너뜀(비치명적)"
     setup_sync_timer || warn "동기화 타이머 건너뜀(비치명적)"
-    setup_metrics_timer || warn "지표 타이머 건너뜀(비치명적)"
     setup_backup_timer || warn "백업 타이머 건너뜀(비치명적)"
-    # 앱이 뜬 **뒤에** — 처음이면 1~3GB 를 받는다. 실패해도 앱은 돈다(서버 화면이 말한다).
-    setup_embedding || warn "임베딩 모델 설정 건너뜀(비치명적) — 고친 뒤: sudo ./deploy.sh ollama"
     setup_lb
 
     cat <<MSG
 
 [OK] 설치 완료.
   로그   : sudo journalctl -u $SERVICE_NAME -f
-  워커   : sudo systemctl status $WORKER_SERVICE_NAME   (파일 가져오기가 여기서 돈다)
+  워커   : sudo systemctl status $WORKER_SERVICE_NAME   (파이프라인 실행이 여기서 돈다)
   접속   : $( [[ -n "$HA_ROLE" ]] && echo "https://$PUBLIC_HOST/$APP_SLUG/  (직접: http://$SELF_IP:$APP_PORT/)" || echo "http://<서버주소>:$APP_PORT/" )
   자료   : 첨부 $FILESTORE_HOST_DIR · 중계 $RELAY_HOST_DIR(정의는 pipelines/) · 설정 $ENV_FILE · 로그 $LOG_HOST_DIR$( [[ -n "$BACKUP_HOST_DIR" ]] && echo " · 백업 $BACKUP_HOST_DIR" )
   MCP    : sudo systemctl status $MCP_SERVICE_NAME   (Claude 연동, 선택)
@@ -1132,9 +889,6 @@ cmd_update() {
     ensure_dirs
     sync_env_identity
     sync_env_portal
-    # **내리기 전에** — 패키지를 받는 동안(처음 한 번) 서비스가 서 있다. 확장을 쓰는 표가 드는 판부터는
-    # 여기서 못 갖추면 멈춘다(옛 판이 그대로 돈다).
-    ensure_vector || warn "pgvector 를 갖추지 못했습니다(비치명적 — 이 판은 아직 쓰지 않는다) — 고친 뒤: sudo ./deploy.sh pgvector"
 
     info "$SERVICE_NAME 중지"
     systemctl stop "$SERVICE_NAME" || true
@@ -1161,10 +915,7 @@ cmd_update() {
     # MCP 도 함께 갱신(소스 교체 + 유닛 재렌더 + 재기동). 비치명적.
     setup_mcp || warn "MCP 설정 건너뜀(비치명적)"
     setup_sync_timer || warn "동기화 타이머 건너뜀(비치명적)"
-    setup_metrics_timer || warn "지표 타이머 건너뜀(비치명적)"
     setup_backup_timer || warn "백업 타이머 건너뜀(비치명적)"
-    # 앱이 뜬 **뒤에** — 처음이면 1~3GB 를 받는다. 이미 있으면 확인만.
-    setup_embedding || warn "임베딩 모델 설정 건너뜀(비치명적) — 고친 뒤: sudo ./deploy.sh ollama"
     setup_lb
 
     cat <<MSG
@@ -1198,7 +949,6 @@ MSG
 DROP DATABASE IF EXISTS "$DB_NAME";
 CREATE DATABASE "$DB_NAME" OWNER "$DB_USER" ENCODING 'UTF8';
 SQL
-    ensure_vector || warn "pgvector 를 갖추지 못했습니다(비치명적 — 이 판은 아직 쓰지 않는다) — 고친 뒤: sudo ./deploy.sh pgvector"
     info "첨부 삭제"
     as_op find "$FILESTORE_HOST_DIR" -mindepth 1 -delete 2>/dev/null || true
 
@@ -1264,7 +1014,7 @@ cmd_status() {
     if [[ -f "$WORKER_SERVICE_UNIT" ]]; then
         systemctl --no-pager --lines=3 status "$WORKER_SERVICE_NAME" || true
     else
-        echo "  없음 — 파일 가져오기가 「대기」 에 머뭅니다. sudo ./deploy.sh update"
+        echo "  없음 — 파이프라인 실행이 「대기」 에 머뭅니다. sudo ./deploy.sh update"
     fi
     if [[ -f "$MCP_SERVICE_UNIT" ]]; then
         echo
@@ -1275,11 +1025,6 @@ cmd_status() {
         echo
         echo "== 동기화 타이머 ($SYNC_SERVICE_NAME.timer) =="
         systemctl --no-pager list-timers "${SYNC_SERVICE_NAME}.timer" || true
-    fi
-    if systemctl cat ollama.service >/dev/null 2>&1; then
-        echo
-        echo "== 임베딩 모델 (ollama · 서버에 하나) =="
-        systemctl --no-pager --lines=3 status ollama || true
     fi
     if [[ -f "$BACKUP_TIMER_UNIT" ]]; then
         echo
@@ -1490,14 +1235,13 @@ cmd_render() {
     mkdir -p "$ETC/etc/systemd/system"
     # 설정 파일도 그 아래에 — 실제 배포가 남길 것과 같은 모양을 본다.
     instance_save; ha_save
-    for tpl in app.service worker.service sync.service metrics.service backup.service; do
+    for tpl in app.service worker.service sync.service backup.service; do
         [[ -f "$HERE/$tpl.template" ]] || continue
         case "$tpl" in
             app.service)     unit="$SERVICE_NAME.service" ;;
             worker.service)  unit="$WORKER_SERVICE_NAME.service" ;;
             sync.service)    unit="$SYNC_SERVICE_NAME.service" ;;
-            metrics.service) unit="$METRICS_SERVICE_NAME.service" ;;
-            *)              unit="$BACKUP_SERVICE_NAME.service" ;;
+            *)               unit="$BACKUP_SERVICE_NAME.service" ;;
         esac
         render_unit_paths "$HERE/$tpl.template" > "$ETC/etc/systemd/system/$unit"
     done
@@ -1532,7 +1276,7 @@ $APP_NAME 배포 스크립트 ($VERSION)
   reset     DB·첨부 초기화 (파괴적)
   remove    이 인스턴스를 지운다 — 유닛 · DB · 설치 폴더 (공용 폴더는 남김, 파괴적)
   status    서비스 상태 + health (+ 이중화 · DB 주/대기)
-  restart   앱 · 작업 워커 · MCP 를 함께 재시작 — **`.env` 를 고쳤으면 이것**
+  restart   앱 · 작업 워커 · MCP 를 함께 재시작 — **.env 를 고쳤으면 이것**
   start|stop  같은 묶음을 켜고 끈다
   units     그 묶음에 무엇이 들어 있는지만 본다 (root 없이)
   (없으면)  자동: 처음이면 install, 아니면 update
@@ -1543,11 +1287,6 @@ $APP_NAME 배포 스크립트 ($VERSION)
   db-promote              대기를 주로 (장애)      db-demote  주를 곱게 내림 (계획 전환)
   db-status               역할 · 복제 지연 · VIP
   lb                      메인 서버용 nginx 조각 · keepalived(DB VIP)를 지금 설정으로 다시 만들고 반영
-
-  pgvector                뜻으로 찾기의 확장(pgvector)만 — 패키지 + 확장(ADR 0050). install · update 가 돈다(실패해도
-                          안 멈춤 — 서버 화면이 말한다). 고친 뒤 이것만 다시
-  ollama                  임베딩 모델(Ollama · bge-m3)만 다시 — install · update 가 끝에 돈다(실패해도 안 멈춤).
-                          폐쇄망이면 임베딩 꾸러미(build_ai_bundle.sh)를 번들 안 ai/ 에 풀거나 AI_BUNDLE=<폴더>
 
   pg-tune [--apply]       PostgreSQL 서버 설정을 이 서버의 메모리 · CPU 로 맞춘다(기본은 보여 주기만 —
                           ADR 0031). 공유 버퍼 등은 재시작해야 바뀐다. 이중화면 두 서버 다. --help 로 옵션
@@ -1589,9 +1328,6 @@ case "${1:-}" in
     db-status)      cmd_db status ;;
     lb)             ensure_dirs; setup_lb ;;
     pg-tune)        shift; exec "$HERE/pg-tune.sh" "$@" ;;
-    pgvector)       ensure_vector || err "pgvector 를 갖추지 못했습니다 — 위의 경고를 보세요" ;;
-    ollama)         [[ -f "$ENV_FILE" ]] || err "$ENV_FILE 가 없습니다 — 먼저 install 하세요"
-                    setup_embedding || err "임베딩 모델을 갖추지 못했습니다 — 위의 경고를 보세요" ;;
     render)         cmd_render ;;
     hwax-request)   cmd_hwax_request ;;
     ""|auto)        cmd_auto    ;;

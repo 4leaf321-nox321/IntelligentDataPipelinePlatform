@@ -31,7 +31,6 @@ from relay_core.adapters.base import SourceAdapter
 from relay_core.adapters.file import FileAdapter, FileSource
 from relay_core.adapters.odata import ODataAdapter, ODataSource
 from relay_core.adapters.rest import Auth, RestAdapter, RestSource
-from relay_core.adapters.sql import SqlAdapter, SqlSource
 from relay_core.adapters.xml import XmlAdapter, XmlSource
 
 FORMAT = "relay-pipeline/1"
@@ -90,7 +89,6 @@ ADAPTERS: dict[str, tuple[type[Any], type[Any], tuple[str, ...]]] = {
     "odata": (ODataSource, ODataAdapter, ("service_url", "entity_set", "key", "columns")),
     "file": (FileSource, FileAdapter, ("location", "key")),
     "xml": (XmlSource, XmlAdapter, ("url", "rows_xpath", "key", "columns")),
-    "sql": (SqlSource, SqlAdapter, ("dsn_env", "key")),
 }
 
 
@@ -103,7 +101,7 @@ def column_default(kind: str) -> Any:
     return {}
 
 
-#: 정의에 적으면 안 되는 칸 — 비밀은 환경 변수의 **이름**으로만(`token_env` · `dsn_env`).
+#: 정의에 적으면 안 되는 칸 — 비밀은 환경 변수의 **이름**으로만(`token_env`).
 SECRET_FIELDS = {"dsn", "password", "token", "secret"}
 
 
@@ -130,7 +128,7 @@ def check_adapter(
     if leaked:
         raise DefinitionError(
             f"adapter: 비밀({', '.join(leaked)})은 정의에 적지 않습니다 — 환경 변수 이름"
-            "(`dsn_env` · `auth.token_env`)을 적으세요."
+            "(`auth.token_env`)을 적으세요."
         )
     known = {one.name for one in fields(shape)} - SECRET_FIELDS
     unknown = sorted(set(body) - known)
@@ -151,15 +149,13 @@ def build_adapter(
     partial: bool = False,
     file_roots: Sequence[Path] | None = None,
 ) -> SourceAdapter:
-    """어댑터 설정 → 어댑터 — 비밀(`auth.token_env` · `dsn_env`)은 `env` 에서 푼다.
+    """어댑터 설정 → 어댑터 — 비밀(`auth.token_env`)은 `env` 에서 푼다.
     `file_roots` 를 주면 파일 어댑터가 그 폴더 밖을 읽지 않는다(앱이 준다)."""
     kind, body = check_adapter(spec, partial=partial)
     shape, adapter, _need = ADAPTERS[kind]
     names = {one.name for one in fields(shape)}
     if "auth" in names:
         body["auth"] = _auth(dict(body.pop("auth", None) or {}), env)
-    if kind == "sql":
-        body["dsn"] = _secret({"token_env": body["dsn_env"]}, "adapter.dsn_env", env)
     if kind == "file":
         return FileAdapter(shape(**body), roots=file_roots)
     built: SourceAdapter = adapter(shape(**body))
@@ -167,11 +163,11 @@ def build_adapter(
 
 
 def env_names(body: Any) -> list[str]:
-    """정의가 푸는 환경 변수의 이름 전부(`token_env` · `dsn_env`) — 어디에 있든."""
+    """정의가 푸는 환경 변수의 이름 전부(`token_env`) — 어디에 있든."""
     found: list[str] = []
     if isinstance(body, dict):
         for key, value in body.items():
-            if key in ("token_env", "dsn_env") and isinstance(value, str) and value:
+            if key == "token_env" and isinstance(value, str) and value:
                 found.append(value)
             else:
                 found.extend(env_names(value))
@@ -217,7 +213,7 @@ def load_body(
     path: Path | None = None,
     file_roots: Sequence[Path] | None = None,
 ) -> Pipeline:
-    """달릴 수 있게 — 비밀(`token_env` · `dsn_env`)까지 푼다. 레시피는 `recipe` 가 이기고,
+    """달릴 수 있게 — 비밀(`token_env`)까지 푼다. 레시피는 `recipe` 가 이기고,
     없으면 정의의 `recipe`(그 자리는 `base` 기준). DB 의 정의(판)는 `base` 가 없다 — 켜진
     레시피 판을 준다."""
     env = os.environ if env is None else env

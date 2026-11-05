@@ -17,7 +17,6 @@ vi.mock('@/shared/auth/AuthContext', () => ({
   useAuth: () => ({ user: { email: 'hong', display_name: '홍길동' }, reload: vi.fn() }),
 }))
 vi.mock('@/modules/auth/McpSetupGuide', () => ({ McpSetupGuide: () => null }))
-vi.mock('@/modules/auth/PipelineKitGuide', () => ({ PipelineKitGuide: () => null }))
 
 describe('토큰 폐기', () => {
   it('서버가 거절하면 그 이유가 보인다', async () => {
