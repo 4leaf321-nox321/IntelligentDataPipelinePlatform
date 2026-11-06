@@ -366,6 +366,13 @@ function ReconcileActions({
   )
 }
 
+/** 대조가 대상을 읽은 길(`Report.via`) — 코어가 가장 빠르고, 목록은 대상이 클수록 느려진다. */
+const VIA_LABEL: Record<string, string> = {
+  코어: '코어 API(커서로 2,000개씩)',
+  내보내기: '묶음 내보내기 한 번',
+  목록: '목록(200개씩 쪽마다 — 느림)',
+}
+
 export function ReconcileSection({
   detail,
   admin,
@@ -421,6 +428,7 @@ export function ReconcileSection({
               </span>
             </Fact>
             <Fact label="결과">{shown.summary || '—'}</Fact>
+            {shown.via && <Fact label="대상 읽기">{VIA_LABEL[shown.via] ?? shown.via}</Fact>}
           </>
         )}
       </dl>

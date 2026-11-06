@@ -70,7 +70,7 @@ def test_대조는_관리자가_넣고_보고서가_상세_지도_홈에_나온�
     monkeypatch.setenv("RELAY_T_TOKEN", "x")
     _baseline(tmp_path, slug)
     target = FakeReader({"plm_model": [*SAME[1:], _item("M9", "누가", "양산")]}, {})
-    monkeypatch.setattr(reconcile, "TargetReader", lambda _target: target)
+    monkeypatch.setattr(reconcile, "best_reader", lambda _target, _slugs: target)
     monkeypatch.setattr(reconcile, "Submitter", _Submitter)
 
     path = f"/api/relay/pipelines/{slug}/reconcile"
@@ -115,7 +115,7 @@ def test_보정_계획을_적용하면_다시_견줘_어긋남이_풀린다(
     monkeypatch.setenv("RELAY_T_TOKEN", "x")
     work = _baseline(tmp_path, slug)
     target = FakeReader({"plm_model": SAME[1:]}, {"plm_model": "plm"})
-    monkeypatch.setattr(reconcile, "TargetReader", lambda _target: target)
+    monkeypatch.setattr(reconcile, "best_reader", lambda _target, _slugs: target)
     monkeypatch.setattr(reconcile, "Submitter", _Submitter)
     monkeypatch.setattr(runner, "Submitter", _Submitter)
 

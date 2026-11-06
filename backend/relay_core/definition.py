@@ -48,6 +48,9 @@ class Target:
     name: str
     server: str
     token: str = field(repr=False)
+    part_mb: int = 8
+    """조각 상한(MB) — 보낼 묶음이 이보다 크면 나눠 보낸다(`relay_core.parts`). 대상 SP 가 한
+    번에 받는 크기(`job_file_max_bytes`, 기본 100MB)보다 작아야 한다."""
 
 
 @dataclass(frozen=True)
@@ -203,6 +206,22 @@ def env_names(body: Any) -> list[str]:
     return found
 
 
+#: 조각 상한의 범위(MB) — 대상 SP 의 기본 상한이 100MB, 이중화 nginx 가 512MB 다.
+PART_MB = (1, 512)
+
+
+def part_mb(target: dict[str, Any]) -> int:
+    """`target.part_mb` — 없으면 8. 정수 · 범위만."""
+    value = target.get("part_mb", 8)
+    low, high = PART_MB
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        raise DefinitionError(
+            f"target.part_mb(조각 상한 MB)는 {low} 이상 {high} 이하의 정수여야 합니다 — "
+            f"대상 SP 가 한 번에 받는 크기보다 작게: {value!r}"
+        )
+    return value
+
+
 def check_body(body: dict[str, Any]) -> tuple[str, str]:
     """정의의 머리 — (slug, source). 비밀 없이 볼 수 있는 것만 본다(초안 저장 · 지도)."""
     if body.get("format") != FORMAT:
@@ -221,6 +240,7 @@ def check_body(body: dict[str, Any]) -> tuple[str, str]:
         raise DefinitionError("target: 비밀은 정의에 적지 않습니다 — token_env 를 적으세요.")
     if not target.get("server") or not target.get("token_env"):
         raise DefinitionError("target 의 server · token_env 가 필요합니다.")
+    part_mb(target)
     from relay_core.autoapply import AutoApplyError, check
 
     try:
@@ -257,6 +277,7 @@ def load_body(
         name=str(target_spec.get("name") or ""),
         server=str(target_spec.get("server") or "").rstrip("/"),
         token=_secret(target_spec, "target", env),
+        part_mb=part_mb(target_spec),
     )
     if not target.token:
         raise DefinitionError("target 의 token_env 가 비었습니다.")

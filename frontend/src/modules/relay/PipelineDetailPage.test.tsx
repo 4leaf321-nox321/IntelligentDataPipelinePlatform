@@ -243,6 +243,22 @@ describe('파이프라인 상세', () => {
     expect(screen.getByText(/지금 계획에는 오류가 있어 적용할 수 없습니다/)).toBeInTheDocument()
   })
 
+  it('나눠 보내는 계획 — 조각을 보이고, 뒤 조각에서 멈췄으면 적용이 그 조각부터 잇는다', async () => {
+    const parts = ['sends/x/parts/001', 'sends/x/parts/002', 'sends/x/parts/003']
+    relayApi.pipeline.mockResolvedValue(
+      detail({
+        state: { pending: { job_id: 'p2', ok: false, summary: '조각 2/3: 오류 1', at: '', parts, part: 1 } },
+      }),
+    )
+    relayApi.apply.mockResolvedValue({ job_id: 'job-7', kind: 'relay_apply' })
+    await mount()
+
+    expect(screen.getByText('조각 2/3')).toBeInTheDocument()
+    expect(screen.getByText(/앞 조각 1개는 적용됐습니다/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /적용/ }))
+    await waitFor(() => expect(relayApi.apply).toHaveBeenCalledWith('plm-tasks'))
+  })
+
   it('자동 적용 — 미사용이면 「미사용」 을 흐리게, 사용하면 기준을 적는다', async () => {
     auth.admin = false
     await mount()
@@ -854,6 +870,27 @@ describe('파이프라인 상세 · 대조', () => {
     expect(screen.queryByText('— 앞의 20건만 표시')).not.toBeInTheDocument()
     expect(box.getByText('전체 보고서를 표시하고 있습니다.')).toBeInTheDocument()
     expect(box.queryByRole('button', { name: '전체 보고서 불러오기' })).not.toBeInTheDocument()
+  })
+
+  it('대상 읽기 — 내보내기로 읽은 보고서', async () => {
+    auth.admin = false
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile({ via: '내보내기' }) }))
+    await mount()
+    expect(within(section()).getByText('묶음 내보내기 한 번')).toBeInTheDocument()
+  })
+
+  it('대상 읽기 — 목록으로 읽은 보고서', async () => {
+    auth.admin = false
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile({ via: '목록' }) }))
+    await mount()
+    expect(within(section()).getByText('목록(200개씩 쪽마다 — 느림)')).toBeInTheDocument()
+  })
+
+  it('대상 읽기 — 코어로 읽은 보고서', async () => {
+    auth.admin = false
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile({ via: '코어' }) }))
+    await mount()
+    expect(within(section()).getByText('코어 API(커서로 2,000개씩)')).toBeInTheDocument()
   })
 
   it('시스템 관리자가 아니면 대조 · 보정 계획 단추가 안 선다', async () => {

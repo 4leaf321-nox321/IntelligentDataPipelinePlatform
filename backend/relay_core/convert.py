@@ -22,6 +22,26 @@ class Converted:
     report: str
 
 
+def write_source(mirror: Mirror, recipe: Path, run: Path, *, work: Path) -> Path:
+    """`work` 에 원천 표(CSV)와 **그때의 레시피 사본**을 쓴다 — 변환(`transform`)의 입력.
+    사본은 거꾸로 보기(`trace`)가 쓴다 — 기준을 만든 뒤 레시피 판이 바뀌면 지금 레시피로는 그
+    값이 어디서 왔는지 틀리게 말한다."""
+    if len(mirror) == 0:
+        raise ValueError("미러가 비어 있습니다 — 받은 행이 없습니다.")
+    source = mirror.write_csv(work / f"{run.name}.source.csv")
+    (work / f"{run.name}.recipe.table.json").write_bytes(recipe.read_bytes())
+    return source
+
+
+def transform(
+    source: Path, recipe: Path, run: Path, *, server: str = "", token: str = ""
+) -> Converted:
+    """원천 표 → `run` 의 실행 폴더(`run` 은 없어야 한다). `server` · `token` 은 레시피의 참조
+    대조(`match`)가 대상 SP 의 식별자를 받을 때만 쓴다."""
+    clean, report = sp.table.convert(recipe, source, run, server=server, token=token)
+    return Converted(run=run, clean=bool(clean), report=str(report))
+
+
 def convert(
     mirror: Mirror,
     recipe: Path,
@@ -31,14 +51,7 @@ def convert(
     server: str = "",
     token: str = "",
 ) -> Converted:
-    """`work` 에 원천 표(CSV)와 **그때의 레시피 사본**을 쓰고 `run` 에 실행 폴더를 만든다
-    (`run` 은 없어야 한다). 사본은 거꾸로 보기(`trace`)가 쓴다 — 기준을 만든 뒤 레시피 판이
-    바뀌면 지금 레시피로는 그 값이 어디서 왔는지 틀리게 말한다.
-
-    `server` · `token` 은 레시피의 참조 대조(`match`)가 대상 SP 의 식별자를 받을 때만 쓴다."""
-    if len(mirror) == 0:
-        raise ValueError("미러가 비어 있습니다 — 받은 행이 없습니다.")
-    source = mirror.write_csv(work / f"{run.name}.source.csv")
-    (work / f"{run.name}.recipe.table.json").write_bytes(recipe.read_bytes())
-    clean, report = sp.table.convert(recipe, source, run, server=server, token=token)
-    return Converted(run=run, clean=bool(clean), report=str(report))
+    """`write_source` 다음 `transform` — 미러를 끝까지 쥐고 있어도 되는 곳(레시피 시험)에서.
+    실행은 원천 표를 쓴 뒤 미러를 놓고 변환한다(`runner.run` — 큰 원천에서 메모리)."""
+    source = write_source(mirror, recipe, run, work=work)
+    return transform(source, recipe, run, server=server, token=token)

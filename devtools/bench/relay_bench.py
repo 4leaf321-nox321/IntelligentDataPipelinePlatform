@@ -25,7 +25,7 @@ from typing import Any
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "backend"))
 
-from relay_core import reconcile, runner, trace  # noqa: E402
+from relay_core import reconcile, runner, sp, trace  # noqa: E402
 from relay_core.adapters.base import Fetched  # noqa: E402
 from relay_core.definition import Pipeline, Target  # noqa: E402
 from relay_core.records import SourceRecord  # noqa: E402
@@ -87,15 +87,11 @@ class Adapter:
         return got
 
 
-def body_size(folder: Path) -> tuple[int, int]:
-    """보내는 본문의 크기 — `sp_pipeline._post_bundle` 처럼 들여쓰기 없이 잰다.
-    (바이트, 파일 수)"""
-    total, files = 0, 0
-    for file in folder.rglob("*.json"):
-        raw = json.loads(file.read_text(encoding="utf-8"))
-        total += len(json.dumps(raw, ensure_ascii=False).encode())
-        files += file.parent.name in ("objects", "relations")
-    return total, files
+def body_size(send: Path) -> int:
+    """보내는 본문 전체의 바이트 — `sp_pipeline.payload` 그대로(출처 · 메모의 `_` 칸을 떼고
+    들여쓰기 없이). 조각(`parts/`)은 세지 않는다(같은 줄이다)."""
+    body = sp.pipeline.payload(sp.pipeline.load(send))
+    return len(json.dumps(body, ensure_ascii=False).encode())
 
 
 def target_items(run: Path, recipe: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
@@ -139,9 +135,11 @@ def step(name: str, started: float, extra: str = "") -> float:
     return now
 
 
-def sent(work: Workdir, fake: Any) -> tuple[int, int]:
-    run = fake.previews[-1].relative_to(work.root).as_posix()
-    return body_size(work.path(run.replace("runs/", "sends/")))
+def sent(work: Workdir) -> tuple[int, int]:
+    """대기 계획의 본문 크기 · 조각 수(나누지 않았으면 0)."""
+    pending = work.load_state().pending
+    assert pending is not None
+    return body_size(work.path(pending.send)), len(pending.parts)
 
 
 def main(n: int) -> None:
@@ -162,15 +160,15 @@ def main(n: int) -> None:
     t = time.perf_counter()
     adapter.next = Fetched(records=rows(n), watermark="w1", complete=True, full=True)
     first = runner.run(pipeline, work, fake)
-    size, files = sent(work, fake)
-    t = step("첫 적재(실행)", t, f"{first.status} · 본문 {size / 1e6:.1f}MB · 파일 {files}개")
+    size, cut = sent(work)
+    t = step("첫 적재(실행)", t, f"{first.status} · 본문 {size / 1e6:.1f}MB · 조각 {cut}개")
     runner.apply(pipeline, work, fake)
 
     changed = [r for r in rows(n, 1) if r.values["MODEL_NAME"].endswith("v2")]
     adapter.next = Fetched(records=changed, watermark="w2", complete=True, full=False)
     t = time.perf_counter()
     again = runner.run(pipeline, work, fake)
-    size, files = sent(work, fake)
+    size, _ = sent(work)
     t = step("1% 증분(실행)", t, f"{again.status} · 본문 {size / 1e6:.2f}MB")
     runner.apply(pipeline, work, fake)
 

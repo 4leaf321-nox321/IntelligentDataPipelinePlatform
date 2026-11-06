@@ -64,7 +64,13 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
     reconciled = False
     if apply:
         pending = folder.load_state().pending
-        outcome = runner.apply(pipeline, folder)
+
+        def shown(part: int, total: int) -> None:
+            # 나눠 보내는 계획은 조각마다 미리 보기 → 적용 — 어디쯤인지 작업 화면에 보인다.
+            if total > 1:
+                work.progress(f"적용 — 조각 {part}/{total}", part, total)
+
+        outcome = runner.apply(pipeline, folder, progress=shown)
         # **보정 계획을 적용했으면 바로 다시 견준다** — 안 그러면 다음 대조(며칠 뒤)까지 홈이
         # 「어긋남」 을 계속 말한다.
         if outcome.status == "applied" and pending and pending.origin == "reconcile":

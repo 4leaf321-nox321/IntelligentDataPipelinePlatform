@@ -101,6 +101,9 @@ def decide(policy: Policy, state: State, outcome: Outcome) -> list[str]:
     if outcome.status != "planned" or state.pending is None or not state.pending.ok:
         reasons.append("대상의 미리 보기에 오류가 있습니다")
         return reasons
+    if state.pending.parts:
+        reasons.append(f"나눠 보내는 계획(조각 {state.pending.total}개)은 사람이 적용합니다")
+        return reasons
     done = manual_applies(state)
     if done < policy.after_manual:
         reasons.append(

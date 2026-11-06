@@ -168,3 +168,216 @@ def test_값은_모양이_달라도_같으면_같다() -> None:
     assert same("T-2", "u-1", {}) is False
     assert same("서울 시험소", "u-9", {"u-9": "서울 시험소"}) is True
     assert same("S-1", "u-9", {"u-9": "서울 시험소"}) is None
+
+
+# --- 대상을 묶음 내보내기로 읽기 ---------------------------------------------------------
+
+SCHEMA: list[dict[str, Any]] = [
+    {
+        "slug": "plm_model",
+        "nav_group_slug": "plm",
+        "managed_by": "plm",
+        "properties": [
+            {"key": "task", "data_type": "object_ref", "ref_type_slug": "plm_task"}
+        ],
+    },
+    {
+        "slug": "plm_task",
+        "nav_group_slug": "plm",
+        "managed_by": "plm",
+        "properties": [{"key": "site", "data_type": "object_ref", "ref_type_slug": "site"}],
+    },
+    {"slug": "site", "nav_group_slug": "core", "managed_by": None, "properties": []},
+    {"slug": "loose", "nav_group_slug": None, "properties": []},
+]
+
+
+def test_내보낼_묶음은_참조가_가리키는_타입의_묶음까지() -> None:
+    schema = {one["slug"]: one for one in SCHEMA}
+    # 견주는 타입의 참조만 풀리면 된다 — 한 단계(과제가 가리키는 시험소는 모델을 견줄 때
+    # 안 쓴다).
+    assert reconcile.export_groups(schema, ["plm_model"]) == ["plm"]
+    assert reconcile.export_groups(schema, ["plm_task", "없는타입"]) == ["core", "plm"]
+    assert reconcile.export_groups(schema, ["loose"]) is None  # 사이드바 묶음 밖
+    system = {**schema, "site": {**schema["site"], "kind_class": "system"}}
+    assert reconcile.export_groups(system, ["plm_task"]) is None
+
+
+class _Sp:
+    """대상 SP 대신 — 정의 · 내보내기 작업 · 결과 파일 · 목록을 준다."""
+
+    def __init__(self, export_status: int = 202, core: tuple[str, ...] = ()) -> None:
+        self.export_status = export_status
+        self.core = core
+        self.calls: list[tuple[str, str]] = []
+        self.envelope = {
+            "ontology": {
+                "types": [{"slug": "plm_model"}, {"slug": "plm_task"}, {"slug": "site"}]
+            },
+            "objects": [
+                {
+                    "type_slug": "plm_model",
+                    "rows": [
+                        {"key": "M1", "label": "갤럭시", "status": "active", "task": "T-1"},
+                        {"key": "M2", "label": "엣지", "status": "deprecated", "task": None},
+                    ],
+                },
+                {"type_slug": "plm_task", "rows": [{"key": "T-1", "label": "과제 1"}]},
+            ],
+        }
+
+    def send(self, _server: str, method: str, url: str, *_a: Any, **_k: Any) -> Any:
+        path = url.split("sp.test", 1)[1]
+        self.calls.append((method, path))
+        if path == "/api/ontology/schema":
+            return 200, {"types": SCHEMA}
+        if path == "/api/core":
+            return 200, {"types": [{"slug": slug} for slug in self.core]}
+        if path.startswith("/api/core/plm_model?limit=2000"):
+            if "cursor=" not in path:  # 첫 쪽 — 다음 쪽이 있다
+                rows = [
+                    {"key": "M1", "label": "갤럭시", "status": "active"},
+                    {"key": "M0", "label": "지움", "deleted": True},
+                ]
+                return 200, {"items": rows, "next": "c 1"}
+            assert "cursor=c%201" in path
+            row = {"key": "M2", "label": "엣지", "status": "deprecated"}
+            props = {"task": "T-1", "aliases": ["엣지폰"]}
+            return 200, {"items": [{**row, "properties": props}], "next": None}
+        if path == "/api/bundles/export":
+            if self.export_status != 202:
+                refused = {"error": {"code": "AUTH-0003", "message": "관리자만"}}
+                return self.export_status, refused
+            return 202, {"id": "job-x"}
+        if path.startswith("/api/objects/loose"):
+            return 200, {"items": [{"id": "u1", "key": "L1", "label": "목록"}], "total": 1}
+        return 404, {}
+
+    def wait(self, _server: str, _token: str, job: Any, **_k: Any) -> Any:
+        return {"id": job["id"], "status": "done"}
+
+    def download(self, _server: str, _token: str, path: str, **_k: Any) -> Any:
+        assert path == "/api/jobs/job-x/download"
+        return self.envelope
+
+
+def _sp(monkeypatch: Any, fake: _Sp) -> Any:
+    from relay_core import sp
+
+    monkeypatch.setattr(sp.pipeline, "_send", fake.send)
+    monkeypatch.setattr(sp.pipeline, "_wait_job", fake.wait)
+    monkeypatch.setattr(sp.pipeline, "_get_json", fake.download)
+    return _pipeline(Path("/tmp"), []).target
+
+
+def test_내보내기_한_번으로_읽고_참조는_식별자로_온다(monkeypatch: Any) -> None:
+    fake = _Sp()
+    reader = reconcile.ExportReader(_sp(monkeypatch, fake), ["plm_model", "loose", "없는타입"])
+    assert reader.via == "목록" and "사이드바 묶음" in reader.fallback  # loose 는 묶음 밖
+
+    reader = reconcile.ExportReader(_sp(monkeypatch, fake), ["plm_model"])
+    assert reader.via == "내보내기" and not reader.fallback
+    assert ("POST", "/api/bundles/export") in fake.calls
+    models = reader.objects("plm_model")
+    assert models is not None
+    first = models[0]
+    assert first["key"] == "M1" and first["properties"] == {"task": "T-1"}
+    assert models[1]["status"] == "deprecated"
+    assert reader.objects("site") == []  # 내보냈지만 객체가 없다
+    assert reader.objects("없는타입") is None  # 대상에 타입이 없다
+    assert reader.managed_by()["plm_model"] == "plm"
+    # 목록 API 는 부르지 않았다 — 200개씩 넘기지 않는다.
+    assert not [one for one in fake.calls if one[1].startswith("/api/objects/")]
+
+
+def test_내보내기를_못_쓰면_목록으로_읽고_까닭을_적는다(monkeypatch: Any) -> None:
+    fake = _Sp(export_status=403)
+    reader = reconcile.ExportReader(_sp(monkeypatch, fake), ["plm_model"])
+    assert reader.via == "목록" and "403" in reader.fallback and "관리자만" in reader.fallback
+    assert reader.objects("loose") == [{"id": "u1", "key": "L1", "label": "목록"}]
+
+
+def test_내보내기의_줄로_견주면_참조를_식별자로_바로_본다() -> None:
+    refs = _Refs()
+    row = {"key": "M1", "label": "갤럭시", "task": "T-1", "tags": ["a", "b"]}
+    item = reconcile._export_item(row)
+    assert item["label"] == "갤럭시" and item["properties"]["task"] == "T-1"
+    same = reconcile._diff_row({"key": "M1", "label": "갤럭시", "task": "T-1"}, item, refs)
+    assert same == ([], 0)
+    differs, unverified = reconcile._diff_row({"key": "M1", "task": "T-2"}, item, refs)
+    assert differs == ["task"] and unverified == 0
+    assert reconcile._diff_row({"key": "M1", "tags": "b;a"}, item, refs) == ([], 0)
+
+
+def test_보고서는_어떻게_읽었는지_남긴다(tmp_path: Path) -> None:
+    pipeline, work, fake = _applied(tmp_path)
+
+    class Listed(FakeReader):
+        via = "목록"
+        fallback = "묶음 내보내기(plm)를 못 썼습니다: 403"
+
+    reader = Listed({"plm_model": SAME}, {"plm_model": "plm"})
+    report = compare(pipeline, work, reader, fake)
+    assert report.drift == 0 and report.via == "목록"
+    assert "목록 API 로 읽었습니다" in report.summary()
+    again = Report.from_json(work.read_json(reconcile.REPORT))
+    assert again.via == "목록" and again.notes == report.notes
+
+    class Exported(FakeReader):
+        via = "내보내기"
+        notice = "코어로 열리지 않은 타입(plm_model)이 있어 내보내기로 읽었습니다"
+
+    exported = Exported({"plm_model": SAME}, {"plm_model": "plm"})
+    report = compare(pipeline, work, exported, fake)
+    assert report.notes == [Exported.notice] and "코어로 열리지 않은" in report.summary()
+
+
+def test_다_코어로_열렸으면_코어_API_를_커서로_읽는다(monkeypatch: Any) -> None:
+    fake = _Sp(core=("plm_model", "plm_task"))
+    reader = reconcile.best_reader(_sp(monkeypatch, fake), ["plm_model"])
+    assert reader.via == "코어" and reader.keyed  # type: ignore[attr-defined]
+    got = list(reader.objects("plm_model") or [])
+    # 지운 것은 빼고, 다음 쪽까지 — 참조는 식별자, 별칭은 견주지 않는다.
+    assert [one["key"] for one in got] == ["M1", "M2"]
+    assert got[1]["properties"] == {"task": "T-1"} and got[1]["status"] == "deprecated"
+    assert reader.objects("없는타입") is None
+    assert ("POST", "/api/bundles/export") not in fake.calls
+    assert not [one for one in fake.calls if one[1].startswith("/api/objects/")]
+
+
+def test_일부만_코어면_내보내기로_둘_다_안_되면_목록으로_까닭을_짧게(monkeypatch: Any) -> None:
+    fake = _Sp(core=("plm_task",))
+    reader = reconcile.best_reader(_sp(monkeypatch, fake), ["plm_model", "plm_task"])
+    assert reader.via == "내보내기"  # type: ignore[attr-defined]
+    # 코어로 열기로 하고 하나를 빠뜨렸다 — 대조는 돌고, 빠진 타입을 보고서가 말한다.
+    told = reader.notice  # type: ignore[attr-defined]
+    assert "코어로 열리지 않은 타입(plm_model)" in told and not reader.fallback  # type: ignore[attr-defined]
+
+    class Broken(_Sp):
+        def wait(self, *_a: Any, **_k: Any) -> Any:
+            from relay_core import sp
+
+            raise sp.pipeline.Stop("작업이 실패했습니다: OperationalError: …\n[SQL: SELECT …]")
+
+    reader = reconcile.best_reader(_sp(monkeypatch, Broken()), ["plm_model"])
+    said = reader.fallback  # type: ignore[attr-defined]
+    assert reader.via == "목록" and "코어로 열리지 않은 타입(plm_model)" in said  # type: ignore[attr-defined]
+    assert "OperationalError" in said and "SQL" not in said
+
+
+def test_코어가_주지_않는_칸은_확인_못_함으로_센다(tmp_path: Path) -> None:
+    pipeline, work, fake = _applied(tmp_path)
+
+    class Core(FakeReader):
+        via = "코어"
+        keyed = True
+        blind = frozenset({"label"})  # 시험에서는 이름을 못 보는 길로
+
+        def objects(self, type_slug: str) -> Any:
+            found = self.items.get(type_slug)
+            return None if found is None else iter(found)  # 흘려 준다
+
+    items = [{**one, "label": "다른 이름"} for one in SAME]
+    report = compare(pipeline, work, Core({"plm_model": items}, {"plm_model": "plm"}), fake)
+    assert report.drift == 0 and report.via == "코어"
+    assert report.types["plm_model"].unverified == 3

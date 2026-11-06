@@ -39,6 +39,18 @@ class Pending:
     at: str
     origin: str = "run"
     """그 계획이 어디서 왔나 — `run`(원천이 바뀜) · `reconcile`(대조의 보정 계획)."""
+    parts: list[str] = field(default_factory=list)
+    """나눠 보내면 조각 폴더들(`sends/<때>/parts/001` …, `relay_core.parts`) — 비면 `send`
+    하나다. `digest` 는 그때도 **전체** 묶음의 지문이다."""
+    part: int = 0
+    """지금 조각(0부터) — `job_id` 가 그 조각의 계획이고, 앞 조각들은 적용됐다. `job_id` 가
+    비면 그 조각은 아직 미리 보지 않았다(「적용」 이 미리 보고 잇는다)."""
+    folded: int = 0
+    """적용된 조각 중 기준(`applied_run`)에 이미 접어 넣은 수(`parts.fold`)."""
+
+    @property
+    def total(self) -> int:
+        return max(1, len(self.parts))
 
 
 @dataclass
@@ -52,9 +64,10 @@ class State:
     history: list[dict[str, Any]] = field(default_factory=list)
 
 
-#: 실행마다 생기는 이름 — `stamp()` 모양(보정 계획의 묶음은 `-resync` 가 붙는다). 정리는
+#: 실행마다 생기는 이름 — `stamp()` 모양(보정 계획의 묶음은 `-resync`, 조각을 접은 기준은
+#: `-partial` 이 붙는다 — 그 계획의 실행 시각 그대로). 정리는
 #: **이 모양만** 지운다 — 시험의 임시 폴더(`tmp…`)나 사람이 둔 파일은 건드리지 않는다.
-_RUN_NAME = re.compile(r"^(\d{8}T\d{12}Z)(-resync)?$")
+_RUN_NAME = re.compile(r"^(\d{8}T\d{12}Z)(-resync|-partial)?$")
 _SOURCE_NAME = re.compile(r"^(\d{8}T\d{12}Z)\.(source\.csv|recipe\.table\.json)$")
 #: 정리하는 곳 — (폴더, 이름 모양).
 _PRUNED = (("runs", _RUN_NAME), ("sends", _RUN_NAME), ("work", _SOURCE_NAME))
@@ -112,6 +125,13 @@ class Workdir:
         held = {state.applied_run}
         if state.pending:
             held |= {state.pending.run, state.pending.send}
+        # 원천 표(work/)는 실행 시각으로 — 조각을 접은 기준(`<때>-partial`)도 그 실행의
+        # 것을 쓴다.
+        stamps = {
+            matched.group(1)
+            for one in held
+            if one and (matched := _RUN_NAME.match(one.rsplit("/", 1)[-1]))
+        }
         removed: list[str] = []
         for folder, shape in _PRUNED:
             base = self.root / folder
@@ -133,7 +153,7 @@ class Workdir:
             for name, when in doomed:
                 relative = f"{folder}/{name}"
                 # 원천 표(work/)는 그 실행이 남으면 같이 남는다 — 기준이 무엇에서 나왔나.
-                if relative in held or (folder == "work" and f"runs/{when}" in held):
+                if relative in held or (folder == "work" and when in stamps):
                     continue
                 target = base / name
                 try:
@@ -161,4 +181,16 @@ class Workdir:
         return Mirror.from_rows(json.loads(file.read_text(encoding="utf-8")))
 
     def save_mirror(self, mirror: Mirror) -> None:
-        self._write("mirror.json", mirror.to_rows())
+        """**한 행씩 흘려 쓴다** — 미러 전체를 글 하나로 만들면(들여쓰기까지) 원천이 수십만
+        행일 때 그 글만 수백 MB 다. 모양은 같은 JSON 배열(행마다 한 줄)이다."""
+        target = self.root / "mirror.json"
+        scratch = target.with_suffix(".json.tmp")
+        with scratch.open("w", encoding="utf-8") as handle:
+            handle.write("[")
+            for index, one in enumerate(mirror.records()):
+                row: dict[str, Any] = {"key": one.key, "values": dict(one.values)}
+                row["updated_at"] = one.updated_at
+                handle.write(",\n" if index else "\n")
+                handle.write(json.dumps(row, ensure_ascii=False))
+            handle.write("\n]\n")
+        os.replace(scratch, target)

@@ -16,7 +16,15 @@ import type { ReactNode } from 'react'
 import { ExternalLink } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { countsLine, historyOf, isPlanJob, jobLink, stateOf, targetJobLink } from '@/modules/relay/api'
+import {
+  countsLine,
+  historyOf,
+  isPlanJob,
+  jobLink,
+  partsOf,
+  stateOf,
+  targetJobLink,
+} from '@/modules/relay/api'
 import type { HistoryEvent, PipelineDetail, RelayJob } from '@/modules/relay/api'
 import { StatusBadge } from '@/shared/components/StatusBadge'
 import {
@@ -32,6 +40,7 @@ import { shownDateTime } from '@/shared/lib/datetime'
 const EVENT_LABEL: Record<string, string> = {
   planned: '계획 생성',
   applied: '적용',
+  part_applied: '조각 적용',
   blocked: '멈춤',
   nothing: '보낼 것 없음',
   auto_skipped: '자동 적용 안 함',
@@ -90,6 +99,11 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
               {pending.origin === 'reconcile' && (
                 <span className="text-xs font-medium">보정 계획</span>
               )}
+              {partsOf(pending) > 1 && (
+                <span className="text-xs font-medium">
+                  조각 {(pending.part ?? 0) + 1}/{partsOf(pending)}
+                </span>
+              )}
               <span className="text-muted-foreground text-xs">{shownDateTime(pending.at)}</span>
               {detail.target_server && pending.job_id && (
                 <a
@@ -106,7 +120,9 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
             {pending.summary && <p className="text-xs whitespace-pre-line">{pending.summary}</p>}
             {!pending.ok && (
               <p className="text-destructive text-xs">
-                계획에 오류가 있어 적용할 수 없습니다 — 원인을 해결한 뒤 다시 실행하세요.
+                {(pending.part ?? 0) > 0
+                  ? `조각 ${(pending.part ?? 0) + 1} 의 미리 보기에 오류가 있습니다 — 앞 조각 ${pending.part}개는 적용됐습니다. 원인을 해결한 뒤 「적용」 하면 이 조각부터 다시 보냅니다.`
+                  : '계획에 오류가 있어 적용할 수 없습니다 — 원인을 해결한 뒤 다시 실행하세요.'}
               </p>
             )}
           </div>

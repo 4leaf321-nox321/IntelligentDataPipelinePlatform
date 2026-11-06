@@ -253,7 +253,9 @@ def build_map(db: Session) -> RelayMap:
                 "watermark": (state or {}).get("watermark"),
                 "pending_job": pending.get("job_id"),
                 "pending_link": (
-                    f"{found.target_server}/jobs?job={pending['job_id']}" if pending else ""
+                    f"{found.target_server}/jobs?job={pending['job_id']}"
+                    if pending.get("job_id")
+                    else ""
                 ),
                 "problems": found.problems,
                 "counts": counts,

@@ -287,7 +287,8 @@ def trace(work: Workdir, recipe_now: Recipe, type_slug: str, key: str) -> Trace:
     state = work.load_state()
     run = work.path(state.applied_run) if state.applied_run else None
     out.run, out.applied_at = state.applied_run or "", state.applied_at or ""
-    stamp = run.name if run else ""
+    # 조각을 접은 기준(`<때>-partial`)은 그 실행의 레시피 · 원천 표를 쓴다.
+    stamp = run.name.removesuffix("-partial") if run else ""
 
     types = _types(_recipe(work, stamp, recipe_now, out))
     spec = types.get(type_slug)

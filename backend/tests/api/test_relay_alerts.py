@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import itertools
+import math
 import uuid
 from typing import Any
 
@@ -22,32 +24,44 @@ from tests.api.test_relay import _definition, _slug
 from tests.api.test_relay_reconcile import _baseline, _Submitter
 from tests.unit.test_relay_reconcile import SAME, FakeReader
 
+#: 알림이 생긴 차례 — `_timer` 가 작업마다 매긴다. 알림의 `created_at` 은 DB 의 벽시계라,
+#: 시계가 뒤로 뛰면(WSL2 가 호스트와 시각을 맞출 때 — 2026-11-06 에 몇 분 사이 세 번) 그것으로
+#: 세운 순서가 돌아간다([1, 2, 3, 4] → [3, 4, 1, 2]).
+_ORDER: dict[uuid.UUID, int] = {}
+_STEP = itertools.count()
+
 
 def _timer(db: Session, kind: str, slug: str, **params: Any) -> None:
     from app.modules.jobs import services as job_services
+    from app.modules.notifications.models import Notification
 
     params = {"slug": slug, "by": "timer", **params}
     job = job_services.enqueue(db, kind=kind, params=params, user=None, workspace_id=None)
     db.commit()
     work_until(db, job.id)
+    step = next(_STEP)
+    for one in db.scalars(select(Notification.id)):
+        _ORDER.setdefault(one, step)
 
 
 def _bell(db: Session, email: str, slug: str) -> list[tuple[str, str]]:
-    """그 사람이 받은 **그 파이프라인의** 알림 — 큐에 남은 다른 시험의 작업도 이 워커가 돌려
-    모든 관리자에게 알리므로 파이프라인으로 거른다."""
+    """그 사람이 받은 **그 파이프라인의** 알림을 생긴 차례로 — 큐에 남은 다른 시험의 작업도
+    이 워커가 돌려 모든 관리자에게 알리므로 파이프라인으로 거른다."""
     from app.modules.accounts.models import User
     from app.modules.notifications.models import Notification
 
     db.expire_all()
     user_id = db.scalar(select(User.id).where(User.email == email))
-    rows = db.scalars(
-        select(Notification)
-        .where(
-            Notification.user_id == user_id,
-            Notification.link == f"/relay/pipelines/{slug}",
+    rows = list(
+        db.scalars(
+            select(Notification).where(
+                Notification.user_id == user_id,
+                Notification.link == f"/relay/pipelines/{slug}",
+            )
         )
-        .order_by(Notification.created_at)
     )
+    # `_timer` 를 거치지 않은 알림(사람이 시킨 작업)은 뒤에, 그것끼리는 시각으로.
+    rows.sort(key=lambda one: (_ORDER.get(one.id, math.inf), one.created_at))
     return [(one.kind, one.title) for one in rows]
 
 
@@ -134,7 +148,7 @@ def test_대조가_어긋나면_한_번_보정을_적용해_같아지면_한_번
     monkeypatch.setenv("RELAY_T_TOKEN", "x")
     _baseline(tmp_path, slug)
     readers: list[FakeReader] = [_Down({}, {})]
-    monkeypatch.setattr(reconcile, "TargetReader", lambda _target: readers[0])
+    monkeypatch.setattr(reconcile, "best_reader", lambda _target, _slugs: readers[0])
     monkeypatch.setattr(reconcile, "Submitter", _Submitter)
     monkeypatch.setattr(runner, "Submitter", _Submitter)
 

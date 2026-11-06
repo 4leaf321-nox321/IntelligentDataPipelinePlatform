@@ -48,6 +48,17 @@ export interface PendingPlan {
   at: string
   /** 그 계획이 어디서 왔나 — `run`(원천이 바뀜) · `reconcile`(대조의 보정 계획). 옛 상태에는 없다. */
   origin?: string
+  /**
+   * 나눠 보내면 조각 폴더들 — 비면 한 묶음이다. `part` 는 지금 조각(0부터)이고 앞 조각들은 적용됐다.
+   * `job_id` 가 비면 그 조각은 아직 미리 보지 않았다(「적용」 이 미리 보고 잇는다).
+   */
+  parts?: string[]
+  part?: number
+}
+
+/** 나눠 보내는 계획의 조각 수 — 한 묶음이면 1. */
+export function partsOf(pending: PendingPlan): number {
+  return Math.max(1, pending.parts?.length ?? 0)
 }
 
 export interface PipelineState {
@@ -62,8 +73,8 @@ export interface PipelineState {
 export type RunCounts = Record<string, Record<string, Record<string, number>>>
 
 /**
- * 이력 한 줄 — 새것이 먼저 온다. `event` 는 planned · applied · blocked · nothing · auto_skipped ·
- * reconciled. 자동 적용이 적용했으면 `applied` 에 `by: "auto"` 가 붙고(사람의 적용에는 없다), 타이머의
+ * 이력 한 줄 — 새것이 먼저 온다. `event` 는 planned · applied · part_applied(나눠 보내는 계획의 한
+ * 조각) · blocked · nothing · auto_skipped · reconciled. 자동 적용이 적용했으면 `applied` 에 `by: "auto"` 가 붙고(사람의 적용에는 없다), 타이머의
  * 실행이 기준을 못 넘어 계획이 사람을 기다리면 `auto_skipped` 가 그 까닭(`reasons`)을 싣는다.
  * 대조는 `reconciled` 에 어긋남 수(`drift`)와 한 줄(`summary`)을, 대조의 보정 계획은 `planned` 에
  * `origin: "reconcile"` 을 싣는다.
@@ -80,6 +91,9 @@ export interface HistoryEvent {
   origin?: string
   drift?: number
   summary?: string
+  /** 나눠 보내는 계획 — `part_applied` · `blocked` 는 그 조각 번호(1부터), `planned` · `applied` 는 조각 수. */
+  part?: number
+  parts?: number
 }
 
 /** 지도의 파이프라인 마디가 싣는 것(`services.build_map`). */
@@ -149,6 +163,10 @@ export type ReconcileReport = {
   summary: string
   /** 대조하지 못한 까닭 — 있으면 보정 계획이 멈춘다. */
   problems: string[]
+  /** 대상을 어떻게 읽었나 — `코어`(코어 API) · `내보내기`(묶음 내보내기 한 번) · `목록`(쪽마다). 옛 보고서에는 없다. */
+  via?: string
+  /** 대조는 됐지만 알릴 것 — 내보내기를 못 써 목록으로 읽은 까닭. `summary` 에도 붙는다. */
+  notes?: string[]
   types: Record<string, ReconcileType>
 }
 

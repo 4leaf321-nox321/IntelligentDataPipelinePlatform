@@ -33,6 +33,14 @@ def _modules() -> tuple[Any, Any]:
 
 pipeline, table = _modules()
 
+#: 대상 SP 의 작업이 「대기」 로 이만큼 이어져야 「워커가 꺼졌다」 고 멈춘다(초). 틀의 도구는
+#: 120초다 — 사람이 손으로 돌릴 때 맞춘 값이다. 대상 SP 의 워커는 자기 일도 한다: 큰 첫 적재가
+#: 들어가면 그래프 지도를 처음부터 그린다(13.7만 객체에 56초, 2026-11-06 실측 — 100만이면 몇
+#: 분). 나눠 보내면 다음 조각의 미리 보기가 그 뒤에 줄을 선다. 중계는 사람 없이 기다리는
+#: 작업이라 넉넉히 둔다. **틀의 파일은 고치지 않고** 그 값만 바꾼다.
+QUEUED_LIMIT_SECONDS = 1800.0
+pipeline.QUEUED_LIMIT_SECONDS = max(float(pipeline.QUEUED_LIMIT_SECONDS), QUEUED_LIMIT_SECONDS)
+
 
 def version() -> dict[str, str]:
     """고정한 판 — `VERSION` 의 `키=값` 줄들."""

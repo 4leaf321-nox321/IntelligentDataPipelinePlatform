@@ -146,8 +146,10 @@ def test_한_행의_객체는_참조_칸의_출처와_관계의_양쪽을_보인
 def test_마지막_대조의_상태를_함께_말한다(applied: tuple[Workdir, Path]) -> None:
     work, recipe = applied
     assert trace(work, recipe, "plm_model", "M1").reconcile is None  # 아직 대조 안 함
-    report = {
-        "at": "2026-11-06T03:00:00Z",
+    # 시험의 적용은 지금 시각에 일어난다 — 대조 시각을 날짜로 박으면 그 시각이 지나 「적용
+    # 전의 대조」(stale)가 된다(2026-11-06 03:00Z 에 실제로 깨졌다). 늘 뒤 · 늘 앞인 시각으로.
+    report: dict[str, Any] = {
+        "at": "2999-01-01T00:00:00Z",
         "types": {
             "plm_model": {
                 "missing": ["M3"],
@@ -160,12 +162,14 @@ def test_마지막_대조의_상태를_함께_말한다(applied: tuple[Workdir, 
     work.write_json("reconcile.json", report)
     assert trace(work, recipe, "plm_model", "M2").reconcile == {
         "state": "changed",
-        "at": "2026-11-06T03:00:00Z",
+        "at": "2999-01-01T00:00:00Z",
         "fields": ["label"],
         "stale": False,
     }
     assert trace(work, recipe, "plm_model", "M3").reconcile["state"] == "missing"  # type: ignore[index]
     assert trace(work, recipe, "plm_model", "M1").reconcile["state"] == "same"  # type: ignore[index]
+    work.write_json("reconcile.json", {**report, "at": "2000-01-01T00:00:00Z"})
+    assert trace(work, recipe, "plm_model", "M1").reconcile["stale"] is True  # type: ignore[index]
 
 
 def test_기준_뒤에_레시피가_바뀌어도_기준의_규칙으로_읽는다(

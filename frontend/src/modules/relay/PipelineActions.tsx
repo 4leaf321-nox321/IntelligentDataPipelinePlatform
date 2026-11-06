@@ -13,7 +13,7 @@ import { useState } from 'react'
 import { Loader2, Play, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
-import { jobLink, relayApi, stateOf } from '@/modules/relay/api'
+import { jobLink, partsOf, relayApi, stateOf } from '@/modules/relay/api'
 import type { PipelineDetail, QueuedOut } from '@/modules/relay/api'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert'
@@ -45,7 +45,9 @@ export function PipelineActions({
   const [queued, setQueued] = useState<(QueuedOut & { what: string }) | null>(null)
   const [failed, setFailed] = useState<Error | null>(null)
   const pending = stateOf(detail).pending
-  const canApply = Boolean(pending?.ok)
+  // 나눠 보내다 뒤 조각에서 멈춘 계획은 「적용」 이 그 조각부터 다시 미리 본다.
+  const resumes = Boolean(pending && !pending.ok && (pending.part ?? 0) > 0)
+  const canApply = Boolean(pending?.ok) || resumes
 
   if (detail.draft) {
     return (
@@ -103,9 +105,13 @@ export function PipelineActions({
       </div>
       <p className="text-muted-foreground text-xs">
         실행은 대상 SP 에 계획만 생성합니다 — 아무것도 들어가지 않습니다.{' '}
-        {canApply
-          ? '대상 SP 에서 계획을 읽고 「적용」 을 클릭하면 들어갑니다.'
-          : pending
+        {resumes
+          ? '앞 조각은 적용됐고 한 조각의 미리 보기에서 멈췄습니다 — 원인을 해결한 뒤 「적용」 하면 그 조각부터 다시 보냅니다.'
+          : canApply
+            ? pending && partsOf(pending) > 1
+              ? `나눠 보내는 계획입니다(조각 ${partsOf(pending)}개) — 대상 SP 에서 첫 조각의 계획을 읽고 「적용」 을 클릭하면 조각마다 차례로 미리 보고 들어갑니다.`
+              : '대상 SP 에서 계획을 읽고 「적용」 을 클릭하면 들어갑니다.'
+            : pending
             ? '지금 계획에는 오류가 있어 적용할 수 없습니다 — 원인을 해결한 뒤 다시 실행하세요.'
             : '적용을 기다리는 계획이 없습니다.'}
         {overwrite && ' 덮기를 선택하면 대상에서 사람이 수정한 칸도 원천 값으로 바뀝니다(계획에 적힙니다).'}
