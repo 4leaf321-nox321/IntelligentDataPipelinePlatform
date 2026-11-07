@@ -28,12 +28,11 @@ from app.modules.relay.models import RelayRecipe
 from app.shared import audit
 from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
 from relay_core import sp
-from relay_core.convert import convert
+from relay_core.convert import Source, convert
 from relay_core.describe import Described, lineage
 from relay_core.diff import delta
-from relay_core.mirror import Mirror
 from relay_core.runner import counts_of
-from relay_core.state import Workdir
+from relay_core.state import MirrorFile, Workdir
 
 #: 시험이 돌려줄 보고서의 길이 — MCP 응답이 끝없이 커지지 않게.
 REPORT_MAX = 20_000
@@ -235,7 +234,7 @@ def materialize(db: Session, slug: str) -> Path | None:
 
 
 def dry_run(
-    mirror: Mirror, body: dict[str, Any], work: Workdir, source: str, *, compare: bool = True
+    mirror: Source, body: dict[str, Any], work: Workdir, source: str, *, compare: bool = True
 ) -> dict[str, Any]:
     """`mirror` 를 레시피 `body` 로 바꿔 보고 지난번 적용된 출력과 견준다 — **아무것도 안
     보낸다.** 레시피 시험 · 정의 초안 시험이 같이 쓴다."""
@@ -258,10 +257,11 @@ def dry_run(
             if unresolved_file.exists()
             else []
         )
-        loaded = sp.pipeline.load(made.run)
         rows: dict[str, int] = {}
-        for batch in loaded.objects:
-            rows[batch.type_slug] = rows.get(batch.type_slug, 0) + len(batch.rows)
+        for file in sorted((made.run / sp.pipeline.OBJECTS_DIR).glob("*.json")):
+            batch = json.loads(file.read_text(encoding="utf-8"))  # 파일 하나씩(5,000줄)
+            slug = str(batch.get("type_slug") or file.stem)
+            rows[slug] = rows.get(slug, 0) + len(batch.get("rows") or [])
         out: dict[str, Any] = {
             "clean": made.clean,
             "rows": rows,
@@ -285,7 +285,7 @@ def trial(db: Session, found: Described, version: int) -> dict[str, Any]:
     """미러에 그 판을 돌려 본다 — **대상에 아무것도 안 보낸다.**"""
     row = get(db, found.slug, version)
     work = Workdir(get_settings().relay_work_dir, found.slug)
-    mirror = work.load_mirror()
+    mirror = MirrorFile(work, work.mirror_size())  # 파일에서 흘려 쓴다 — 메모리에 들지 않는다
     if len(mirror) == 0:
         hint = (
             "정의가 아직 초안이라 받은 것이 없습니다 — 정의 시험(pipeline_test)에 "

@@ -19,12 +19,15 @@ import json
 import os
 import re
 import shutil
+from collections.abc import Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from relay_core.mirror import Mirror
+from relay_core.adapters.base import Fetched
+from relay_core.mirror import Applied, Merge, Mirror, write_csv
+from relay_core.records import SourceRecord
 
 
 @dataclass
@@ -68,7 +71,11 @@ class State:
 #: `-partial` 이 붙는다 — 그 계획의 실행 시각 그대로). 정리는
 #: **이 모양만** 지운다 — 시험의 임시 폴더(`tmp…`)나 사람이 둔 파일은 건드리지 않는다.
 _RUN_NAME = re.compile(r"^(\d{8}T\d{12}Z)(-resync|-partial)?$")
-_SOURCE_NAME = re.compile(r"^(\d{8}T\d{12}Z)\.(source\.csv|recipe\.table\.json)$")
+#: 변환에 넣은 원천 표 · 레시피 사본, 나눠 변환 · 비교의 바구니(`<때>.spill` ·
+#: `<때>.send.spill` — 끝나면 지우지만 도중에 죽으면 남는다).
+_SOURCE_NAME = re.compile(
+    r"^(\d{8}T\d{12}Z)\.(source\.csv|recipe\.table\.json|spill|send\.spill)$"
+)
 #: 정리하는 곳 — (폴더, 이름 모양).
 _PRUNED = (("runs", _RUN_NAME), ("sends", _RUN_NAME), ("work", _SOURCE_NAME))
 
@@ -175,22 +182,96 @@ class Workdir:
         self._write(name, body)
 
     def load_mirror(self) -> Mirror:
+        """미러를 메모리로 — 화면 · 레시피 시험처럼 미러를 쥐고 쓸 때. 실행은 들지 않는다
+        (`merge_mirror` · `MirrorFile`)."""
+        return Mirror(self.mirror_rows())
+
+    def mirror_rows(self) -> Iterator[SourceRecord]:
+        """`mirror.json` 을 **한 행씩** 키 차례로. 한 줄에 한 행인 모양(`_write_mirror`)이
+        아니면(옛 판) 통째로 읽어 차례로 낸다."""
         file = self.root / "mirror.json"
         if not file.exists():
-            return Mirror()
-        return Mirror.from_rows(json.loads(file.read_text(encoding="utf-8")))
+            return
+        with file.open(encoding="utf-8") as handle:
+            if handle.readline().strip() == "[" and _line_shaped(handle.readline()):
+                handle.seek(0)
+                handle.readline()
+                for line in handle:
+                    text = line.strip()
+                    if not text or text == "]":
+                        continue
+                    yield _record(json.loads(text.rstrip(",")))
+                return
+        # 옛 판(0.2.2 까지)은 들여쓴 JSON 한 덩이였다 — 첫 줄은 같은 `[` 이고 둘째 줄이 `{` 다.
+        yield from Mirror.from_rows(json.loads(file.read_text(encoding="utf-8"))).records()
+
+    def mirror_size(self) -> int:
+        """미러의 행 수 — 한 줄에 한 행인 모양이면 줄만 센다(읽어 풀지 않는다)."""
+        file = self.root / "mirror.json"
+        if not file.exists():
+            return 0
+        with file.open(encoding="utf-8") as handle:
+            if handle.readline().strip() == "[" and _line_shaped(handle.readline()):
+                handle.seek(0)
+                return sum(1 for line in handle if line.strip() not in ("", "[", "]"))
+        return sum(1 for _ in self.mirror_rows())
 
     def save_mirror(self, mirror: Mirror) -> None:
+        self._write_mirror(mirror.records())
+
+    def merge_mirror(self, fetched: Fetched) -> tuple[Applied, int]:
+        """받은 것을 미러 파일에 흘려 반영한다 — `Mirror.apply` 와 같은 규칙 · 같은 수.
+        메모리에는 받은 것만 든다. (반영한 수, 새 미러의 행 수)."""
+        merge = Merge(fetched)
+        self._write_mirror(merge.rows(self.mirror_rows()))
+        return merge.applied, merge.count
+
+    def _write_mirror(self, rows: Iterable[SourceRecord]) -> None:
         """**한 행씩 흘려 쓴다** — 미러 전체를 글 하나로 만들면(들여쓰기까지) 원천이 수십만
-        행일 때 그 글만 수백 MB 다. 모양은 같은 JSON 배열(행마다 한 줄)이다."""
+        행일 때 그 글만 수백 MB 다. 모양은 같은 JSON 배열(행마다 한 줄)이다. 임시 파일에 다
+        쓴 뒤 바꿔 끼운다 — 읽던 옛 파일은 그때까지 그대로다."""
         target = self.root / "mirror.json"
+        target.parent.mkdir(parents=True, exist_ok=True)
         scratch = target.with_suffix(".json.tmp")
         with scratch.open("w", encoding="utf-8") as handle:
             handle.write("[")
-            for index, one in enumerate(mirror.records()):
+            for index, one in enumerate(rows):
                 row: dict[str, Any] = {"key": one.key, "values": dict(one.values)}
                 row["updated_at"] = one.updated_at
                 handle.write(",\n" if index else "\n")
                 handle.write(json.dumps(row, ensure_ascii=False))
             handle.write("\n]\n")
         os.replace(scratch, target)
+
+
+def _line_shaped(line: str) -> bool:
+    """한 줄에 한 행인 미러의 둘째 줄인가 — 행 하나(`{"key": …}`)이거나 빈 미러의 `]`."""
+    text = line.strip().rstrip(",")
+    if text == "]":
+        return True
+    try:
+        return isinstance(json.loads(text), dict)
+    except ValueError:
+        return False
+
+
+def _record(row: dict[str, Any]) -> SourceRecord:
+    return SourceRecord(
+        key=str(row["key"]),
+        values={str(k): str(v) for k, v in dict(row.get("values") or {}).items()},
+        updated_at=row.get("updated_at"),
+    )
+
+
+@dataclass
+class MirrorFile:
+    """파일에 있는 미러 — 메모리에 들지 않고 원천 표를 쓴다(`convert.write_source`)."""
+
+    work: Workdir
+    size: int
+
+    def __len__(self) -> int:
+        return self.size
+
+    def write_csv(self, path: Path) -> Path:
+        return write_csv(self.work.mirror_rows, path)

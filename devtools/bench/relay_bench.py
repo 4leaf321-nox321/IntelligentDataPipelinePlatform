@@ -2,15 +2,16 @@
 
     cd backend && .venv/bin/python ../devtools/bench/relay_bench.py 200000
 
-첫 적재 → 적용 → 1% 증분 → 대조 → 값의 출처 → 정리를 단계마다 초 · 보내는 본문의 크기로
-찍고, 끝에 최대 메모리(RSS). **크기마다 새 프로세스로**(최대 메모리가 섞이지 않게). 대상 SP 는
-가짜(묶음 지문만)라 SP 의 처리 시간은 들지 않는다 — SP 는 「1만 객체에 44초」(그쪽 실측).
-원천 · 대상 · 작업 폴더는 임시 폴더에만 쓰고 끝나면 지운다(`KEEP=1` 이면 남긴다 — 20만 행이면
-수백 MB). 결과는 docs/개발계획.md 「대용량 시험」.
+첫 적재 → 적용 → 1% 증분 → 대조 → 값의 출처 → 정리를 단계마다 초 · **그 단계의** 최대
+메모리(`VmHWM` 를 단계마다 되돌린다) · 보내는 본문의 크기로 찍는다. **크기마다 새
+프로세스로**. 대상 SP 는 가짜(묶음 지문만)라 SP 의 처리 시간은 들지 않는다 — SP 쪽은
+`sp_bench.sh`. 원천 · 대상 · 작업 폴더는 임시 폴더에만 쓰고 끝나면 지운다(`KEEP=1` 이면
+남긴다 — 20만 행이면 수백 MB). 결과는 docs/개발계획.md 「대용량 시험」.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import resource
@@ -129,9 +130,25 @@ class Reader:
         return {slug: "plm" for slug in self.items}
 
 
+def _reset() -> None:
+    """최대 RSS(`VmHWM`)를 지금 값으로 되돌린다 — 단계마다 **그 단계의** 최대를 잰다(리눅스).
+    잰 값에는 앞 단계가 남긴 것(파이썬이 돌려주지 않은 메모리)이 든다 — 그 단계의 위 끝이다."""
+    with contextlib.suppress(OSError):
+        Path("/proc/self/clear_refs").write_text("5")
+
+
+def _peak() -> int:
+    for line in Path("/proc/self/status").read_text().splitlines():
+        if line.startswith("VmHWM:"):
+            return int(line.split()[1]) // 1024
+    return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024)
+
+
 def step(name: str, started: float, extra: str = "") -> float:
+    """단계 하나의 시간 · 최대 메모리. 시험 틀의 몫(보낸 본문의 크기 재기, 대조의 가짜 대상)은
+    단계 밖에서 하고 `_reset` 한다."""
     now = time.perf_counter()
-    print(f"  {name:<22} {now - started:7.2f}초 {extra}", flush=True)
+    print(f"  {name:<22} {now - started:7.2f}초 · 최대 {_peak():,}MB  {extra}", flush=True)
     return now
 
 
@@ -157,34 +174,45 @@ def main(n: int) -> None:
     fake: Any = FakeSubmitter()
     print(f"N = {n:,} 행 (과제 {n // 3:,} · 프로젝트 {n // 30:,} · 시험소 10) — {root}")
 
-    t = time.perf_counter()
     adapter.next = Fetched(records=rows(n), watermark="w1", complete=True, full=True)
+    _reset()  # 받은 행(어댑터가 내는 목록)은 실행의 몫이다 — 진짜 어댑터도 목록으로 낸다
+    t = time.perf_counter()
     first = runner.run(pipeline, work, fake)
+    t = step("첫 적재(실행)", t, first.status)
     size, cut = sent(work)
-    t = step("첫 적재(실행)", t, f"{first.status} · 본문 {size / 1e6:.1f}MB · 조각 {cut}개")
+    print(f"    본문 {size / 1e6:.1f}MB · 조각 {cut}개", flush=True)
+    _reset()
+    t = time.perf_counter()
     runner.apply(pipeline, work, fake)
+    t = step("첫 적용", t)
 
     changed = [r for r in rows(n, 1) if r.values["MODEL_NAME"].endswith("v2")]
     adapter.next = Fetched(records=changed, watermark="w2", complete=True, full=False)
+    del changed
+    _reset()
     t = time.perf_counter()
     again = runner.run(pipeline, work, fake)
+    t = step("1% 증분(실행)", t, again.status)
     size, _ = sent(work)
-    t = step("1% 증분(실행)", t, f"{again.status} · 본문 {size / 1e6:.2f}MB")
+    print(f"    본문 {size / 1e6:.2f}MB", flush=True)
     runner.apply(pipeline, work, fake)
 
     recipe = json.loads(RECIPE.read_text(encoding="utf-8"))
     items = target_items(work.path(work.load_state().applied_run or ""), recipe)
+    _reset()  # 가짜 대상이 대상 객체를 다 들고 있다 — 대조의 최대에 그 몫이 든다
     t = time.perf_counter()
     report = reconcile.compare(pipeline, work, reader=Reader(items))
     t = step("대조", t, report.summary()[:60])
+    del items
+    _reset()
+    t = time.perf_counter()
     for type_slug, key in (("plm_task", "T-000001"), ("plm_model", f"M-{n - 1:07d}")):
         got = trace.trace(work, RECIPE, type_slug, key)
         found = "있음" if got.found else "없음"
         t = step(f"값의 출처({type_slug})", t, f"원천 {got.rows_total}행 · 기준에 {found}")
     t = step("정리", t, f"{len(work.prune(10))}개")
     mirror = work.path("mirror.json").stat().st_size
-    peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
-    print(f"  미러 파일 {mirror / 1e6:.1f}MB · 최대 메모리 {peak:,.0f}MB", flush=True)
+    print(f"  미러 파일 {mirror / 1e6:.1f}MB", flush=True)
     if not os.environ.get("KEEP"):
         shutil.rmtree(root)
 

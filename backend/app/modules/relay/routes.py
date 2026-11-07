@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import itertools
 import json
 from typing import Any
 
@@ -270,13 +271,14 @@ def source_sample(
     """미러(마지막으로 받은 원천)의 앞 몇 줄 — 레시피가 읽는 **평평한 열** 그대로. 원천에 다시
     묻지 않는다(실행이 받아 둔 것)."""
     found = services.by_slug(slug, db)
-    mirror = Workdir(get_settings().relay_work_dir, slug).load_mirror()
-    rows = mirror.records()
+    work = Workdir(get_settings().relay_work_dir, slug)
+    # 미러를 다 읽지 않는다 — 원천이 수십만 행이면 표본 한 번에 GB 다.
+    rows = list(itertools.islice(work.mirror_rows(), limit))
     return {
         "columns": list(found.columns),
         "column_paths": found.columns,
-        "total": len(rows),
-        "rows": [{"key": one.key, **dict(one.values)} for one in rows[:limit]],
+        "total": work.mirror_size(),
+        "rows": [{"key": one.key, **dict(one.values)} for one in rows],
         "note": ""
         if rows
         else "아직 받은 것이 없습니다 — 먼저 「지금 실행」 으로 원천을 받으세요.",

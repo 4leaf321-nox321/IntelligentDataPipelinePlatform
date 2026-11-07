@@ -249,9 +249,10 @@ class ExportReader:
     시스템 관리자 토큰이어야 하고, 타입이 사이드바 묶음에 들어야 한다.
 
     내보내기를 못 쓰면(권한 · 묶음 밖 타입 · 결과 크기 상한 · 옛 SP) `fallback` 에 까닭을 적고
-    목록 API(`TargetReader`)로 읽는다 — 대조가 멈추지는 않는다. **SP 의 내보내기는 객체가 6.5만
-    개를 넘는 묶음에서 실패한다**(선을 고르는 질의에 id 를 다 넣어 매개변수 한도를 넘는다 —
-    2026-11-06, SP v0.4.73). 그때도 목록으로 읽는다."""
+    목록 API(`TargetReader`)로 읽는다 — 대조가 멈추지는 않는다. SP v0.4.73 까지는 객체 32,768개
+    부터 실패했고(매개변수 한도), v0.4.74 부터는 **한 봉투에 객체 + 선 50만 줄**을 넘으면 읽기
+    전에 409(`APP-BUNDLES-0034`)로 거절한다 — 그 글(큰 타입)이 `fallback` 에 실린다. 큰 대상은
+    코어로 열어 `CoreReader` 로 읽는다."""
 
     def __init__(self, target: Target, slugs: Iterable[str]) -> None:
         self.lister = TargetReader(target)

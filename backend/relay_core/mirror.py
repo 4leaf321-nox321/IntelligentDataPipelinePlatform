@@ -1,18 +1,19 @@
 """미러 — 원천 키마다 **최신 행** 하나.
 
 레시피(`sp-table/1`)는 여러 원천 행을 객체 하나로 모은다(과제 하나가 모델 행 수십 개에 걸쳐
-나온다). 그래서 바뀐 행만 변환하면 모은 값이 일부만 남는다 — **늘 미러 전체를 다시 변환하고**,
-줄이는 일은 변환이 끝난 출력끼리의 비교(`diff`)가 한다. 변환은 같은 입력이면 같은 결과라 비교가
-맞는다.
+나온다). 그래서 바뀐 행만 변환하면 모은 값이 일부만 남는다 — **늘 미러 전체를 다시 변환하고**
+(식별자로 나눠서 — `relay_core.table`), 줄이는 일은 변환이 끝난 출력끼리의 비교(`diff`)가 한다.
+변환은 같은 입력이면 같은 결과라 비교가 맞는다.
 
-여기는 메모리의 모양만 안다. 어디에 저장할지(DB · 파일)는 부르는 쪽이 정한다(`to_rows` ·
-`from_rows`).
+여기는 모양 · 규칙만 안다. 어디에 저장할지(DB · 파일)는 부르는 쪽이 정한다(`to_rows` ·
+`from_rows`). 실행은 미러를 메모리에 들지 않는다 — 파일의 키 차례 행과 받은 것을 이어 새 파일을
+쓴다(`Merge` · `Workdir.merge_mirror`). 규칙 · 셈은 `Mirror.apply` 와 같다.
 """
 
 from __future__ import annotations
 
 import csv
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -78,14 +79,7 @@ class Mirror:
 
     def write_csv(self, path: Path) -> Path:
         """`sp_table` 이 읽는 표 — BOM 붙은 UTF-8(그 도구가 먼저 시도하는 인코딩)."""
-        columns = self.columns()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w", encoding="utf-8-sig", newline="") as handle:
-            writer = csv.writer(handle)
-            writer.writerow(columns)
-            for one in self.records():
-                writer.writerow([one.values.get(column, "") for column in columns])
-        return path
+        return write_csv(self.records, path)
 
     def to_rows(self) -> list[dict[str, Any]]:
         return [
@@ -103,3 +97,94 @@ class Mirror:
             )
             for row in rows
         )
+
+
+def write_csv(rows: Callable[[], Iterable[SourceRecord]], path: Path) -> Path:
+    """키 차례의 행 → `sp_table` 이 읽는 표. 열은 나온 차례대로 모든 열이라 **두 번 읽는다**
+    (`rows()` 가 부를 때마다 처음부터 낸다 — 파일의 미러도 그렇게 흘려 쓴다)."""
+    seen: dict[str, None] = {}
+    for one in rows():
+        for column in one.values:
+            seen.setdefault(column, None)
+    columns = list(seen)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(columns)
+        for one in rows():
+            writer.writerow([one.values.get(column, "") for column in columns])
+    return path
+
+
+class Merge:
+    """`Mirror.apply` 를 **흘려서** — 키 차례의 옛 행과 받은 것을 이어 키 차례의 새 행을 낸다.
+    받은 것만 메모리에 든다(증분이면 몇 건). 같은 키가 여러 번 오면 온 차례대로 하나씩 반영한다
+    — `apply` 처럼. 수(`applied` · `count`)는 `rows` 를 끝까지 돈 뒤에 맞다."""
+
+    def __init__(self, fetched: Fetched) -> None:
+        self._full = fetched.full and fetched.complete
+        self._incoming: dict[str, list[SourceRecord]] = {}
+        for one in fetched.records:
+            self._incoming.setdefault(one.key, []).append(one)
+        self.added = self.changed = self.unchanged = self.removed = 0
+        self.count = 0
+        """새 미러의 행 수."""
+
+    @property
+    def applied(self) -> Applied:
+        return Applied(
+            added=self.added,
+            changed=self.changed,
+            unchanged=self.unchanged,
+            removed=self.removed,
+        )
+
+    def _settle(self, before: SourceRecord | None, key: str) -> SourceRecord | None:
+        for one in self._incoming[key]:
+            if one.deleted:
+                if before is not None:
+                    self.removed += 1
+                    before = None
+                continue
+            if before is None:
+                self.added += 1
+            elif dict(before.values) != dict(one.values):
+                self.changed += 1
+            else:
+                self.unchanged += 1
+            before = one
+        return before
+
+    def rows(self, existing: Iterable[SourceRecord]) -> Iterator[SourceRecord]:
+        """`existing` 는 키 차례(파일의 미러) — 어긋나면 멈춘다(이어 쓴 미러가 틀어진다)."""
+        waiting = sorted(self._incoming)
+        at = 0
+        last: str | None = None
+        for old in existing:
+            if last is not None and old.key <= last:
+                raise ValueError(f"미러의 차례가 어긋났습니다({last!r} 뒤에 {old.key!r})")
+            last = old.key
+            while at < len(waiting) and waiting[at] < old.key:
+                new = self._settle(None, waiting[at])
+                at += 1
+                if new is not None:
+                    self.count += 1
+                    yield new
+            if at < len(waiting) and waiting[at] == old.key:
+                new = self._settle(old, old.key)
+                at += 1
+                if new is not None:
+                    self.count += 1
+                    yield new
+                continue
+            if self._full:
+                self.removed += 1  # 전량을 끝까지 받았는데 안 왔다 — 부재 대조
+                continue
+            self.count += 1
+            yield old
+        while at < len(waiting):
+            new = self._settle(None, waiting[at])
+            at += 1
+            if new is not None:
+                self.count += 1
+                yield new
