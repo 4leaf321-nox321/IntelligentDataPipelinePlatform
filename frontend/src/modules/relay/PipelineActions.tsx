@@ -72,6 +72,7 @@ export function PipelineActions({
   onQueued: () => void
 }) {
   const [overwrite, setOverwrite] = useState(false)
+  const [full, setFull] = useState(false)
   const [busy, setBusy] = useState<'run' | 'apply' | null>(null)
   const [queued, setQueued] = useState<(QueuedOut & { what: string }) | null>(null)
   const [failed, setFailed] = useState<Error | null>(null)
@@ -106,7 +107,9 @@ export function PipelineActions({
     try {
       const made =
         what === 'run'
-          ? await relayApi.run(detail.slug, overwrite ? 'overwrite' : 'keep')
+          ? full
+            ? await relayApi.run(detail.slug, overwrite ? 'overwrite' : 'keep', false, true)
+            : await relayApi.run(detail.slug, overwrite ? 'overwrite' : 'keep')
           : await relayApi.apply(detail.slug)
       setQueued({ ...made, what: what === 'run' ? '실행' : '적용' })
       onQueued()
@@ -131,6 +134,10 @@ export function PipelineActions({
             onChange={(event) => setOverwrite(event.target.checked)}
           />
           사람이 수정한 칸도 {detail.system || '원천'} 값으로 덮기(overwrite)
+        </label>
+        <label className="flex items-center gap-1.5 text-sm" title="어댑터의 칸을 수정한 뒤 이미 지나간 행까지 다시 읽습니다 — 안 온 행은 삭제로 읽히고, 받기 점검이 대량 삭제를 막습니다.">
+          <input type="checkbox" checked={full} onChange={(event) => setFull(event.target.checked)} />
+          전량 다시 받기
         </label>
         <Button
           size="sm"

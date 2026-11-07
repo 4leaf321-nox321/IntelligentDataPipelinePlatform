@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   DefinitionTrial,
   DefinitionVersion,
+  InboxOut,
   PipelineDetail,
   RecipeTrial,
   RecipeVersion,
@@ -31,6 +32,23 @@ const relayApi = vi.hoisted(() => ({
   pipeline: vi.fn(),
   // 실행 추이 — 따로 정하지 않은 시험에서는 기록이 없다.
   trend: vi.fn((): Promise<TrendOut> => Promise.resolve({ rows: [], total: 0 })),
+  // 미해결 작업함 — 따로 정하지 않은 시험에서는 멈춘 실행이 없다.
+  unresolved: vi.fn(
+    (): Promise<InboxOut> =>
+      Promise.resolve({
+        run: '',
+        at: '',
+        note: '미해결로 멈춘 실행이 없습니다.',
+        recipe_label: '',
+        llm: false,
+        references: [],
+        splits: [],
+        problems: [],
+      }),
+  ),
+  suggest: vi.fn(),
+  draftAliases: vi.fn(),
+  aliasCsv: vi.fn(),
   run: vi.fn(),
   apply: vi.fn(),
   reconcile: vi.fn(),
@@ -1251,5 +1269,107 @@ describe('받기 점검 · 늦음 · 실행 추이', () => {
     expect(screen.getByText('받기 단계에서')).toBeInTheDocument()
     expect(screen.getAllByText('받기 점검 멈춤').length).toBeGreaterThan(0)
     expect(relayApi.trend).toHaveBeenCalledWith('plm-tasks')
+  })
+})
+
+describe('미해결 작업함', () => {
+  const INBOX: InboxOut = {
+    run: 'runs/20261107T010000000000Z',
+    at: '2026-11-07T01:00:00Z',
+    note: '',
+    recipe_label: '레시피 판 1',
+    llm: true,
+    problems: [],
+    references: [
+      {
+        target: 't_site',
+        text: '서울시험소',
+        places: ['plm_task.site', '관계 at.dst'],
+        columns: ['SITE'],
+        rows: 2,
+        more: false,
+        sample_rows: [3, 4],
+        in_dictionary: null,
+        candidates: [
+          { key: 'S-SEOUL', label: '서울 시험소', score: 1, why: '이름 — 띄어쓰기만 다름', by: '규칙' },
+          { key: 'S-SUWON', label: '수원 시험소', score: 0.5, why: '이름 — 비슷한 글자', by: '규칙' },
+        ],
+      },
+    ],
+    splits: [
+      { what: "plm_task 'T1' 의 칸 label", question: '같은 식별자인데 행마다 값이 다릅니다', options: ['가', '나'], rows: 2 },
+    ],
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    auth.admin = true
+    relayApi.pipeline.mockResolvedValue(detail())
+    relayApi.recipes.mockResolvedValue(VERSIONS)
+    relayApi.definitions.mockResolvedValue([])
+    relayApi.unresolved.mockResolvedValue({ ...INBOX, run: '', note: '미해결로 멈춘 실행이 없습니다.', references: [], splits: [] })
+  })
+
+  it('후보를 선택해 레시피 초안으로 저장하고, 레시피 판 목록을 새로 읽는다', async () => {
+    relayApi.unresolved.mockResolvedValue(INBOX)
+    relayApi.draftAliases.mockResolvedValue({ version: 3, problems: [] })
+    await mount()
+
+    const row = await screen.findByTestId('inbox-reference')
+    expect(within(row).getByText('서울시험소')).toBeInTheDocument()
+    expect(within(row).getByText(/2행/)).toBeInTheDocument()
+    const save = screen.getByRole('button', { name: /레시피 초안으로 저장\(0개\)/ })
+    expect(save).toBeDisabled()
+
+    await userEvent.click(within(row).getByRole('button', { name: /S-SEOUL/ }))
+    expect(within(row).getByLabelText('서울시험소 의 대상 키')).toHaveValue('S-SEOUL')
+    const recipesBefore = relayApi.recipes.mock.calls.length
+    await userEvent.click(screen.getByRole('button', { name: /레시피 초안으로 저장\(1개\)/ }))
+
+    await waitFor(() =>
+      expect(relayApi.draftAliases).toHaveBeenCalledWith('plm-tasks', [
+        { target: 't_site', text: '서울시험소', key: 'S-SEOUL' },
+      ]),
+    )
+    expect(await screen.findByText('레시피 판 3 초안을 저장했습니다')).toBeInTheDocument()
+    await waitFor(() => expect(relayApi.recipes.mock.calls.length).toBeGreaterThan(recipesBefore))
+    // 값 갈림은 고를 키가 없다 — 무엇을 수정할지만.
+    expect(screen.getByText(/값 갈림 1건/)).toBeInTheDocument()
+    expect(screen.getByText(/「가」 · 「나」/)).toBeInTheDocument()
+  })
+
+  it('GLM 제안은 설정했을 때만 — 고른 키를 채우고 까닭을 보인다', async () => {
+    relayApi.unresolved.mockResolvedValue(INBOX)
+    relayApi.suggest.mockResolvedValue({
+      key: 'S-SEOUL',
+      label: '서울 시험소',
+      confidence: 0.95,
+      reason: '이름이 같습니다',
+      note: '',
+    })
+    await mount()
+    const row = await screen.findByTestId('inbox-reference')
+    await userEvent.click(within(row).getByRole('button', { name: '서울시험소 GLM 제안' }))
+    await waitFor(() =>
+      expect(relayApi.suggest).toHaveBeenCalledWith('plm-tasks', 't_site', '서울시험소', 'SITE'),
+    )
+    expect(await within(row).findByText(/GLM: S-SEOUL 서울 시험소 \(확신 0.95\)/)).toBeInTheDocument()
+    expect(within(row).getByLabelText('서울시험소 의 대상 키')).toHaveValue('S-SEOUL')
+
+  })
+
+  it('멈춘 실행이 없으면 까닭과 별칭 요청 목록 다운로드만', async () => {
+    relayApi.aliasCsv.mockResolvedValue(undefined)
+    await mount()
+    expect(await screen.findByText('미해결로 멈춘 실행이 없습니다.')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /별칭 요청 목록 다운로드/ }))
+    expect(relayApi.aliasCsv).toHaveBeenCalledWith('plm-tasks')
+  })
+
+  it('관리자가 아니면 작업함을 읽지 않는다', async () => {
+    auth.admin = false
+    await mount()
+    expect(screen.queryByText('미해결 작업함')).not.toBeInTheDocument()
+    expect(relayApi.unresolved).not.toHaveBeenCalled()
   })
 })

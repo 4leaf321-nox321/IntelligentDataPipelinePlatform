@@ -238,6 +238,23 @@ class Settings(BaseSettings):
     relay_reconcile_at: str = "03:00"
     """대조를 넣는 시각(서버의 현지 시각, HH:MM) — 그날 이 시각 뒤 첫 차례에. 원천의 야간
     실행과 겹치지 않게 둔다."""
+    relay_llm_url: str = ""
+    """미해결 작업함의 **GLM 제안**(`relay_core.llm`) — OpenAI 호환 주소(`…/v1`). 운영은 사내
+    GLM, 개발은 Ollama(`http://127.0.0.1:11434/v1`). 비우면 끈다(후보는 규칙으로만). 원천
+    표기 · 대상의 키 · 이름이 이 주소로 나가므로 **사내 서빙 주소만** 적는다."""
+    relay_llm_model: str = ""
+    relay_llm_token: str = Field(default="", repr=False)
+    """그 주소의 토큰 — 없으면 비운다."""
+    relay_llm_min_confidence: float = 0.8
+    """GLM 이 이보다 확신이 낮으면 고르지 않는다(0 ~ 1)."""
+    relay_ca_file: Path | None = None
+    """**사내 사설 인증서(CA, PEM)** — 사내 CA 가 서명한 HTTPS 원천 · 대상에 닿게 한다
+    (`relay/network.py`). 공개 CA 묶음에 더해 쓴다. 컨테이너 안 경로(예: `/data/relay/
+    certs/corp-ca.pem`)."""
+    relay_proxy: str = ""
+    """바깥으로 나갈 때 거치는 프록시(`http://proxy.corp:8080`) — 비우면 바로 나간다."""
+    relay_no_proxy: str = "localhost,127.0.0.1"
+    """프록시를 거치지 않는 주소(쉼표) — 대상 SP 같은 사내 주소를 적는다."""
     relay_late_minutes: int = 180
     """**늦음** — 일정이 있는 파이프라인의 실행이 차례가 지나고 이만큼(분) 넘도록 끝나지 않으면
     시스템 관리자에게 알린다(`relay.alerts.watch_late`, 일정 타이머가 5분마다 본다). 작업
@@ -384,6 +401,8 @@ class Settings(BaseSettings):
             raise ValueError("RELAY_KEEP_RUNS 는 0(안 지움) 이상입니다.")
         if self.relay_late_minutes < 0:
             raise ValueError("RELAY_LATE_MINUTES 는 0(끔) 이상입니다.")
+        if not 0 < self.relay_llm_min_confidence <= 1:
+            raise ValueError("RELAY_LLM_MIN_CONFIDENCE 는 0 보다 크고 1 이하입니다.")
         return self
 
     @property

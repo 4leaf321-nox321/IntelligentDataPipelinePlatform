@@ -9,6 +9,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { sampleMap, withDraft } from '@/modules/relay/fixtures'
 
 const relayApi = vi.hoisted(() => ({ map: vi.fn() }))
+const auth = vi.hoisted(() => ({ admin: true }))
+vi.mock('@/shared/auth/AuthContext', () => ({
+  useAuth: () => ({ user: { id: 'u1', is_system_admin: auth.admin, memberships: [] } }),
+}))
 vi.mock('@/modules/relay/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/modules/relay/api')>()),
   relayApi,
@@ -34,7 +38,13 @@ const rowOf = (text: string) => screen.getByText(text).closest('tr')!
 describe('중계 표', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    auth.admin = true
     relayApi.map.mockResolvedValue(sampleMap())
+  })
+
+  it('파이프라인 — 시스템 관리자에게만 「새 연결」', async () => {
+    await show('PipelinesPage')
+    expect(await screen.findByRole('link', { name: /새 연결/ })).toHaveAttribute('href', '/relay/pipelines/new')
   })
 
   it('파이프라인 — 원천 · API · 대상 · 상태, 이름은 상세로', async () => {

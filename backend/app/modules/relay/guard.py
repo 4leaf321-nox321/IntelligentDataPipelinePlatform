@@ -77,12 +77,22 @@ class Fence:
     """사용 중인 정의가 쓰는 비밀의 이름 → 그 비밀이 실려 가는 (역할, host)."""
 
 
+def token_url(spec: dict[str, Any]) -> str:
+    """oauth2 의 토큰 주소 — client secret 이 실려 가는 또 하나의 곳."""
+    raw = spec.get("auth")
+    auth: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    return str(auth.get("token_url") or "") if auth.get("kind") == "oauth2" else ""
+
+
 def _uses(one: Described) -> list[tuple[str, str, str]]:
-    """그 정의가 비밀을 싣는 곳 — (이름, 역할, host)."""
+    """그 정의가 비밀을 싣는 곳 — (이름, 역할, host). oauth2 면 토큰 주소에도 실린다."""
     out: list[tuple[str, str, str]] = []
+    adapter = dict(one.body.get("adapter") or {})
     if one.endpoint.startswith(REMOTE):
-        adapter = dict(one.body.get("adapter") or {})
         out += [(name, SOURCE, host_of(one.endpoint)) for name in env_names(adapter)]
+    issuer = token_url(adapter)
+    if issuer.startswith(REMOTE):
+        out += [(name, SOURCE, host_of(issuer)) for name in env_names(adapter)]
     if one.target_token_env and one.target_server.startswith(REMOTE):
         out.append((one.target_token_env, TARGET, host_of(one.target_server)))
     return out
@@ -95,7 +105,8 @@ def fence(found: Iterable[Described]) -> Fence:
     for one in found:
         if one.draft:
             continue
-        for url in (one.endpoint, one.target_server):
+        issuer = token_url(dict(one.body.get("adapter") or {}))
+        for url in (one.endpoint, one.target_server, issuer):
             if url.startswith(REMOTE):
                 hosts.add(host_of(url))
         for name, role, host in _uses(one):
@@ -176,6 +187,12 @@ def check_source(kind: str, spec: dict[str, Any], fenced: Fence) -> None:
         check_url(url, fenced.hosts, "adapter", schemes)
         for name in env_names(spec):
             check_secret(name, SOURCE, url, fenced)
+    issuer = token_url(spec)
+    if issuer:
+        # client secret 은 토큰 주소로 간다 — 그 주소도 울타리 안, 비밀이 묶인 곳이어야 한다.
+        check_url(issuer, fenced.hosts, "adapter.auth.token_url")
+        for name in env_names(spec):
+            check_secret(name, SOURCE, issuer, fenced)
     elif kind == "file":
         check_file(str(spec.get("location") or ""))
 

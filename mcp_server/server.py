@@ -298,12 +298,14 @@ async def recipe_draft_discard(ctx: Context, slug: str, version: int) -> Any:
 
 
 @mcp.tool()
-async def pipeline_run(ctx: Context, slug: str) -> Any:
+async def pipeline_run(ctx: Context, slug: str, full: bool = False) -> Any:
     """원천을 받아 대상 SP 에 **미리 보기 계획**을 생성한다(작업). 적용하지 않는다 — 계획은
     사람이 대상 SP 화면이나 datarelay 화면에서 적용한다(자동 적용은 타이머의 실행에만).
     진행은 job_status 로. 결과가 「받기 점검에서 멈췄습니다」(대량 삭제 · 빈 칸)이면 원천 ·
-    어댑터를 살펴 사람에게 알린다 — 「확인 후 진행」 은 사람이 화면에서만 한다."""
-    return await _call(ctx, "POST", f"/relay/pipelines/{slug}/run", body={})
+    어댑터를 살펴 사람에게 알린다 — 「확인 후 진행」 은 사람이 화면에서만 한다. `full` 이면
+    워터마크를 두고 전량을 다시 받는다(어댑터의 칸을 고친 뒤 — 안 온 것은 삭제로 읽힌다)."""
+    body = {"full": True} if full else {}
+    return await _call(ctx, "POST", f"/relay/pipelines/{slug}/run", body=body)
 
 
 @mcp.tool()
@@ -331,6 +333,16 @@ async def pipeline_trace(ctx: Context, slug: str, type_slug: str, key: str) -> A
     대상에서 바뀐 것이면 보정 계획을. 읽기만 한다."""
     params = {"type_slug": type_slug, "key": key}
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/trace", params=params)
+
+
+@mcp.tool()
+async def pipeline_unresolved(ctx: Context, slug: str) -> Any:
+    """미해결 작업함 — 미해결로 멈춘 실행의 **참조**(대상에서 못 찾은 원천 표기 — 칸 · 행
+    수 · 대상의 후보)와 **값 갈림**(같은 식별자인데 행마다 값이 다름). 참조의 대응을
+    제안하려면 후보 안에서만 골라 레시피의 `relay_aliases` 에 더한 초안을 `recipe_draft_save`
+    로 저장한다(사용은 사람이 화면에서). 값 갈림은 레시피(모으는 칸)나 원천의 문제다. 읽기만
+    한다."""
+    return await _call(ctx, "GET", f"/relay/pipelines/{slug}/unresolved")
 
 
 @mcp.tool()

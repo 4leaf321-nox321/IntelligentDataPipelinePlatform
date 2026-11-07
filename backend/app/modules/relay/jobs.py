@@ -81,7 +81,13 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
     else:
         human = str(work.params.get("human_edits") or "")
         options = {"human_edits": human} if human in ("keep", "overwrite") else None
-        outcome = runner.run(pipeline, folder, options=options, accept=_accept(work))
+        outcome = runner.run(
+            pipeline,
+            folder,
+            options=options,
+            accept=_accept(work),
+            full=bool(work.params.get("full")),
+        )
         # **자동 적용은 타이머의 실행에만** — 사람의 「지금 실행」 · MCP 의 실행은 계획만
         # 올린다.
         if work.params.get("by") == "timer" and found.auto_apply is not None:

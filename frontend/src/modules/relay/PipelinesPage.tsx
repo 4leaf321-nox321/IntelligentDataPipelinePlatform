@@ -5,12 +5,16 @@
  */
 
 import { useMemo } from 'react'
+import { Plus } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { pipelineDetailOf, relayApi } from '@/modules/relay/api'
 import { DriftBadge } from '@/modules/relay/DriftBadge'
 import { buildGraph, pipelineRows } from '@/modules/relay/graph'
+import { useAuth } from '@/shared/auth/AuthContext'
+import { isSystemAdmin } from '@/shared/auth/roles'
 import { EmptyState } from '@/shared/components/EmptyState'
+import { Button } from '@/shared/components/ui/button'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { PageHeader } from '@/shared/components/PageHeader'
 import { StatusBadge } from '@/shared/components/StatusBadge'
@@ -26,9 +30,11 @@ import { useResource } from '@/shared/hooks/useResource'
 import { shownDateTime } from '@/shared/lib/datetime'
 
 const NO_PIPELINES_HINT =
-  '정의 파일(relay-pipeline/1)은 서버의 파이프라인 폴더(RELAY_PIPELINES_DIR)에 둡니다 — 추가하면 다음 읽기부터 표시됩니다. AI(MCP)가 정의 판 초안을 작성해도 「초안(미사용)」 으로 표시됩니다.'
+  '시스템 관리자가 「새 연결」 로 원천의 주소와 모양을 받아 만듭니다. 정의 파일(relay-pipeline/1)을 서버의 파이프라인 폴더(RELAY_PIPELINES_DIR)에 두거나 AI(MCP)가 정의 판 초안을 작성해도 됩니다 — 사용하기 전까지는 「초안(미사용)」 으로 표시됩니다.'
 
 export default function PipelinesPage() {
+  const { user } = useAuth()
+  const admin = isSystemAdmin(user)
   const map = useResource(() => relayApi.map(), [])
   const rows = useMemo(() => (map.data ? pipelineRows(buildGraph(map.data)) : null), [map.data])
 
@@ -37,6 +43,15 @@ export default function PipelinesPage() {
       <PageHeader
         title="파이프라인"
         description="원천의 API 하나를 레시피로 바꿔 대상 SP 에 보내는 단위입니다. 클릭하면 칸 대응 표 · 실행 이력을 보고 지금 실행할 수 있습니다."
+        actions={
+          admin && (
+            <Button asChild size="sm">
+              <Link to="/relay/pipelines/new">
+                <Plus />새 연결
+              </Link>
+            </Button>
+          )
+        }
       />
       <ErrorNotice error={map.error} />
       {map.loading && !map.data && <p className="text-muted-foreground text-sm">읽는 중…</p>}

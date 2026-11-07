@@ -56,6 +56,8 @@ TOP_KEYS = {
     "system",
     "schedule",
     "auto_apply",
+    "intake",
+    "computed",
     "adapter",
     "target",
     "note",
@@ -546,7 +548,14 @@ def trial(
         "used": recipe_label,
         "problems": recipes.problems_of(described, recipe_body),
         **recipes.dry_run(
-            mirror, recipe_body, work, described.source, compare=fetched.complete
+            mirror,
+            recipe_body,
+            work,
+            described.source,
+            compare=fetched.complete,
+            # 울타리(`guard.check_target`)를 지난 대상 — 참조 대조가 그 식별자를 읽는다.
+            target=(server, env.get(str(dict(body["target"]).get("token_env") or ""), "")),
+            computed=dict(body.get("computed") or {}),
         ),
     }
     return out

@@ -27,7 +27,8 @@ from app.modules.accounts.models import User
 from app.modules.relay.models import RelayRecipe
 from app.shared import audit
 from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
-from relay_core import sp
+from relay_core import aliases, compute, sp
+from relay_core.compute import check as check_computed
 from relay_core.convert import Source, convert
 from relay_core.describe import Described, lineage
 from relay_core.diff import delta
@@ -83,6 +84,7 @@ def problems_of(found: Described, body: dict[str, Any]) -> list[str]:
     unknown = sorted(read - set(found.columns))
     if unknown and not found.columns_all:
         out.append(f"어댑터가 내지 않는 열을 읽습니다: {', '.join(unknown)}")
+    out += aliases.check(body)
     return out
 
 
@@ -234,21 +236,37 @@ def materialize(db: Session, slug: str) -> Path | None:
 
 
 def dry_run(
-    mirror: Source, body: dict[str, Any], work: Workdir, source: str, *, compare: bool = True
+    mirror: Source,
+    body: dict[str, Any],
+    work: Workdir,
+    source: str,
+    *,
+    compare: bool = True,
+    target: tuple[str, str] = ("", ""),
+    computed: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """`mirror` 를 레시피 `body` 로 바꿔 보고 지난번 적용된 출력과 견준다 — **아무것도 안
-    보낸다.** 레시피 시험 · 정의 초안 시험이 같이 쓴다."""
+    보낸다.** 레시피 시험 · 정의 초안 시험이 같이 쓴다. `target` 은 (주소, 토큰) — 참조
+    대조(`match`)가 대상의 식별자 · 별칭을 읽는 데만 쓴다(읽기만)."""
     refs = file_refs(body)
     if refs:
         return {"clean": False, "error": f"서버의 파일을 가리키는 칸: {', '.join(refs[:5])}"}
+    server, token = target
     state = work.load_state()
     with tempfile.TemporaryDirectory(dir=work.root) as scratch:
         root = Path(scratch)
         recipe = root / "recipe.table.json"
         recipe.write_text(json.dumps(body, ensure_ascii=False), encoding="utf-8")
         try:
-            made = convert(mirror, recipe, root / "run", work=root / "work")
-        except sp.pipeline.Stop as stop:
+            made = convert(
+                compute.wrap(mirror, check_computed(computed)),
+                recipe,
+                root / "run",
+                work=root / "work",
+                server=server,
+                token=token,
+            )
+        except (sp.pipeline.Stop, compute.ComputeError) as stop:
             return {"clean": False, "error": str(stop)}
         report = root / "run" / "table-report.txt"
         unresolved_file = made.run / sp.pipeline.UNRESOLVED
@@ -295,8 +313,20 @@ def trial(db: Session, found: Described, version: int) -> dict[str, Any]:
             "(미러가 생깁니다)."
         )
         raise Conflict(code("RELAY", 8), hint)
+    from app.modules.relay import services
+
     out: dict[str, Any] = {"version": row.version, "problems": problems_of(found, row.body)}
-    out.update(dry_run(mirror, row.body, work, found.source))
+    token = services.secrets_env().get(found.target_token_env, "")
+    out.update(
+        dry_run(
+            mirror,
+            row.body,
+            work,
+            found.source,
+            target=(found.target_server, token),
+            computed=dict(found.body.get("computed") or {}),
+        )
+    )
     return out
 
 

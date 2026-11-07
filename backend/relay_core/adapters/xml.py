@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,7 +24,7 @@ import httpx
 from lxml import etree
 
 from relay_core.adapters.base import Fetched
-from relay_core.adapters.rest import Auth, SourceError, scrub, truthy
+from relay_core.adapters.rest import KEY_JOIN, Auth, SourceError, key_paths, scrub, truthy
 from relay_core.records import SourceRecord
 
 _PARSER = etree.XMLParser(
@@ -36,7 +36,8 @@ _PARSER = etree.XMLParser(
 class XmlSource:
     url: str
     rows_xpath: str
-    key: str
+    key: str | Sequence[str]
+    """식별자의 자리(행 요소 기준 XPath) — 여러 칸이면 목록(값을 `|` 로 잇는다)."""
     columns: Mapping[str, str]
     namespaces: Mapping[str, str] = field(default_factory=dict)
     method: str = "GET"
@@ -111,7 +112,8 @@ class XmlAdapter:
         check_xml(source.method, source.soap_action, source.envelope, source.content_type)
         secret = source.auth.headers()
         headers = {**secret, "Accept": "application/xml, text/xml"}
-        params: dict[str, Any] = dict(source.params)
+        params: dict[str, Any] = {**source.params, **source.auth.query()}
+        hidden = [*source.auth.secrets(), *source.auth.query().values()]
         body: bytes | None = None
         method = "POST" if self._soap else "GET"
         if self._soap:
@@ -140,7 +142,7 @@ class XmlAdapter:
             else:
                 if got.status_code == 200:
                     return self._parse(got.content)
-                last = f"{got.status_code} {scrub(got.text[:2000], secret)[:300]}"
+                last = f"{got.status_code} {scrub(got.text[:2000], secret, hidden)[:300]}"
                 if got.status_code < 500 and got.status_code != 429:
                     raise SourceError(f"원천이 거절했습니다({source.url}): {last}")
             self._sleep(min(2**attempt, 10))
@@ -177,9 +179,10 @@ class XmlAdapter:
 
     def _record(self, row: Any) -> SourceRecord:
         source = self.source
-        key = self._value(row, source.key)
-        if not key:
+        parts = [self._value(row, one).strip() for one in key_paths(source.key)]
+        if not parts or not all(parts):
             raise SourceError(f"식별자({source.key})가 빈 행이 있습니다.")
+        key = KEY_JOIN.join(parts)
         deleted = bool(source.deleted) and truthy(self._value(row, source.deleted or ""))
         values = (
             {}
@@ -220,7 +223,12 @@ class XmlAdapter:
 
     def probe(self) -> str:
         rows = self._rows(self._request(None, self.source.start_page))
-        first = f", 식별자 {self._value(rows[0], self.source.key)}" if rows else ""
+        first = (
+            ", 식별자 "
+            + KEY_JOIN.join(self._value(rows[0], one) for one in key_paths(self.source.key))
+            if rows
+            else ""
+        )
         return f"응답 정상 — 행 {len(rows)}개{first}"
 
     def discover(self) -> dict[str, Any]:

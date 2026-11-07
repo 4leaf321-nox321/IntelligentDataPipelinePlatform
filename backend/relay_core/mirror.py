@@ -66,6 +66,10 @@ class Mirror:
                 removed += 1
         return Applied(added=added, changed=changed, unchanged=unchanged, removed=removed)
 
+    def rows(self) -> Iterator[SourceRecord]:
+        """키 차례로 — `state.MirrorFile.rows` 와 같은 모양(계산 칸이 얹힌다)."""
+        return iter(self.records())
+
     def records(self) -> list[SourceRecord]:
         """키 순서로 — 같은 미러면 같은 차례다(변환이 같은 결과를 내는 전제)."""
         return [self._rows[key] for key in sorted(self._rows)]

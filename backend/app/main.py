@@ -347,6 +347,10 @@ def create_app() -> FastAPI:
     _guard_writable_paths(settings)
     setup_logging(settings)
     _guard_production_secrets(settings)
+    # 바깥 연결(사내 CA · 프록시)은 첫 연결보다 먼저 — 워커도 이 길로 뜬다(`worker._assemble`).
+    from app.modules.relay import network
+
+    network.apply(settings)
 
     app = FastAPI(
         title=f"{settings.app_name} API",

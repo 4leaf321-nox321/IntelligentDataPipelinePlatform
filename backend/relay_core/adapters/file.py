@@ -41,7 +41,14 @@ import httpx
 
 from relay_core.adapters.base import Fetched
 from relay_core.adapters.explore import suggest
-from relay_core.adapters.rest import Auth, SourceError, as_text, truthy, value_at
+from relay_core.adapters.rest import (
+    Auth,
+    SourceError,
+    as_text,
+    check_shape,
+    records_of,
+    value_at,
+)
 from relay_core.records import SourceRecord
 
 
@@ -49,7 +56,8 @@ from relay_core.records import SourceRecord
 class FileSource:
     location: str
     """파일 경로(`*` 로 여럿 중 최신) · `smb://서버/공유/…/파일` · `http(s)://` 주소."""
-    key: str
+    key: str | Sequence[str]
+    """식별자의 열(자리) — 여러 칸이면 목록(값을 `|` 로 잇는다)."""
     columns: Mapping[str, str] | str = "*"
     format: str = "auto"
     """csv · xlsx · json · auto(확장자로)."""
@@ -65,6 +73,8 @@ class FileSource:
     auth: Auth = field(default_factory=Auth)
     timeout: float = 60.0
     retries: int = 3
+    explode: str = ""
+    """JSON: 행 안의 목록 — 원소마다 한 행. 식별자에 그 원소의 칸이 있어야 한다."""
 
 
 def _cell(value: Any) -> str:
@@ -147,7 +157,11 @@ class FileAdapter:
             last = ""
             for attempt in range(self.source.retries):
                 try:
-                    got = self._client.get(where, headers=self.source.auth.headers())
+                    got = self._client.get(
+                        where,
+                        headers=self.source.auth.headers(),
+                        params=self.source.auth.query(),
+                    )
                 except httpx.HTTPError as failure:
                     last = f"닿지 않습니다: {failure}"
                 else:
@@ -302,25 +316,16 @@ class FileAdapter:
         assert isinstance(self.source.columns, Mapping)
         return self.source.columns
 
-    def _record(self, row: Any, columns: Mapping[str, str]) -> SourceRecord:
-        if not isinstance(row, dict):
-            raise SourceError(f"행이 객체가 아닙니다: {row!r:.200}")
-        key = _cell(value_at(row, self.source.key)).strip()
-        if not key:
-            raise SourceError(f"식별자({self.source.key})가 빈 행이 있습니다: {row!r:.200}")
-        deleted = bool(self.source.deleted) and truthy(
-            value_at(row, self.source.deleted or "")
-        )
-        values = (
-            {}
-            if deleted
-            else {out: _cell(value_at(row, path)) for out, path in columns.items()}
-        )
-        updated = (
-            _cell(value_at(row, self.source.updated_at)) if self.source.updated_at else ""
-        )
-        return SourceRecord(
-            key=key, values=values, updated_at=updated or None, deleted=deleted
+    def _records(self, row: Any, columns: Mapping[str, str]) -> list[SourceRecord]:
+        source = self.source
+        return records_of(
+            row,
+            key=source.key,
+            columns=columns,
+            deleted=source.deleted,
+            updated_at=source.updated_at,
+            explode=source.explode,
+            cell=_cell,
         )
 
     # --- 약속 ----------------------------------------------------------------------------
@@ -328,12 +333,13 @@ class FileAdapter:
     def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
         """늘 전량이다 — `since` 는 보지 않는다(파일에는 「그 뒤로 바뀐 것」 이 없다). `limit`
         이면 앞 그만큼만(시험용 — `complete=False`)."""
+        check_shape(self.source.key, self.source.explode)
         _name, digest, rows = self.rows()
         columns = self._columns(rows[0]) if rows else {}
         if limit and len(rows) > limit:
-            records = [self._record(row, columns) for row in rows[:limit]]
+            records = [one for row in rows[:limit] for one in self._records(row, columns)]
             return Fetched(records=records, complete=False)
-        records = [self._record(row, columns) for row in rows]
+        records = [one for row in rows for one in self._records(row, columns)]
         return Fetched(
             records=records, watermark=f"sha256:{digest[:16]}", complete=True, full=True
         )

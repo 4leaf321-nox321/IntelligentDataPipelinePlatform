@@ -4162,6 +4162,155 @@
         }
       }
     },
+    "/api/relay/pipelines/{slug}/unresolved": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Unresolved",
+        "description": "미해결로 멈춘 실행의 미해결 — 참조마다 대상의 후보, 값 갈림. **원천 표기가 그대로**\n나오므로 시스템 관리자만. 대상에는 읽기만 한다.",
+        "operationId": "pipeline_unresolved_api_relay_pipelines__slug__unresolved_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InboxOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/unresolved/suggest": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Unresolved Suggest",
+        "description": "GLM 이 대상의 후보 안에서 하나를 고른다 — 제안일 뿐, 정하는 것은 사람이다.",
+        "operationId": "pipeline_unresolved_suggest_api_relay_pipelines__slug__unresolved_suggest_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuggestIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuggestOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/unresolved/draft": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Unresolved Draft",
+        "description": "승인한 대응을 지금 레시피의 relay 사전에 더해 **레시피 판 초안**으로 저장한다 — 대상에\n있는 키만. 시험 · 사용은 레시피 판에서(사용은 화면의 사람만).",
+        "operationId": "pipeline_unresolved_draft_api_relay_pipelines__slug__unresolved_draft_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DraftIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecipeSaved"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/relay/pipelines/{slug}/recipes": {
       "get": {
         "tags": [
@@ -4633,6 +4782,50 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Adapter Kinds Api Relay Adapter Kinds Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/type-draft": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Type Draft",
+        "description": "대상에 받을 타입이 없을 때 — 원천 표본으로 **SP 타입 정의 초안**과 그 타입으로 옮기는\n레시피의 첫 판을 짓는다(`relay_core.typedraft`). 아무 데도 저장 · 전송하지 않는다 — 타입은\nSP 관리자가 대상에 넣는다.",
+        "operationId": "type_draft_api_relay_type_draft_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypeDraftIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Type Draft Api Relay Type Draft Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -5754,6 +5947,39 @@
         ],
         "title": "Body_upload_api_attachments_post"
       },
+      "CandidateOut": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          },
+          "score": {
+            "type": "number",
+            "title": "Score"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why"
+          },
+          "by": {
+            "type": "string",
+            "title": "By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "score",
+          "why",
+          "by"
+        ],
+        "title": "CandidateOut"
+      },
       "ChangePasswordRequest": {
         "properties": {
           "current_password": {
@@ -6122,6 +6348,57 @@
         ],
         "title": "DiskOut"
       },
+      "DraftIn": {
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/EntryIn"
+            },
+            "type": "array",
+            "title": "Entries"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "entries"
+        ],
+        "title": "DraftIn"
+      },
+      "EntryIn": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Target"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "key": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Key"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "text",
+          "key"
+        ],
+        "title": "EntryIn"
+      },
       "ExtensionApiOut": {
         "properties": {
           "name": {
@@ -6367,6 +6644,61 @@
         ],
         "title": "HomeWorkspaceRequest",
         "description": "대표 소속을 정한다.\n\n**비우는 길은 두지 않는다.** 대표 소속이 없으면 로그인이 소속 중 첫 부서로\n떨어지는데 그것은 사람이 정한 값이 아니다. 지우고 싶은 상황은 실제로는\n\"다른 부서로 옮긴다\" 이므로 그때도 새 값을 준다."
+      },
+      "InboxOut": {
+        "properties": {
+          "run": {
+            "type": "string",
+            "title": "Run",
+            "default": ""
+          },
+          "at": {
+            "type": "string",
+            "title": "At",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "recipe_label": {
+            "type": "string",
+            "title": "Recipe Label",
+            "default": ""
+          },
+          "llm": {
+            "type": "boolean",
+            "title": "Llm",
+            "default": false
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/ReferenceOut"
+            },
+            "type": "array",
+            "title": "References",
+            "default": []
+          },
+          "splits": {
+            "items": {
+              "$ref": "#/components/schemas/SplitOut"
+            },
+            "type": "array",
+            "title": "Splits",
+            "default": []
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "InboxOut"
       },
       "JobBulkIn": {
         "properties": {
@@ -8211,6 +8543,78 @@
         "type": "object",
         "title": "ReconcileIn"
       },
+      "ReferenceOut": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text"
+          },
+          "places": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Places"
+          },
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          },
+          "more": {
+            "type": "boolean",
+            "title": "More",
+            "default": false
+          },
+          "sample_rows": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Sample Rows",
+            "default": []
+          },
+          "candidates": {
+            "items": {
+              "$ref": "#/components/schemas/CandidateOut"
+            },
+            "type": "array",
+            "title": "Candidates",
+            "default": []
+          },
+          "in_dictionary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In Dictionary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "text",
+          "places",
+          "columns",
+          "rows"
+        ],
+        "title": "ReferenceOut",
+        "description": "참조 대조가 못 찾은 원천 표기 하나 — 같은 대상 타입의 같은 표기는 한 줄(칸이\n여럿이어도)."
+      },
       "RejectRequest": {
         "properties": {
           "note": {
@@ -8533,6 +8937,11 @@
             "type": "boolean",
             "title": "Accept",
             "default": false
+          },
+          "full": {
+            "type": "boolean",
+            "title": "Full",
+            "default": false
           }
         },
         "type": "object",
@@ -8680,6 +9089,106 @@
           "workspace_slug"
         ],
         "title": "SignupRequest"
+      },
+      "SplitOut": {
+        "properties": {
+          "what": {
+            "type": "string",
+            "title": "What"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "rows": {
+            "type": "integer",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "what",
+          "question",
+          "options",
+          "rows"
+        ],
+        "title": "SplitOut",
+        "description": "값 갈림 — 같은 식별자(선)인데 행마다 값이 다르다. 레시피(모으는 칸)나 원천에서\n고친다."
+      },
+      "SuggestIn": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Target"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "column": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Column",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "text"
+        ],
+        "title": "SuggestIn"
+      },
+      "SuggestOut": {
+        "properties": {
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "default": ""
+          },
+          "confidence": {
+            "type": "number",
+            "title": "Confidence",
+            "default": 0
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "key"
+        ],
+        "title": "SuggestOut"
       },
       "SystemAdminRequest": {
         "properties": {
@@ -9260,6 +9769,57 @@
         ],
         "title": "TrendRow",
         "description": "실행 한 번(`relay_core.runner._record`) — 실패한 실행은 받은 수 · 미러가 비고 어디까지\n갔는지(`stage`)가 있다."
+      },
+      "TypeDraftIn": {
+        "properties": {
+          "type_slug": {
+            "type": "string",
+            "maxLength": 60,
+            "minLength": 1,
+            "title": "Type Slug"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Label",
+            "default": ""
+          },
+          "key_column": {
+            "type": "string",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Key Column"
+          },
+          "label_column": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Label Column",
+            "default": ""
+          },
+          "columns": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Columns"
+          },
+          "system": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "System",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "type_slug",
+          "key_column",
+          "columns"
+        ],
+        "title": "TypeDraftIn"
       },
       "UnreadCountOut": {
         "properties": {

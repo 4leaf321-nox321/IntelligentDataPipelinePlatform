@@ -11,6 +11,9 @@
  * 자동 적용(타이머의 실행이 기준을 넘은 계획을 사람 없이 적용)은 사실 목록에 기준과 함께 적는다 —
  * 꺼진 것이 기본이라 「끔」 은 흐리게. 받기 점검(대량 삭제 · 빈 칸이면 멈춤)도 그 곁에 기준을 적는다.
  *
+ * 미해결 작업함(시스템 관리자) — 미해결로 멈춘 실행의 참조에 대상의 키를 선택해 레시피 판 초안(relay
+ * 사전)으로 저장한다. 저장하면 레시피 판 목록을 새로 읽는다.
+ *
  * **늦음**(일정대로라면 끝났어야 할 실행이 끝나지 않음)은 맨 위에 까닭과 함께 — 실패도 멈춤도
  * 아니라서 이력에는 아무 줄도 생기지 않는다. 실행 추이(그림)는 그림 라이브러리를 이 화면에서만 받게
  * `lazy()` 로 매단다.
@@ -27,6 +30,7 @@ import { PipelineActions } from '@/modules/relay/PipelineActions'
 import { Fact, PipelineHistory, PipelineJobs, PipelineState } from '@/modules/relay/PipelineRuns'
 import { ReconcileSection } from '@/modules/relay/ReconcileSection'
 import { RecipeVersions } from '@/modules/relay/RecipeVersions'
+import { UnresolvedInbox } from '@/modules/relay/UnresolvedInbox'
 import { ValueTraceSection } from '@/modules/relay/ValueTrace'
 import type { TraceRequest } from '@/modules/relay/ValueTrace'
 import { useAuth } from '@/shared/auth/AuthContext'
@@ -81,6 +85,8 @@ export default function PipelineDetailPage() {
   const detail = useResource(() => relayApi.pipeline(slug), [slug])
   const data = detail.stale ? null : detail.data
   const [traceRequest, setTraceRequest] = useState<TraceRequest | null>(null)
+  // 작업함이 레시피 판 초안을 저장하면 판 목록을 새로 읽는다(다시 매단다).
+  const [versionsKey, setVersionsKey] = useState(0)
 
   if (!data) {
     return (
@@ -204,7 +210,15 @@ export default function PipelineDetailPage() {
       </section>
 
       {admin ? (
-        <PipelineActions detail={data} onQueued={detail.reload} />
+        <>
+          <PipelineActions detail={data} onQueued={detail.reload} />
+          {!data.draft && (
+            <section className="space-y-2">
+              <h2 className="text-base font-semibold">미해결 작업함</h2>
+              <UnresolvedInbox slug={data.slug} onDrafted={() => setVersionsKey((one) => one + 1)} />
+            </section>
+          )}
+        </>
       ) : (
         <p className="text-muted-foreground text-sm">
           「지금 실행」 · 「적용」 은 시스템 관리자가 합니다.
@@ -237,7 +251,7 @@ export default function PipelineDetailPage() {
         <ValueTraceSection slug={data.slug} types={data.types} request={traceRequest} />
       )}
 
-      {admin && <VersionPanels detail={data} onChanged={detail.reload} />}
+      {admin && <VersionPanels key={versionsKey} detail={data} onChanged={detail.reload} />}
 
       <section className="space-y-2">
         <h2 className="text-base font-semibold">실행 추이</h2>

@@ -39,10 +39,12 @@ class _Adapter:
         self.records: list[SourceRecord] = []
         self.full = True
         self.calls = 0
+        self.since: str | None = None
         self.failure: Exception | None = None
 
     def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
         self.calls += 1
+        self.since = since
         if self.failure is not None:
             raise self.failure
         return Fetched(
@@ -257,3 +259,18 @@ def test_실행마다_추이에_한_줄이_남는다(tmp_path: Path) -> None:
         runner.run(pipeline, work, fake)  # type: ignore[arg-type]
     failed = _trend(work)[-1]
     assert failed["status"] == "failed" and failed["stage"] == "받기"
+
+
+def test_전량_다시_받기는_워터마크를_두고_처음부터_받는다(tmp_path: Path) -> None:
+    adapter, pipeline, work, fake = _loaded(tmp_path, count=100)
+    adapter.full = False
+    runner.run(pipeline, work, fake)  # type: ignore[arg-type]
+    assert adapter.since == "w1"  # 증분 — 지난 워터마크 뒤로
+    adapter.full = True
+    again = runner.run(pipeline, work, fake, full=True)  # type: ignore[arg-type]
+    assert adapter.since is None and "전량을 다시 받습니다" in again.message
+    assert work.load_state().watermark == "w3" and _trend(work)[-1]["full"] is True
+    # 전량에서 일부만 오면 받기 점검이 그대로 지킨다.
+    adapter.records = adapter.records[:2]
+    held = runner.run(pipeline, work, fake, full=True)
+    assert held.status == "blocked" and "대량 삭제" in held.message

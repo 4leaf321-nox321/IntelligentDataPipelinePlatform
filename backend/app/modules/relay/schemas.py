@@ -144,6 +144,99 @@ class TrendOut(BaseModel):
     """작업 폴더에 남은 줄 — `rows` 는 그 끝의 `limit` 개다."""
 
 
+class CandidateOut(BaseModel):
+    key: str
+    label: str = ""
+    score: float
+    """0 ~ 1 — 표기와 식별자 · 이름 · 별칭이 얼마나 닮았나(규칙). 대상이 준 후보는 0.7
+    부터."""
+    why: str
+    by: str
+    """규칙(표기 견주기) · 대상(대상의 「여럿과 맞음」)."""
+
+
+class ReferenceOut(BaseModel):
+    """참조 대조가 못 찾은 원천 표기 하나 — 같은 대상 타입의 같은 표기는 한 줄(칸이
+    여럿이어도)."""
+
+    target: str
+    """대상 타입(`match.keys`)."""
+    text: str
+    places: list[str]
+    """그 표기가 나온 칸 — 「타입.칸」 · 「관계 <이름>.dst」."""
+    columns: list[str]
+    """원천의 열."""
+    rows: int
+    more: bool = False
+    """행이 더 있다(틀은 20행까지만 적는다)."""
+    sample_rows: list[int] = []
+    candidates: list[CandidateOut] = []
+    in_dictionary: str | None = None
+    """지금 레시피의 relay 사전에 이미 있는 키 — 있는데도 미해결이면 그 키가 대상에 없거나,
+    실행이 그 판보다 먼저였다."""
+
+
+class SplitOut(BaseModel):
+    """값 갈림 — 같은 식별자(선)인데 행마다 값이 다르다. 레시피(모으는 칸)나 원천에서
+    고친다."""
+
+    what: str
+    question: str
+    options: list[str]
+    rows: int
+
+
+class InboxOut(BaseModel):
+    run: str = ""
+    """미해결로 멈춘 실행(`runs/<때>`) — 없으면 빈 글(`note` 가 까닭)."""
+    at: str = ""
+    note: str = ""
+    recipe_label: str = ""
+    """대응을 더할 지금 레시피 — 「레시피 판 N」 · 「정의 파일의 레시피」."""
+    llm: bool = False
+    """GLM 이 설정됐나 — 그때만 「GLM 제안」 을 낸다."""
+    references: list[ReferenceOut] = []
+    splits: list[SplitOut] = []
+    problems: list[str] = []
+    """후보를 못 낸 까닭(대상에 못 닿음 · 대상 SP 의 타입이 아님)."""
+
+
+class SuggestIn(BaseModel):
+    target: str = Field(min_length=1, max_length=80)
+    text: str = Field(min_length=1, max_length=200)
+    column: str = Field("", max_length=80)
+
+
+class SuggestOut(BaseModel):
+    key: str | None
+    """고른 키 — 고르지 않았으면 None(`note` 가 까닭)."""
+    label: str = ""
+    confidence: float = 0
+    reason: str = ""
+    note: str = ""
+
+
+class EntryIn(BaseModel):
+    target: str = Field(min_length=1, max_length=80)
+    text: str = Field(min_length=1, max_length=200)
+    key: str = Field(min_length=1, max_length=200)
+
+
+class DraftIn(BaseModel):
+    entries: list[EntryIn]
+    note: str = Field("", max_length=500)
+
+
+class TypeDraftIn(BaseModel):
+    type_slug: str = Field(min_length=1, max_length=60)
+    label: str = Field("", max_length=100)
+    key_column: str = Field(min_length=1, max_length=120)
+    label_column: str = Field("", max_length=120)
+    columns: dict[str, list[str]]
+    """열 → 표본 값들(탐색 · 정의 시험의 표본)."""
+    system: str = Field("", max_length=80)
+
+
 class RecipeOut(BaseModel):
     version: int
     status: str

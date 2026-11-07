@@ -80,6 +80,26 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    **원천 시스템의 DB 에 바로 붙는 종류는 없다** — 원천은 API · 파일 · 공유 폴더로만 받는다. API 가 없다면
    원천 시스템 담당에게 API(또는 내보낸 파일)를 부탁하라고 사람에게 전한다.
 
+   흔한 모양(2026-11-07 부터):
+
+   | 원천의 모양 | 적는 것 |
+   | --- | --- |
+   | 항목 안의 목록(주문의 줄 · BOM 의 하위 품목) | `"explode": "lines"` — 원소마다 한 행. `columns` 의 `lines.…` 은 원소에서 읽는다. 식별자에 원소의 칸을 꼭 넣는다 |
+   | 여러 칸으로 된 식별자(로트 + 공정) | `"key": ["LotId", "steps.Seq"]` — 값을 `|` 로 잇는다 |
+   | 응답이 다음 쪽 주소를 준다 | `"paging": "next_url"`, `"next_path": "next"`(상대 주소도 됨 — **같은 호스트만** 따라간다) |
+   | `Link: <…>; rel="next"` 머리글 | `"paging": "link"` |
+   | 목록은 id 만, 칸은 상세 API 에 | `"detail_path": "/models/{id}"` · `detail_rows_path` — 상세는 `detail.` 아래(`"WEIGHT": "detail.spec.weight"`) |
+   | 조회를 POST 로(검색형 · GraphQL) | `"method": "POST"`, `"body": {"page": "{page}", "size": "{page_size}", "since": "{since}"}` — 읽기만 |
+   | 초당 몇 건으로 막힘 | `"min_interval": 0.5`(초) |
+   | 질의 문자열의 API 키 | `"auth": {"kind": "query", "param": "api_key", "token_env": …}` |
+   | OAuth2 client credentials | `"auth": {"kind": "oauth2", "token_url": …, "user": "<client_id>", "scope": …, "token_env": <client secret 의 이름>}` — 토큰 주소도 울타리 안이어야 한다 |
+
+   레시피에 없는 값 바꾸기는 정의의 **계산 칸**(`computed`, 맨 위 칸)으로 — 여러 열 잇기
+   (`{"template": "{LAST} {FIRST}"}`) · 숫자(`{"number": "G", "multiply": 0.001, "round": 3}`) · 시각(`{"datetime":
+   "TS", "format": "%Y%m%d%H%M%S", "timezone": "Asia/Seoul"}` → UTC ISO, `"output": "date"` 면 날짜) · 정규식 바꾸기
+   (`{"replace": "P", "pattern": "^P-", "with": ""}`) · 앞의 빈 값이 아닌 것(`{"first": ["A", "B"]}`). 레시피는 그 새 열을
+   읽는다. 못 바꾸는 값은 비운다.
+
 2. `source_discover(adapter)` — 주소 · 인증만 적고 불러 본다(`key` · `columns` 는 아직 몰라도 된다). 돌려준
    `found.paths`(칸의 자리 · 보기 값)와 `found.columns`(열 이름 제안)를 본다. OData 는 `entity_set` 없이 부르면
    `entity_sets`(엔티티 셋 · 키 · 탐색 속성)부터 보인다.
@@ -88,7 +108,8 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
 4. `pipeline_draft_save(slug, definition, note)` → 판 번호와 `problems`.
 5. `pipeline_test(slug, version)` — 원천을 받아 보고 대상을 본다. **대상에 아무것도 안 보낸다.**
    `source.rows` · `source.always_empty`(늘 빈 열 — 자리가 틀렸다는 신호) · `target.token` ·
-   `target.types_missing` 을 읽고 고친다 → 4 로.
+   `target.types_missing` 을 읽고 고친다 → 4 로. 대상에 타입이 없으면 relay 는 만들지 않는다 — 사람에게 화면
+   「새 연결」 의 「타입 정의 초안」(SP 관리자에게 넘길 JSON)을 권한다.
 6. 레시피를 작성한다(`get_guide('recipe')`, `recipe_draft_save`) → `pipeline_test(slug, version, recipe_version=N)`
    이 받은 원천을 그 레시피로 바꿔 본다(`recipe.rows` · `recipe.unresolved` · `recipe.would_send`).
 7. 깨끗해지면 사람에게: **「화면 › 파이프라인 › 정의 판 에서 판 N, 레시피 판 에서 판 M 을 사용해 주세요(「사용」)」.**
@@ -248,6 +269,14 @@ python sp_pipeline.py validate runs/2026-09-13-plm-models      # 그 뒤는 여�
   - `on_missing`: `blank`(기본 — 비워 넣고 보고서에) · `unresolved`(미해결로 올려 사람에게) · `keep`
     (그대로 보냄 — 플랫폼이 거절하면 묶음 전체가 막힌다).
   - 보고서 `[참조 대조]` 에 그대로 · 대소문자 · 앞부분 · 여러 개 · 없음의 건수와 못 맞춘 것의 가린 패턴.
+  - relay 에서는 `keys` 가 **대상 SP 의 타입 slug** 다 — 실행 · 시험이 대상의 식별자와 별칭 · 이름(대표
+    플랫폼에서 받은 기준정보)으로 맞춘다. 레시피 판은 `@파일` 을 쓰지 않는다.
+- **relay 사전**(`relay_aliases`, 맨 위 칸) — 대상이 별칭으로도 못 푸는 원천 표기를 사람이 승인한 키로:
+  `"relay_aliases": {"<대상 타입>": {"<원천 표기>": "<대상 키>"}}`. 위 차례와 대상의 별칭 · 이름으로도
+  못 푼 표기에만 쓰이고, 대상에 없는 키는 쓰이지 않는다(그 표기는 다시 미해결). 미해결로 멈춘 실행은
+  `pipeline_unresolved` 가 보여 준다(참조마다 대상의 후보). 대응을 제안할 때는 그 후보 안에서만 고르고,
+  확신이 없으면 고르지 않는다 — 초안(`recipe_draft_save`)으로 저장하면 **사람이 화면에서** 시험 · 사용한다.
+  같은 목록은 화면에서 대표 플랫폼에 보낼 별칭 요청 목록(CSV)이 된다.
 
 ### 선(관계) — `relations`
 

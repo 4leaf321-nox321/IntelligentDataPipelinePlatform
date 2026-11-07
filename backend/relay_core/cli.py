@@ -2,6 +2,7 @@
 
     python -m relay_core.cli run    <정의.json> [--work DIR]   받기 → 비교 → 미리보기
                                        [--accept]   받기 점검의 멈춤을 확인하고 진행
+                                       [--full]     전량 다시 받기(워터마크를 두고)
     python -m relay_core.cli apply  <정의.json> [--work DIR]   대기 중인 계획 적용
     python -m relay_core.cli status <정의.json> [--work DIR]   워터마크 · 기준 · 대기 계획
     python -m relay_core.cli check  <정의.json>                이 서버에서 원천 · 대상에 닿나
@@ -55,6 +56,9 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run: 받기 점검이 멈춘 것(대량 삭제 · 빈 칸)을 확인하고 그만큼까지 진행한다",
     )
+    parser.add_argument(
+        "--full", action="store_true", help="run: 워터마크를 두고 전량을 다시 받는다"
+    )
     args = parser.parse_args(argv)
     try:
         pipeline = load(args.definition)
@@ -103,7 +107,9 @@ def main(argv: list[str] | None = None) -> int:
                 if accept is None:
                     print("멈춤: 받기 점검에서 멈춘 것이 없습니다.", file=sys.stderr)
                     return 2
-            outcome = runner.run(pipeline, work, options=options, accept=accept)
+            outcome = runner.run(
+                pipeline, work, options=options, accept=accept, full=args.full
+            )
         else:
             outcome = runner.apply(pipeline, work)
     except (

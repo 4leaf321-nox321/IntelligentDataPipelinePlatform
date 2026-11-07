@@ -31,8 +31,18 @@ from typing import Any
 from relay_core.adapters.base import SourceAdapter
 from relay_core.adapters.file import FileAdapter, FileSource
 from relay_core.adapters.odata import ODataAdapter, ODataSource
-from relay_core.adapters.rest import Auth, RestAdapter, RestSource, SourceError
+from relay_core.adapters.rest import (
+    AUTH_KINDS,
+    PAGINGS,
+    Auth,
+    RestAdapter,
+    RestSource,
+    SourceError,
+    check_shape,
+)
 from relay_core.adapters.xml import XmlAdapter, XmlSource, check_xml
+from relay_core.compute import ComputeError
+from relay_core.compute import check as check_computed
 from relay_core.intake import IntakeError
 from relay_core.intake import Policy as IntakePolicy
 from relay_core.intake import check as check_intake
@@ -67,6 +77,8 @@ class Pipeline:
     path: Path
     intake: IntakePolicy | None = field(default_factory=IntakePolicy)
     """받기 점검(`relay_core.intake`) — 정의의 `intake`. None 이면 점검하지 않는다."""
+    computed: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
+    """계산 칸(`relay_core.compute`) — 변환할 때 미러 전체에 얹는다."""
 
 
 def _secret(spec: dict[str, Any], where: str, env: Mapping[str, str]) -> str:
@@ -83,12 +95,46 @@ def _secret(spec: dict[str, Any], where: str, env: Mapping[str, str]) -> str:
     return value
 
 
+#: 정의에 적는 인증의 칸 — 비밀은 `token_env`(환경 변수의 이름)로만.
+AUTH_KEYS = {"kind", "token_env", "header", "user", "param", "token_url", "scope"}
+
+
+def check_auth(spec: Any) -> dict[str, Any]:
+    """인증의 모양 — 모르는 칸 · 모르는 방식은 거절한다(적은 사람은 적었다고 믿는다)."""
+    if spec is None:
+        return {}
+    if not isinstance(spec, dict):
+        raise DefinitionError("adapter.auth 는 JSON 객체여야 합니다.")
+    unknown = sorted(set(spec) - AUTH_KEYS - {"token"})
+    if unknown:
+        raise DefinitionError(f"adapter.auth: 모르는 칸입니다: {', '.join(unknown)}")
+    kind = str(spec.get("kind") or "none")
+    if kind not in AUTH_KINDS:
+        raise DefinitionError(
+            f"adapter.auth.kind 는 {' · '.join(AUTH_KINDS)} 중 하나입니다: {kind!r}"
+        )
+    if kind == "oauth2" and not (spec.get("token_url") and spec.get("user")):
+        raise DefinitionError(
+            "oauth2 에는 auth.token_url(토큰 주소)과 auth.user(client_id)가 필요합니다 — "
+            "client secret 은 auth.token_env 의 환경 변수에."
+        )
+    if kind == "oauth2" and not str(spec.get("token_url")).startswith(("http://", "https://")):
+        raise DefinitionError("auth.token_url 은 http(s) 주소여야 합니다.")
+    if kind == "query" and not str(spec.get("param") or "").strip():
+        raise DefinitionError("query 에는 auth.param(키를 실을 질의 이름)이 필요합니다.")
+    return spec
+
+
 def _auth(spec: dict[str, Any], env: Mapping[str, str]) -> Auth:
+    check_auth(spec)
     return Auth(
         kind=str(spec.get("kind") or "none"),
         token=_secret(spec, "adapter.auth", env),
         header=str(spec.get("header") or "Authorization"),
         user=str(spec.get("user") or ""),
+        param=str(spec.get("param") or "api_key"),
+        token_url=str(spec.get("token_url") or ""),
+        scope=str(spec.get("scope") or ""),
     )
 
 
@@ -164,6 +210,8 @@ def check_adapter(
             isinstance(value, int | float) and low <= value <= high
         ):
             raise DefinitionError(f"adapter.{name} 은 {low} 이상 {high} 이하여야 합니다.")
+    check_auth(body.get("auth"))
+    _check_shape(kind, body, partial=partial)
     if kind == "xml":
         try:
             check_xml(
@@ -175,6 +223,50 @@ def check_adapter(
         except SourceError as failure:
             raise DefinitionError(f"adapter: {failure}") from None
     return kind, body
+
+
+def _check_shape(kind: str, body: dict[str, Any], *, partial: bool) -> None:
+    """식별자 · 목록 펴기 · 쪽 넘김 · 요청 방식의 모양."""
+    key = body.get("key")
+    if isinstance(key, list):
+        if not key or not all(isinstance(one, str) and one.strip() for one in key):
+            raise DefinitionError("adapter.key 가 목록이면 비지 않은 자리들이어야 합니다.")
+    elif key is not None and not isinstance(key, str):
+        raise DefinitionError("adapter.key 는 자리 하나(글) 또는 자리들의 목록입니다.")
+    explode = str(body.get("explode") or "")
+    if explode and not partial:
+        try:
+            check_shape(key or "", explode)
+        except SourceError as failure:
+            raise DefinitionError(f"adapter: {failure}") from None
+    if kind != "rest":
+        return
+    paging = str(body.get("paging") or "page")
+    if paging not in PAGINGS:
+        raise DefinitionError(
+            f"adapter.paging 은 {' · '.join(PAGINGS)} 중 하나입니다: {paging!r}"
+        )
+    method = str(body.get("method") or "GET").upper()
+    if method not in ("GET", "POST"):
+        raise DefinitionError(f"adapter.method 는 GET · POST 만 됩니다(읽기만): {method!r}")
+    if method == "POST" and not isinstance(body.get("body"), dict):
+        raise DefinitionError(
+            "method POST 에는 body(본문 틀, JSON 객체)가 있어야 합니다 — 조회 본문 없이 "
+            "POST 하면 남의 API 를 부르는 길이 된다."
+        )
+    interval = body.get("min_interval", 0)
+    if (
+        isinstance(interval, bool)
+        or not isinstance(interval, int | float)
+        or not (0 <= interval <= 60)
+    ):
+        raise DefinitionError("adapter.min_interval 은 0 이상 60 이하(초)입니다.")
+    detail = str(body.get("detail_path") or "")
+    if detail.startswith(("http://", "https://", "//")):
+        raise DefinitionError(
+            "adapter.detail_path 는 원천 주소(base_url) 아래의 경로입니다 — 다른 곳을 적지 "
+            "않습니다."
+        )
 
 
 def build_adapter(
@@ -254,7 +346,19 @@ def check_body(body: dict[str, Any]) -> tuple[str, str]:
     except AutoApplyError as failure:
         raise DefinitionError(str(failure)) from failure
     intake(body)
+    computed(body)
     return slug, source
+
+
+def computed(body: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """정의의 `computed` — 어댑터가 내는 열과 겹치면 안 된다(파일의 `"*"` 면 모른다)."""
+    adapter = dict(body.get("adapter") or {})
+    columns = adapter.get("columns")
+    names = list(columns) if isinstance(columns, dict) else []
+    try:
+        return check_computed(body.get("computed"), names)
+    except ComputeError as failure:
+        raise DefinitionError(str(failure)) from failure
 
 
 def intake(body: dict[str, Any]) -> IntakePolicy | None:
@@ -304,6 +408,7 @@ def load_body(
         target=target,
         path=path or Path(f"<판:{slug}>"),
         intake=intake(body),
+        computed=computed(body),
     )
 
 

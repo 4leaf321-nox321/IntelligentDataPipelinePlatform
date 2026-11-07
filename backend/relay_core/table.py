@@ -34,7 +34,7 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
 
-from relay_core import sp, spill
+from relay_core import aliases, sp, spill
 
 Row = tuple[int, dict[str, str]]
 
@@ -462,6 +462,8 @@ def convert(
 
     mapping = table_mod.Mapping(spec, table, keys=keys)
     table_mod._ask_platform(mapping, server, token)
+    # relay 사전 — 대상이 별칭 · 이름으로 못 푼 표기만, 대상에 있는 키로(`relay_core.aliases`).
+    notes = aliases.inject(mapping, spec)
     ontology: dict[str, Any] | None = None
     if spec.get("ontology"):
         ontology = table_mod._load_mapping(
@@ -489,6 +491,8 @@ def convert(
     unresolved = _unresolved(mapping, table, results, edges)
     pipeline._write(run / pipeline.UNRESOLVED, unresolved)
     text = table_mod._report(mapping, mapping_path, results, run, len(unresolved), edges)
+    if notes:
+        text += "\n\n" + "\n".join(notes)
     (run / table_mod.REPORT).write_text(text + "\n", encoding="utf-8")
     return not unresolved, text
 

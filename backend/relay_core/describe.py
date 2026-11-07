@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from relay_core import autoapply, intake
+from relay_core import autoapply, compute, intake
 from relay_core.autoapply import Policy
 from relay_core.definition import FORMAT, DefinitionError, check_adapter, column_default
 from relay_core.schedule import ScheduleError, check, label
@@ -197,6 +197,15 @@ def describe_body(
         {} if isinstance(columns, str) else {str(k): str(v) for k, v in dict(columns).items()}
     )
     out.columns_all = isinstance(columns, str)
+    # 계산 칸도 레시피가 읽는 열이다 — 칸 대응 표가 그 입력의 원천 자리까지 잇는다.
+    try:
+        rules = compute.check(body.get("computed"), out.columns)
+    except compute.ComputeError as failure:
+        out.problems.append(str(failure))
+        rules = {}
+    for name, rule in rules.items():
+        sources = [out.columns.get(one, one) for one in compute.inputs(rule)]
+        out.columns[name] = f"계산({compute.describe(rule)}): {' + '.join(sources)}"
     if out.adapter_kind == "odata":
         where = str(checked.get("service_url") or "")
         out.endpoint = f"{where.rstrip('/')}/{checked.get('entity_set', '')}"

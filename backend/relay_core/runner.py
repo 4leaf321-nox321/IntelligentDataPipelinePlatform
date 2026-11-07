@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from relay_core import intake, parts, sp
+from relay_core import compute, intake, parts, sp
 from relay_core.convert import transform, write_source
 from relay_core.definition import Pipeline, Target
 from relay_core.diff import Delta, delta
@@ -191,13 +191,18 @@ def run(
     *,
     options: dict[str, str] | None = None,
     accept: intake.Accept | None = None,
+    full: bool = False,
 ) -> Outcome:
     """한 바퀴. `accept` 는 사람이 「확인 후 진행」 으로 지나가게 한 받기 점검의 멈춤이다 —
-    그 건수 · 칸까지만 지나간다(`intake.Accept.covers`)."""
+    그 건수 · 칸까지만 지나간다(`intake.Accept.covers`). `full` 이면 워터마크를 두고 **전량을
+    다시 받는다** — 어댑터의 칸을 고친 뒤 이미 지나간 행까지 다시 읽을 때. 안 온 것은 삭제로
+    읽히므로 받기 점검(대량 삭제)이 그대로 지킨다."""
     started = time.monotonic()
     sheet: dict[str, Any] = {}
     try:
-        outcome = _run(pipeline, work, submit, options=options, accept=accept, sheet=sheet)
+        outcome = _run(
+            pipeline, work, submit, options=options, accept=accept, full=full, sheet=sheet
+        )
     except Exception:
         _record(work, "failed", sheet, time.monotonic() - started)
         raise
@@ -235,13 +240,16 @@ def _run(
     *,
     options: dict[str, str] | None,
     accept: intake.Accept | None,
+    full: bool,
     sheet: dict[str, Any],
 ) -> Outcome:
     submit = submit or Submitter(pipeline.target)
     state = work.load_state()
     note = settle_pending(state, submit)
 
-    since = state.watermark
+    since = None if full else state.watermark
+    if full:
+        note += "전량을 다시 받습니다(워터마크를 두고). "
     # **삭제 표시가 없는 원천은 전량 날에 사라진 것을 안다**(부재 대조) — 증분 `full_every`
     # 번마다 한 번.
     source = pipeline.adapter.source
@@ -297,10 +305,21 @@ def _run(
 
     when = stamp()
     run_folder = work.path(f"runs/{when}")
+    # 계산 칸은 변환할 때 미러 전체에 얹는다 — 규칙을 바꾼 날 옛 행도 같이 바뀐다.
     source = write_source(
-        MirrorFile(work, size), pipeline.recipe, run_folder, work=work.path("work")
+        compute.wrap(MirrorFile(work, size), pipeline.computed),
+        pipeline.recipe,
+        run_folder,
+        work=work.path("work"),
     )
-    made = transform(source, pipeline.recipe, run_folder)
+    # 참조 대조(`match`)는 대상 SP 의 식별자 · 별칭으로 푼다 — 보낼 곳과 같은 주소 · 토큰.
+    made = transform(
+        source,
+        pipeline.recipe,
+        run_folder,
+        server=pipeline.target.server,
+        token=pipeline.target.token,
+    )
     if not made.clean:
         state.history.append({"at": _now(), "event": "blocked", "run": f"runs/{when}"})
         work.save_state(state)

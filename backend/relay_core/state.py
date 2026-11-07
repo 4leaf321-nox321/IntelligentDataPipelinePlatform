@@ -324,5 +324,8 @@ class MirrorFile:
     def __len__(self) -> int:
         return self.size
 
+    def rows(self) -> Iterator[SourceRecord]:
+        return self.work.mirror_rows()
+
     def write_csv(self, path: Path) -> Path:
         return write_csv(self.work.mirror_rows, path)

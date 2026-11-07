@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -27,7 +27,17 @@ from typing import Any
 import httpx
 
 from relay_core.adapters.base import Fetched
-from relay_core.adapters.rest import Auth, SourceError, as_text, get_json, truthy, value_at
+from relay_core.adapters.rest import (
+    KEY_JOIN,
+    Auth,
+    SourceError,
+    as_text,
+    check_shape,
+    get_json,
+    key_paths,
+    records_of,
+    value_at,
+)
 from relay_core.records import SourceRecord
 
 _V2_DATE = re.compile(r"^/Date\((-?\d+)([+-]\d{4})?\)/$")
@@ -58,7 +68,8 @@ class ODataSource:
     service_url: str
     """서비스 뿌리 — `https://plm.example.com/odata/v4/PlmService`."""
     entity_set: str
-    key: str
+    key: str | Sequence[str]
+    """식별자의 자리 — 여러 칸이면 목록(값을 `|` 로 잇는다)."""
     columns: Mapping[str, str]
     version: str = "auto"
     """4 · 2 · auto(응답의 봉투로 가른다)."""
@@ -79,6 +90,8 @@ class ODataSource:
     auth: Auth = field(default_factory=Auth)
     timeout: float = 60.0
     retries: int = 3
+    explode: str = ""
+    """펼친 탐색 속성의 목록(`Lines`) — 원소마다 한 행. 식별자에 그 원소의 칸이 있어야 한다."""
     max_pages: int = 100_000
 
 
@@ -118,7 +131,9 @@ class ODataAdapter:
             literal = self._since_literal(since, version)
             conditions.append(f"{source.modified_field} {source.since_op} {literal}")
         params: dict[str, Any] = dict(source.params)
-        params["$orderby"] = source.orderby or source.key.replace(".", "/")
+        params["$orderby"] = source.orderby or ",".join(
+            one.replace(".", "/") for one in key_paths(source.key)
+        )
         params["$top"] = source.page_size
         if conditions:
             params["$filter"] = " and ".join(conditions)
@@ -130,25 +145,19 @@ class ODataAdapter:
             params["$format"] = "json"
         return params
 
-    def _record(self, item: Any) -> SourceRecord:
-        if not isinstance(item, dict):
-            raise SourceError(f"항목이 객체가 아닙니다: {item!r}")
+    def _records(self, item: Any) -> list[SourceRecord]:
         source = self.source
-        key = as_text(value_at(item, source.key)).strip()
-        if not key:
-            raise SourceError(f"식별자({source.key})가 빈 항목입니다: {item!r}")
-        deleted = bool(source.deleted) and truthy(value_at(item, source.deleted or ""))
-        values = (
-            {}
-            if deleted
-            else {out: as_text(value_at(item, path)) for out, path in source.columns.items()}
+        return records_of(
+            item,
+            key=source.key,
+            columns=source.columns,
+            deleted=source.deleted,
+            updated_at=source.modified_field,
+            explode=source.explode,
         )
-        updated = (
-            as_text(value_at(item, source.modified_field)) if source.modified_field else ""
-        )
-        return SourceRecord(
-            key=key, values=values, updated_at=updated or None, deleted=deleted
-        )
+
+    def _record(self, item: Any) -> SourceRecord:
+        return self._records(item)[0]
 
     def probe(self) -> str:
         """닿나 — `$top=1` 한 번(`relay check`). 실패면 `SourceError`."""
@@ -160,7 +169,7 @@ class ODataAdapter:
                 self._client,
                 f"{source.service_url.rstrip('/')}/{source.entity_set}",
                 params=params,
-                headers=source.auth.headers(),
+                auth=source.auth,
                 retries=1,
                 sleep=self._sleep,
             )
@@ -172,7 +181,12 @@ class ODataAdapter:
             items = inner if isinstance(inner, list) else inner.get("results", [])
         else:
             raise SourceError("OData 봉투(value · d)가 아닙니다")
-        first = f", 식별자 {as_text(value_at(items[0], source.key))}" if items else ""
+        first = (
+            ", 식별자 "
+            + KEY_JOIN.join(as_text(value_at(items[0], one)) for one in key_paths(source.key))
+            if items
+            else ""
+        )
         return f"응답 정상 — {len(items)}줄{first}"
 
     def metadata(self) -> list[dict[str, Any]]:
@@ -182,7 +196,9 @@ class ODataAdapter:
 
         source = self.source
         got = self._client.get(
-            f"{source.service_url.rstrip('/')}/$metadata", headers=source.auth.headers()
+            f"{source.service_url.rstrip('/')}/$metadata",
+            headers=source.auth.headers(),
+            params=source.auth.query(),
         )
         if got.status_code != 200:
             raise SourceError(f"$metadata 를 못 읽었습니다: {got.status_code}")
@@ -231,7 +247,7 @@ class ODataAdapter:
                     self._client,
                     f"{source.service_url.rstrip('/')}/{source.entity_set}",
                     params={**self._first_params(None, version), "$top": 5},
-                    headers=source.auth.headers(),
+                    auth=source.auth,
                     retries=1,
                     sleep=self._sleep,
                 )
@@ -246,6 +262,7 @@ class ODataAdapter:
     def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
         """`limit` 이면 그만큼만 받고 멈춘다(시험용 — `complete=False`)."""
         source = self.source
+        check_shape(source.key, source.explode)
         version = source.version if source.version in ("2", "4") else "4"
         url = f"{source.service_url.rstrip('/')}/{source.entity_set}"
         params: dict[str, Any] | None = self._first_params(since, version)
@@ -258,7 +275,7 @@ class ODataAdapter:
                     self._client,
                     url,
                     params=params,
-                    headers=source.auth.headers(),
+                    auth=source.auth,
                     retries=source.retries,
                     sleep=self._sleep,
                 )
@@ -274,10 +291,10 @@ class ODataAdapter:
             if not isinstance(items, list):
                 raise SourceError(f"OData 행이 목록이 아닙니다: {items!r:.300}")
             for item in items:
-                one = self._record(item)
-                records.append(one)
-                if one.updated_at:
-                    marks.append(one.updated_at)
+                for one in self._records(item):
+                    records.append(one)
+                    if one.updated_at:
+                        marks.append(one.updated_at)
             if limit and len(records) >= limit:
                 return Fetched(records=records[:limit], complete=False)
             if nxt:

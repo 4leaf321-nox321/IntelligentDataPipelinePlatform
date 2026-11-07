@@ -6,7 +6,7 @@
  * 타입은 생성된 것(`schema.d.ts`)을 쓴다.
  */
 
-import { api } from '@/shared/api/client'
+import { api, downloadFile } from '@/shared/api/client'
 // 생성물(`npm run api:types` — 커밋된 backend/openapi.json 에서). git 에 없으므로 `npm run build` 가
 // 먼저 만든다(`prebuild`) — 없으면 막 받은 저장소(CI · 번들)에서 tsc 가 멈춘다(2026-11-06 첫 CI).
 import type { components } from '@/shared/api/schema'
@@ -32,6 +32,13 @@ export type RunIn = Schemas['RunIn']
 /** 실행 추이 — 실행마다 한 줄(오래된 것부터). 작업 폴더의 `trend.json` 이라 작업 기록이 지워져도 남는다. */
 export type TrendOut = Schemas['TrendOut']
 export type TrendRow = Schemas['TrendRow']
+/** 미해결 작업함 — 멈춘 실행의 참조(후보와 함께) · 값 갈림(`app/modules/relay/unresolved.py`). */
+export type InboxOut = Schemas['InboxOut']
+export type InboxReference = Schemas['ReferenceOut']
+export type InboxCandidate = Schemas['CandidateOut']
+export type InboxSplit = Schemas['SplitOut']
+export type SuggestOut = Schemas['SuggestOut']
+export type AliasEntry = Schemas['EntryIn']
 /** 거꾸로 보기 — 대상 객체 하나의 값이 어느 원천 행 · 칸 · 레시피 규칙에서 왔나(`relay_core/trace`). */
 export type ValueTrace = Schemas['TraceOut']
 export type TraceField = Schemas['TraceField']
@@ -352,6 +359,52 @@ export interface RecipeTrial {
 /** 정의의 판 하나 — 레시피 판과 같은 넷(draft · active · retired · discarded). 새것이 먼저 온다. */
 export type DefinitionVersion = Schemas['DefinitionOut']
 export type DefinitionTestIn = Schemas['DefinitionTestIn']
+export type DefinitionSaved = Schemas['DefinitionSaved']
+
+/** 어댑터 종류의 칸 — 서버의 정의 모양(dataclass)에서 계산한다(`definitions.kinds`). 비밀 칸은 없다. */
+export interface AdapterField {
+  name: string
+  type: string
+  required: boolean
+  default: unknown
+  doc: string
+}
+
+export interface AdapterKinds {
+  kinds: { kind: string; doc: string; required: string[]; fields: AdapterField[] }[]
+  auth: AdapterField[]
+  secret_fields: string[]
+}
+
+/** 탐색 — 어댑터 설정으로 원천에 닿아 칸의 자리 · 보기 값 · 열 이름 제안. 저장하지 않는다. */
+export interface DiscoverOut {
+  kind: string
+  ok: boolean
+  probe?: string
+  probe_error?: string
+  error?: string
+  found?: {
+    paths?: { path: string; sample: string }[]
+    columns?: Record<string, string>
+    rows_seen?: number
+    entity_sets?: { entity_set: string; entity_type?: string; key?: string[] }[]
+    metadata_note?: string
+  }
+}
+
+/** 대상 SP 의 정의 — 타입 → 칸 → 정의(자료형 · 이름 …). 레시피가 없는 초안이면 대상의 타입 전부. */
+export interface TargetSchema {
+  target: string
+  server: string
+  note: string
+  types: Record<string, Record<string, { key: string; label?: string; data_type?: string }>>
+}
+
+/** SP 타입 정의 초안 — SP 관리자에게 넘길 타입 정의와 그 타입으로 옮기는 레시피의 첫 판. */
+export interface TypeDraft {
+  ontology: { types: { slug: string; label: string; properties: { key: string; label: string; data_type: string }[] }[] }
+  recipe: Record<string, unknown>
+}
 
 /** 판의 본문 — `relay-pipeline/1` 그대로. 비밀은 안 든다(토큰은 환경 변수 이름만, `routes.definition_body`). */
 export interface DefinitionBody extends DefinitionVersion {
@@ -464,11 +517,22 @@ export const relayApi = {
   map: () => api.get<RelayMap>('/relay/map'),
   pipeline: (slug: string) => api.get<PipelineDetail>(slugPath(slug)),
   /** 작업으로 넣는다(202) — 원천 · 대상이 느리면 요청이 끊기므로 요청 안에서 안 돌린다. */
-  run: (slug: string, humanEdits: HumanEdits, accept = false) =>
+  run: (slug: string, humanEdits: HumanEdits, accept = false, full = false) =>
     api.post<QueuedOut>(`${slugPath(slug)}/run`, {
       human_edits: humanEdits,
       accept,
+      full,
     } satisfies RunIn),
+  /** 미해결 작업함 — 시스템 관리자만(원천 표기가 그대로 나온다). 대상에 후보를 묻느라 몇 초 걸릴 수 있다. */
+  unresolved: (slug: string) => api.get<InboxOut>(`${slugPath(slug)}/unresolved`),
+  /** GLM 이 대상의 후보 안에서 하나를 고른다 — 설정하지 않았으면 409. 제안일 뿐이다. */
+  suggest: (slug: string, target: string, text: string, column: string) =>
+    api.post<SuggestOut>(`${slugPath(slug)}/unresolved/suggest`, { target, text, column }),
+  /** 선택한 대응을 지금 레시피의 relay 사전에 더해 **레시피 판 초안**으로 — 사용은 레시피 판에서. */
+  draftAliases: (slug: string, entries: AliasEntry[], note = '') =>
+    api.post<RecipeSaved>(`${slugPath(slug)}/unresolved/draft`, { entries, note }),
+  /** 대표 플랫폼에 별칭 등록을 요청할 목록(CSV) — 지금 레시피의 relay 사전 그대로. */
+  aliasCsv: (slug: string) => downloadFile(`${slugPath(slug)}/aliases.csv`, `${slug}-별칭요청.csv`),
   /** 실행 추이 — 끝의 `limit` 줄(서버 상한 400). 읽기만 한다. */
   trend: (slug: string, limit = 90) =>
     api.get<TrendOut>(`${slugPath(slug)}/trend?limit=${limit}`),
@@ -507,6 +571,24 @@ export const relayApi = {
     api.get<DefinitionBody>(definitionPath(slug, version)),
   definitionFile: (slug: string) => api.get<DefinitionFile>(`${slugPath(slug)}/definition-file`),
   /** 레시피 판을 안 주면 켜진 판, 그것도 없으면 정의 파일의 레시피로 바꿔 본다. */
+  /** 어댑터 종류마다 칸 · 설명 — 새 연결의 입력 칸을 이것으로 그린다. */
+  adapterKinds: () => api.get<AdapterKinds>('/relay/adapter-kinds'),
+  /** 원천 탐색 — 저장하지 않는다. 부를 수 있는 주소는 울타리 안만(서버가 거절한다). */
+  discover: (adapter: Record<string, unknown>) =>
+    api.post<DiscoverOut>('/relay/discover', { adapter }),
+  /** 정의 판 초안 — 새 slug 면 새 파이프라인(사용하기 전까지 실행되지 않는다). */
+  saveDefinition: (slug: string, body: Record<string, unknown>, note: string) =>
+    api.post<DefinitionSaved>(`${slugPath(slug)}/definitions`, { body, note }),
+  targetSchema: (slug: string) => api.get<TargetSchema>(`${slugPath(slug)}/target-schema`),
+  /** 대상에 받을 타입이 없을 때 — 원천 표본으로 SP 타입 정의 초안 · 레시피의 첫 판. 저장하지 않는다. */
+  typeDraft: (body: {
+    type_slug: string
+    label: string
+    key_column: string
+    label_column: string
+    columns: Record<string, string[]>
+    system: string
+  }) => api.post<TypeDraft>('/relay/type-draft', body),
   testDefinition: (slug: string, version: number, body: Partial<DefinitionTestIn> = {}) =>
     api.post<DefinitionTrial>(`${definitionPath(slug, version)}/test`, body),
   /** 켠다 — **화면의 사람만**(서버가 토큰을 거절한다). 다음 실행부터 이 판이 같은 slug 의 정의 파일 대신 돈다. */

@@ -7,8 +7,9 @@ from __future__ import annotations
 import itertools
 import json
 from typing import Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -16,7 +17,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.jobs import services as job_services
-from app.modules.relay import definitions, recipes, services
+from app.modules.relay import definitions, recipes, services, unresolved
 from app.modules.relay import jobs as relay_jobs  # noqa: F401 — import 가 곧 작업 종류 등록
 from app.modules.relay.models import RelayDefinition, RelayRecipe
 from app.modules.relay.schemas import (
@@ -25,16 +26,21 @@ from app.modules.relay.schemas import (
     DefinitionSaved,
     DefinitionTestIn,
     DiscoverIn,
+    DraftIn,
+    InboxOut,
     PipelineDetail,
     RecipeIn,
     RecipeOut,
     RecipeSaved,
     RelayMap,
+    SuggestIn,
+    SuggestOut,
     TraceOut,
     TrendOut,
+    TypeDraftIn,
 )
 from app.shared.auth import current_user, require_system_admin
-from app.shared.errors import Conflict, Forbidden, NotFound, code
+from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
 from relay_core import intake
 from relay_core.state import TREND_MAX, Workdir
 
@@ -48,6 +54,9 @@ class RunIn(BaseModel):
     accept: bool = False
     """받기 점검의 멈춤을 확인하고 진행한다(「확인 후 진행」) — **지금 멈춘 건수 · 칸까지만**
     (`relay_core.intake.Accept`). 화면에서 사람만 — 토큰으로는 거절한다."""
+    full: bool = False
+    """전량 다시 받기 — 워터마크를 두고 처음부터 받는다(어댑터의 칸을 고친 뒤). 안 온 것은
+    삭제로 읽히므로 받기 점검이 대량 삭제를 막는다."""
 
 
 class QueuedOut(BaseModel):
@@ -92,6 +101,8 @@ def pipeline_run(
         params["human_edits"] = body.human_edits
     if body and body.accept:
         params["accept"] = _accept(slug, request, user)
+    if body and body.full:
+        params["full"] = True
     return _queue(db, user, services.RUN_KIND, params)
 
 
@@ -204,6 +215,61 @@ def pipeline_trace(
         for one in got["fields"]:
             one["seen"] = []
     return got
+
+
+# --- 미해결 작업함 — 승인한 대응은 레시피 판 초안으로(relay 사전) ---------------------------
+
+
+@router.get("/pipelines/{slug}/unresolved", response_model=InboxOut)
+def pipeline_unresolved(
+    slug: str, _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> InboxOut:
+    """미해결로 멈춘 실행의 미해결 — 참조마다 대상의 후보, 값 갈림. **원천 표기가 그대로**
+    나오므로 시스템 관리자만. 대상에는 읽기만 한다."""
+    return unresolved.read(db, slug)
+
+
+@router.post("/pipelines/{slug}/unresolved/suggest", response_model=SuggestOut)
+def pipeline_unresolved_suggest(
+    slug: str,
+    body: SuggestIn,
+    _: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> SuggestOut:
+    """GLM 이 대상의 후보 안에서 하나를 고른다 — 제안일 뿐, 정하는 것은 사람이다."""
+    return unresolved.suggest(db, slug, body.target, body.text, body.column)
+
+
+@router.post("/pipelines/{slug}/unresolved/draft", response_model=RecipeSaved, status_code=201)
+def pipeline_unresolved_draft(
+    slug: str,
+    body: DraftIn,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> RecipeSaved:
+    """승인한 대응을 지금 레시피의 relay 사전에 더해 **레시피 판 초안**으로 저장한다 — 대상에
+    있는 키만. 시험 · 사용은 레시피 판에서(사용은 화면의 사람만)."""
+    return unresolved.draft(db, user, request, slug, body.entries, body.note)
+
+
+@router.get("/pipelines/{slug}/aliases.csv", include_in_schema=False)
+def pipeline_alias_csv(
+    slug: str, _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> Response:
+    """대표 플랫폼에 **별칭 등록을 요청할 목록** — 지금 레시피의 relay 사전 그대로. Excel 이
+    한글을 깨지 않게 BOM 을 붙인다. 생성 타입에 싣지 않는다(내려받는 자리다)."""
+    text = unresolved.alias_csv(db, slug)
+    name = f"{slug}-별칭요청.csv"
+    return Response(
+        content="\ufeff" + text,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=\"{slug}-aliases.csv\"; filename*=UTF-8''{quote(name)}"
+            )
+        },
+    )
 
 
 # --- 레시피의 판 — MCP 가 초안 · 시험, 사람이 화면에서 켠다 ------------------------------
@@ -357,6 +423,28 @@ def target_schema(
 def adapter_kinds(_: User = Depends(require_system_admin)) -> dict[str, Any]:
     """어댑터 종류마다 적을 칸 · 기본값 · 설명 — 코드의 설명을 그대로."""
     return definitions.kinds()
+
+
+@router.post("/type-draft")
+def type_draft(body: TypeDraftIn, _: User = Depends(require_system_admin)) -> dict[str, Any]:
+    """대상에 받을 타입이 없을 때 — 원천 표본으로 **SP 타입 정의 초안**과 그 타입으로 옮기는
+    레시피의 첫 판을 짓는다(`relay_core.typedraft`). 아무 데도 저장 · 전송하지 않는다 — 타입은
+    SP 관리자가 대상에 넣는다."""
+    from relay_core.typedraft import draft
+
+    if len(body.columns) > 300:
+        raise AppError(code("RELAY", 29), "열이 너무 많습니다(300개까지).", status=422)
+    try:
+        return draft(
+            type_slug=body.type_slug,
+            label=body.label,
+            columns={k: v[:50] for k, v in body.columns.items()},
+            key_column=body.key_column,
+            label_column=body.label_column,
+            system=body.system,
+        )
+    except ValueError as failure:
+        raise AppError(code("RELAY", 29), str(failure), status=422) from failure
 
 
 @router.post("/discover")

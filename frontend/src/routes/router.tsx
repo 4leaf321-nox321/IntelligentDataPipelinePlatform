@@ -38,6 +38,7 @@ const NotificationsPage = lazy(() => import('@/modules/notifications/Notificatio
 const ProfilePage = lazy(() => import('@/modules/auth/ProfilePage'))
 // 중계 — 지도만 흐름도 라이브러리(React Flow)를 싣는다. 표 화면은 그것을 안 받는다.
 const PipelineDetailPage = lazy(() => import('@/modules/relay/PipelineDetailPage'))
+const NewConnectionPage = lazy(() => import('@/modules/relay/NewConnectionPage'))
 const PipelinesPage = lazy(() => import('@/modules/relay/PipelinesPage'))
 const RelayMapPage = lazy(() => import('@/modules/relay/RelayMapPage'))
 const SourcesPage = lazy(() => import('@/modules/relay/SourcesPage'))
@@ -94,6 +95,7 @@ export const router = createBrowserRouter(
             // 중계 — 이 플랫폼의 일(ADR 0001).
             { path: 'relay/map', element: <RelayMapPage /> },
             { path: 'relay/pipelines', element: <PipelinesPage /> },
+            { path: 'relay/pipelines/new', element: <NewConnectionPage /> },
             { path: 'relay/pipelines/:slug', element: <PipelineDetailPage /> },
             { path: 'relay/sources', element: <SourcesPage /> },
             { path: 'relay/targets', element: <TargetsPage /> },
