@@ -9,7 +9,8 @@
                   "since_param": "updated_since",
                   "auth": {"kind": "bearer", "token_env": "PLM_TOKEN"}},
       "recipe": "plm-models.table.json",
-      "target": {"name": "jvhub", "server": "http://…:8040", "token_env": "JVHUB_TOKEN"}
+      "target": {"name": "jvhub", "server": "http://…:8040", "token_env": "JVHUB_TOKEN"},
+      "intake": {"delete_ratio": 0.05, "delete_rows": 10, "blank_rows": 3}
     }
 
 **비밀은 정의에 적지 않는다** — `token_env` 로 환경 변수의 이름만 적는다. 정의 · 레시피는 열
@@ -32,6 +33,9 @@ from relay_core.adapters.file import FileAdapter, FileSource
 from relay_core.adapters.odata import ODataAdapter, ODataSource
 from relay_core.adapters.rest import Auth, RestAdapter, RestSource, SourceError
 from relay_core.adapters.xml import XmlAdapter, XmlSource, check_xml
+from relay_core.intake import IntakeError
+from relay_core.intake import Policy as IntakePolicy
+from relay_core.intake import check as check_intake
 
 FORMAT = "relay-pipeline/1"
 _SLUG = re.compile(r"^[a-z][a-z0-9-]{0,39}$")
@@ -61,6 +65,8 @@ class Pipeline:
     recipe: Path
     target: Target
     path: Path
+    intake: IntakePolicy | None = field(default_factory=IntakePolicy)
+    """받기 점검(`relay_core.intake`) — 정의의 `intake`. None 이면 점검하지 않는다."""
 
 
 def _secret(spec: dict[str, Any], where: str, env: Mapping[str, str]) -> str:
@@ -247,7 +253,16 @@ def check_body(body: dict[str, Any]) -> tuple[str, str]:
         check(body.get("auto_apply"))
     except AutoApplyError as failure:
         raise DefinitionError(str(failure)) from failure
+    intake(body)
     return slug, source
+
+
+def intake(body: dict[str, Any]) -> IntakePolicy | None:
+    """정의의 `intake` — 없으면 기본값(켜짐), `false` 면 None."""
+    try:
+        return check_intake(body.get("intake"))
+    except IntakeError as failure:
+        raise DefinitionError(str(failure)) from failure
 
 
 def load_body(
@@ -288,6 +303,7 @@ def load_body(
         recipe=recipe,
         target=target,
         path=path or Path(f"<판:{slug}>"),
+        intake=intake(body),
     )
 
 

@@ -1,24 +1,31 @@
 """실행 한 바퀴 — 받기 → 미러 → 변환 → 비교 → 미리보기. 적용은 따로(`apply`).
 
 1. 대기 중인 계획이 있으면 먼저 「적용됐나」 를 묻는다 — 됐으면 그 출력이 새 기준이다.
-2. 원천에서 받는다(워터마크 뒤로). 끝까지 받은 뒤에만 미러 · 워터마크를 저장한다.
+2. 원천에서 받는다(워터마크 뒤로). 새 미러를 임시 파일에 쓰고 **받기 점검**(`intake` —
+   대량 삭제 · 빈 칸)을 본다. 걸리면 아무것도 반영하지 않고 멈춘다(사람이 「확인 후
+   진행」). 지나가면 미러를 바꿔 끼우고, 끝까지 받았으면 워터마크를 저장한다.
 3. 미러 **전체**를 레시피로 변환한다 — 표를 메모리에 들지 않고 식별자로 나눠서
    (`relay_core.table`). 미해결이 있으면 멈춘다 — 레시피를 고친다.
 4. 지난번 **적용된** 출력과 견준다(이것도 나눠서 — `diff.delta`). 보낼 것이 없으면 끝.
 5. 보낼 것이 대기 중인 계획과 같으면 새로 올리지 않는다 — 매일 밤 같은 계획이 쌓이지 않게.
    다르면 미리보기를 올리고 그것이 새 대기 계획이 된다. 크면 **나눠 보낸다**(`parts` — 첫
    조각만 미리 보고, 「적용」 이 조각마다 미리 보기 → 적용을 잇는다).
+
+실행마다 **실행 추이**(`trend.json`)에 한 줄을 남긴다 — 받은 행 · 미러 · 계획의 건수 · 걸린
+시간. 실패한 실행도 남긴다(어디까지 갔는지와 함께).
 """
 
 from __future__ import annotations
 
+import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from relay_core import parts, sp
+from relay_core import intake, parts, sp
 from relay_core.convert import transform, write_source
 from relay_core.definition import Pipeline, Target
 from relay_core.diff import Delta, delta
@@ -155,12 +162,80 @@ def pending_of(
     )
 
 
+log = logging.getLogger(__name__)
+
+
+def _totals(counts: dict[str, Any]) -> dict[str, int]:
+    """계획의 건수 — 객체 · 관계를 합쳐 생성 · 변경 · 삭제."""
+    out = {"created": 0, "changed": 0, "gone": 0}
+    for group in counts.values():
+        for one in (group or {}).values():
+            for name in out:
+                out[name] += int(one.get(name, 0))
+    return out
+
+
+def _record(work: Workdir, status: str, sheet: dict[str, Any], seconds: float) -> None:
+    """실행 추이에 한 줄 — **실패해도 실행은 실패가 아니다**(할 일은 했다)."""
+    entry = {"at": _now(), "status": status, "seconds": round(seconds, 1), **sheet}
+    try:
+        work.add_trend(entry)
+    except (OSError, ValueError):
+        log.warning("실행 추이를 쓰지 못했습니다: %s", work.root, exc_info=True)
+
+
 def run(
     pipeline: Pipeline,
     work: Workdir,
     submit: Submitter | None = None,
     *,
     options: dict[str, str] | None = None,
+    accept: intake.Accept | None = None,
+) -> Outcome:
+    """한 바퀴. `accept` 는 사람이 「확인 후 진행」 으로 지나가게 한 받기 점검의 멈춤이다 —
+    그 건수 · 칸까지만 지나간다(`intake.Accept.covers`)."""
+    started = time.monotonic()
+    sheet: dict[str, Any] = {}
+    try:
+        outcome = _run(pipeline, work, submit, options=options, accept=accept, sheet=sheet)
+    except Exception:
+        _record(work, "failed", sheet, time.monotonic() - started)
+        raise
+    sheet.pop("stage", None)  # 어디까지 갔나는 실패한 실행에만 뜻이 있다
+    if outcome.counts:
+        sheet["plan"] = _totals(outcome.counts)
+    _record(work, outcome.status, sheet, time.monotonic() - started)
+    return outcome
+
+
+def _held(
+    work: Workdir, state: State, found: intake.Findings, note: str, sheet: dict[str, Any]
+) -> Outcome:
+    """받기 점검이 멈춘다 — 미러 · 워터마크 · 증분 횟수는 그대로(다음 실행이 같은 것을 다시
+    받는다). 까닭을 상태에 적어 화면이 「확인 후 진행」 을 낸다."""
+    reasons = found.reasons()
+    state.held = {"at": _now(), "findings": found.to_json(), "reasons": reasons}
+    state.history.append({"at": _now(), "event": "held", "reasons": reasons})
+    work.save_state(state)
+    sheet["held"] = True
+    return Outcome(
+        "blocked",
+        note
+        + "받기 점검에서 멈췄습니다 — 미러 · 워터마크에 반영하지 않았습니다. "
+        + " ".join(reasons)
+        + " 원천 · 어댑터를 수정하면 다음 실행이 지나가고, 맞는 변경이면 화면에서 「확인 후 "
+        "진행」 을 클릭하세요.",
+    )
+
+
+def _run(
+    pipeline: Pipeline,
+    work: Workdir,
+    submit: Submitter | None,
+    *,
+    options: dict[str, str] | None,
+    accept: intake.Accept | None,
+    sheet: dict[str, Any],
 ) -> Outcome:
     submit = submit or Submitter(pipeline.target)
     state = work.load_state()
@@ -174,21 +249,51 @@ def run(
     due = full_every and state.incrementals + 1 >= full_every
     if since and due and not getattr(source, "deleted", None):
         since = None
+    sheet["stage"] = "받기"
     fetched = pipeline.adapter.fetch(since)
-    state.incrementals = 0 if fetched.full else state.incrementals + 1
+    full, complete, watermark = fetched.full, fetched.complete, fetched.watermark
     # 미러는 파일에서 흘려 이어 쓴다 — 메모리에는 받은 것만 든다(원천이 수십만 행이면 미러
-    # 한 벌이 GB 다).
-    took, size = work.merge_mirror(fetched)
-    if fetched.complete:
-        state.watermark = fetched.watermark
+    # 한 벌이 GB 다). 먼저 임시 파일에만 쓰고 받기 점검을 본다.
+    sheet["stage"] = "미러"
+    staged = work.stage_mirror(fetched)
+    took, size = staged.applied, staged.size
+    sheet.update(
+        received=len(fetched.records),
+        full=full,
+        mirror=size,
+        added=took.added,
+        changed=took.changed,
+        removed=took.removed,
+    )
     note += (
         f"받음 {len(fetched.records)}건(추가 {took.added} · 변경 {took.changed} · "
         f"그대로 {took.unchanged} · 삭제 {took.removed}) · 미러 {size}건. "
     )
     del fetched
+    checked = intake.inspect(pipeline.intake, staged.tally)
+    if checked.held and not (accept is not None and accept.covers(checked)):
+        staged.discard()
+        sheet["mirror"] = staged.tally.before  # 반영하지 않았다 — 미러는 그대로다
+        return _held(work, state, checked, note, sheet)
+    staged.commit()
+    if checked.held and accept is not None:
+        state.history.append(
+            {
+                "at": _now(),
+                "event": "held_accepted",
+                "by": accept.by,
+                "reasons": checked.reasons(),
+            }
+        )
+        note += "받기 점검의 멈춤을 확인하고 진행했습니다. "
+    state.held = None
+    state.incrementals = 0 if full else state.incrementals + 1
+    if complete:
+        state.watermark = watermark
     work.save_state(state)
     if size == 0:
         return Outcome("nothing", note + "미러가 비어 있습니다.")
+    sheet["stage"] = "변환"
 
     when = stamp()
     run_folder = work.path(f"runs/{when}")
@@ -205,6 +310,7 @@ def run(
             "table-report.txt 를 보고 레시피를 수정하세요.",
         )
 
+    sheet["stage"] = "비교"
     pending = state.pending
     if pending is not None and pending.origin == "run" and pending.part > 0:
         # **나눠 보내는 계획이 일부 들어가 있다.** 원천이 그대로면 그 계획을 잇는다 —
@@ -257,6 +363,7 @@ def run(
             counts=counts,
         )
 
+    sheet["stage"] = "미리 보기"
     plan, cut = propose(submit, found.run, pipeline.target)
     state.pending = pending_of(
         plan,

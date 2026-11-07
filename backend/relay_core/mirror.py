@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from relay_core.adapters.base import Fetched
+from relay_core.intake import Tally
 from relay_core.records import SourceRecord
 
 
@@ -124,8 +125,13 @@ class Merge:
     def __init__(self, fetched: Fetched) -> None:
         self._full = fetched.full and fetched.complete
         self._incoming: dict[str, list[SourceRecord]] = {}
+        self.tally = Tally()
+        """받기 점검(`intake`)의 재료 — 반영 전 미러 · 받은 행에서 칸마다 값이 있던 수."""
         for one in fetched.records:
             self._incoming.setdefault(one.key, []).append(one)
+            if not one.deleted:
+                self.tally.received += 1
+                self.tally.filled.update(c for c, v in one.values.items() if _has(v))
         self.added = self.changed = self.unchanged = self.removed = 0
         self.count = 0
         """새 미러의 행 수."""
@@ -140,6 +146,16 @@ class Merge:
         )
 
     def _settle(self, before: SourceRecord | None, key: str) -> SourceRecord | None:
+        old = before
+        settled = self._fold(before, key)
+        if old is not None and settled is not None:
+            # 값이 있던 칸을 이번에 잃었나 — 빈 값이든 칸이 아예 없든(파일의 머리글이 바뀜).
+            self.tally.lost.update(
+                c for c, v in old.values.items() if _has(v) and not _has(settled.values.get(c))
+            )
+        return settled
+
+    def _fold(self, before: SourceRecord | None, key: str) -> SourceRecord | None:
         for one in self._incoming[key]:
             if one.deleted:
                 if before is not None:
@@ -164,6 +180,8 @@ class Merge:
             if last is not None and old.key <= last:
                 raise ValueError(f"미러의 차례가 어긋났습니다({last!r} 뒤에 {old.key!r})")
             last = old.key
+            self.tally.before += 1
+            self.tally.old_filled.update(c for c, v in old.values.items() if _has(v))
             while at < len(waiting) and waiting[at] < old.key:
                 new = self._settle(None, waiting[at])
                 at += 1
@@ -188,3 +206,8 @@ class Merge:
             if new is not None:
                 self.count += 1
                 yield new
+        self.tally.removed = self.removed
+
+
+def _has(value: str | None) -> bool:
+    return bool(value and value.strip())

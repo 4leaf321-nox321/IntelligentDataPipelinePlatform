@@ -31,10 +31,12 @@ from app.modules.relay.schemas import (
     RecipeSaved,
     RelayMap,
     TraceOut,
+    TrendOut,
 )
 from app.shared.auth import current_user, require_system_admin
 from app.shared.errors import Conflict, Forbidden, NotFound, code
-from relay_core.state import Workdir
+from relay_core import intake
+from relay_core.state import TREND_MAX, Workdir
 
 router = APIRouter(prefix="/relay", tags=["relay"])
 
@@ -43,6 +45,9 @@ class RunIn(BaseModel):
     human_edits: str | None = None
     """대상 SP 에서 사람이 고친 칸 — 비우면 keep(비켜 가고 계획에 적음), overwrite 면
     덮는다."""
+    accept: bool = False
+    """받기 점검의 멈춤을 확인하고 진행한다(「확인 후 진행」) — **지금 멈춘 건수 · 칸까지만**
+    (`relay_core.intake.Accept`). 화면에서 사람만 — 토큰으로는 거절한다."""
 
 
 class QueuedOut(BaseModel):
@@ -77,6 +82,7 @@ def _queue(db: Session, user: User, kind: str, params: dict[str, Any]) -> Queued
 @router.post("/pipelines/{slug}/run", response_model=QueuedOut, status_code=202)
 def pipeline_run(
     slug: str,
+    request: Request,
     body: RunIn | None = None,
     user: User = Depends(require_system_admin),
     db: Session = Depends(get_db),
@@ -84,7 +90,33 @@ def pipeline_run(
     params: dict[str, Any] = {"slug": slug}
     if body and body.human_edits:
         params["human_edits"] = body.human_edits
+    if body and body.accept:
+        params["accept"] = _accept(slug, request, user)
     return _queue(db, user, services.RUN_KIND, params)
+
+
+def _accept(slug: str, request: Request, user: User) -> dict[str, Any]:
+    """「확인 후 진행」 — 받기 점검이 멈춘 것을 **지금 적힌 그대로** 작업에 싣는다. 실행이 돌
+    때 그보다 나빠졌으면(삭제가 늘거나 다른 칸이 비면) 다시 멈춘다. 대량 삭제를 지나가게 하는
+    일이라 계획의 적용처럼 화면에서 사람만 한다."""
+    if getattr(request.state, "token_scopes", None) is not None:
+        raise Forbidden(
+            code("RELAY", 23),
+            "받기 점검의 확인은 화면에서 사람이 합니다 — 토큰(MCP)으로는 확인할 수 없습니다. "
+            "멈춘 까닭을 화면에서 확인하고 「확인 후 진행」 을 클릭하세요.",
+        )
+    held = (services.read_state(slug) or {}).get("held")
+    accept = intake.Accept.of(held)
+    if accept is None:
+        raise Conflict(
+            code("RELAY", 24),
+            f"{slug} 은 받기 점검에서 멈춘 것이 없습니다 — 「지금 실행」 을 클릭하세요.",
+        )
+    return {
+        "deleted": accept.deleted,
+        "columns": list(accept.columns),
+        "by": user.display_name,
+    }
 
 
 @router.post("/pipelines/{slug}/apply", response_model=QueuedOut, status_code=202)
@@ -139,6 +171,19 @@ def pipeline_reconcile_report(
     if report is None:
         raise NotFound(code("RELAY", 18), f"{slug} 은 아직 대조한 적이 없습니다.")
     return report
+
+
+@router.get("/pipelines/{slug}/trend", response_model=TrendOut)
+def pipeline_trend(
+    slug: str,
+    limit: int = Query(90, ge=1, le=TREND_MAX),
+    _: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> TrendOut:
+    """실행 추이 — 실행마다 받은 행 · 미러 · 계획의 건수 · 걸린 시간(`relay_core.runner`).
+    작업 기록은 며칠 뒤 지워지므로 작업 폴더의 것을 읽는다. 읽기만 — 누구나."""
+    services.by_slug(slug, db)  # 없는 파이프라인이면 404
+    return services.trend(slug, limit)
 
 
 @router.get("/pipelines/{slug}/trace", response_model=TraceOut)

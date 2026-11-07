@@ -3,9 +3,12 @@
 타이머가 밤에 돌린 실행 · 대조는 시킨 사람이 없어 작업 알림(`jobs.announce`)이 아무에게도 가지
 않는다 — 실패해도 누가 홈 화면의 「남은 일」 을 열기 전까지 모른다(2026-11-05).
 
-세 갈래를 따로 본다.
+네 갈래를 따로 본다.
 
     실행   실행 · 적용 작업 — `failed`(작업 실패) · `blocked`(멈춤) · `ok`
+    늦음   일정대로라면 끝났어야 할 실행이 끝나지 않았나 — `late` · `ok`. 작업이 끝날 때 보는
+           셋과 달리 **일정 타이머가 5분마다 본다**(`watch_late`) — 작업 워커가 멈추면 끝나는
+           작업이 없어 다른 갈래는 아무 말도 못 한다. 타이머는 워커와 다른 프로세스다.
     대조   대조 작업, 보정 계획을 적용한 뒤의 다시 대조 — `same` · `drift` · `problem`
     계획   적용할 수 있는 대기 계획이 있나 — `waiting` · `none`. 자동 적용은 기본이 꺼져 있어
            밤의 실행이 올린 계획은 사람을 기다린다 — 알리지 않으면 대상이 옛 값인 채로 남는다.
@@ -24,6 +27,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
@@ -38,7 +42,7 @@ from relay_core.state import Workdir
 FILE = "alerts.json"
 LOCK = "datarelay:relay_alert"
 #: 알린 적이 없으면 좋은 상태로 본다 — 첫 실행이 실패하면 그것부터 알린다.
-GOOD = {"run": "ok", "reconcile": "same", "plan": "none"}
+GOOD = {"run": "ok", "reconcile": "same", "plan": "none", "late": "ok"}
 BODY_MAX = 500
 
 
@@ -120,6 +124,47 @@ def _message(lane: str, state: str, slug: str, job: Job) -> tuple[str, str, str]
     return notifications.RELAY_DRIFT_RESOLVED, f"{slug} 대상과 일치", said
 
 
+def _seen(db: Session, slug: str) -> dict[str, str]:
+    """지난번 알린 상태 — 이중화의 두 워커 · 두 타이머가 같은 파이프라인을 함께 봐도 상태
+    파일은 하나씩(트랜잭션의 자문 잠금 — 커밋에서 풀린다). 폴더를 미리 만들지 않는다 — 정의가
+    지워진 파이프라인의 작업이 빈 폴더를 되살리지 않게."""
+    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"{LOCK}:{slug}"})
+    file = get_settings().relay_work_dir / slug / FILE
+    return {**GOOD, **(json.loads(file.read_text(encoding="utf-8")) if file.is_file() else {})}
+
+
+def watch_late(db: Session, now: datetime | None = None) -> list[str]:
+    """일정 타이머(`scripts/relay_due.py`)가 부른다 — 늦음 갈래가 바뀐 파이프라인에 알린다.
+    알린 slug 를 돌려준다. **부르는 쪽이 커밋한다.**"""
+    told: list[str] = []
+    for found in services.catalog(db):
+        reason = services.lateness(db, found, now)
+        state = "late" if reason else "ok"
+        seen = _seen(db, found.slug)
+        if seen.get("late") == state:
+            continue
+        if state == "late":
+            kind, title, body = notifications.RELAY_RUN_LATE, f"{found.slug} 실행 늦음", reason
+        else:
+            kind, title = notifications.RELAY_RUN_RECOVERED, f"{found.slug} 실행 재개"
+            body = (
+                "늦어지던 실행이 다시 끝났습니다 — 결과는 파이프라인 상세의 실행 이력에서 "
+                "확인하세요."
+            )
+        notifications.notify_system_admins(
+            db,
+            kind=kind,
+            title=title,
+            body=body[:BODY_MAX],
+            link=f"/relay/pipelines/{found.slug}",
+        )
+        Workdir(get_settings().relay_work_dir, found.slug).write_json(
+            FILE, {**seen, "late": state}
+        )
+        told.append(found.slug)
+    return told
+
+
 def after_job(db: Session, job: Job) -> None:
     """중계 작업이 끝난 뒤(`jobs.Kind.after`) — 갈래의 상태가 바뀌었으면 알린다."""
     slug = str((job.params or {}).get("slug") or "")
@@ -137,12 +182,7 @@ def after_job(db: Session, job: Job) -> None:
     if reconciled:
         now["reconcile"] = reconciled
     now["plan"] = _plan_state(slug)
-    # 이중화의 두 워커가 같은 파이프라인의 두 작업을 함께 끝내도 상태 파일은 하나씩 —
-    # 트랜잭션의 자문 잠금(`settle` 의 커밋에서 풀린다).
-    db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"{LOCK}:{slug}"})
-    # 폴더를 미리 만들지 않는다 — 정의가 지워진 파이프라인의 작업이 빈 폴더를 되살리지 않게.
-    file = get_settings().relay_work_dir / slug / FILE
-    seen = {**GOOD, **(json.loads(file.read_text(encoding="utf-8")) if file.is_file() else {})}
+    seen = _seen(db, slug)
     changed = {lane: state for lane, state in now.items() if seen.get(lane) != state}
     for lane, state in changed.items():
         said = _message(lane, state, slug, job)

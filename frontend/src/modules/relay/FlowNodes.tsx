@@ -52,7 +52,15 @@ export function RelayNodeCard({ data }: NodeProps<RelayFlowNode>) {
   const pending = node.kind === 'pipeline' ? pipelineDetailOf(node) : null
   const planLink = node.status === 'pending' ? pending?.pending_link : ''
   const beyond = node.kind === 'downstream'
-  const title = [node.label, node.sub, driftTitle(node)].filter(Boolean).join('\n')
+  const title = [
+    node.label,
+    node.sub,
+    pending?.late ? `늦음 — ${pending.late}` : '',
+    ...(pending?.held ?? []).map((reason) => `받기 점검 멈춤 — ${reason}`),
+    driftTitle(node),
+  ]
+    .filter(Boolean)
+    .join('\n')
   return (
     <div
       data-testid={`relay-node-${node.kind}`}

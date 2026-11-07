@@ -4042,6 +4042,61 @@
         }
       }
     },
+    "/api/relay/pipelines/{slug}/trend": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Trend",
+        "description": "실행 추이 — 실행마다 받은 행 · 미러 · 계획의 건수 · 걸린 시간(`relay_core.runner`).\n작업 기록은 며칠 뒤 지워지므로 작업 폴더의 것을 읽는다. 읽기만 — 누구나.",
+        "operationId": "pipeline_trend_api_relay_pipelines__slug__trend_get",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 400,
+              "minimum": 1,
+              "default": 90,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrendOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/relay/pipelines/{slug}/trace": {
       "get": {
         "tags": [
@@ -7670,6 +7725,16 @@
             "title": "Auto Apply Label",
             "default": "미사용"
           },
+          "intake_label": {
+            "type": "string",
+            "title": "Intake Label",
+            "default": ""
+          },
+          "late": {
+            "type": "string",
+            "title": "Late",
+            "default": ""
+          },
           "definition_label": {
             "type": "string",
             "title": "Definition Label",
@@ -8463,6 +8528,11 @@
               }
             ],
             "title": "Human Edits"
+          },
+          "accept": {
+            "type": "boolean",
+            "title": "Accept",
+            "default": false
           }
         },
         "type": "object",
@@ -9032,6 +9102,164 @@
           "rows"
         ],
         "title": "TraceSeen"
+      },
+      "TrendOut": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/TrendRow"
+            },
+            "type": "array",
+            "title": "Rows"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "total"
+        ],
+        "title": "TrendOut"
+      },
+      "TrendPlan": {
+        "properties": {
+          "created": {
+            "type": "integer",
+            "title": "Created",
+            "default": 0
+          },
+          "changed": {
+            "type": "integer",
+            "title": "Changed",
+            "default": 0
+          },
+          "gone": {
+            "type": "integer",
+            "title": "Gone",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "TrendPlan"
+      },
+      "TrendRow": {
+        "properties": {
+          "at": {
+            "type": "string",
+            "title": "At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "seconds": {
+            "type": "number",
+            "title": "Seconds",
+            "default": 0
+          },
+          "received": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Received"
+          },
+          "full": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full"
+          },
+          "mirror": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mirror"
+          },
+          "added": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added"
+          },
+          "changed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changed"
+          },
+          "removed": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Removed"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrendPlan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "held": {
+            "type": "boolean",
+            "title": "Held",
+            "default": false
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "at",
+          "status"
+        ],
+        "title": "TrendRow",
+        "description": "실행 한 번(`relay_core.runner._record`) — 실패한 실행은 받은 수 · 미러가 비고 어디까지\n갔는지(`stage`)가 있다."
       },
       "UnreadCountOut": {
         "properties": {

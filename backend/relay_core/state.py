@@ -1,7 +1,8 @@
 """파이프라인의 상태 — 작업 폴더 하나(`<work>/<slug>/`).
 
     mirror.json    원천 키마다 최신 행
-    state.json     워터마크 · 지난번 **적용된** 출력 · 대기 중인 계획
+    state.json     워터마크 · 지난번 **적용된** 출력 · 대기 중인 계획 · 받기 점검의 멈춤
+    trend.json     실행마다 한 줄 — 받은 행 · 미러 · 계획의 건수 · 걸린 시간(실행 추이)
     runs/<때>/     그 실행의 전체 출력(레시피 변환 결과)
     sends/<때>/    대상에 보낸 것(바뀐 줄 · 무덤)
     work/          변환에 넣은 원천 표(CSV)
@@ -26,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from relay_core.adapters.base import Fetched
+from relay_core.intake import Tally
 from relay_core.mirror import Applied, Merge, Mirror, write_csv
 from relay_core.records import SourceRecord
 
@@ -65,6 +67,9 @@ class State:
     incrementals: int = 0
     """마지막 전량 뒤 증분을 몇 번 받았나 — `full_every` 가 그 수로 전량 날을 정한다."""
     history: list[dict[str, Any]] = field(default_factory=list)
+    held: dict[str, Any] | None = None
+    """받기 점검이 멈춘 것(`intake`) — `{"at", "findings", "reasons"}`. 사람이 「확인 후 진행」
+    하거나 원천이 바로잡혀 실행이 지나가면 비운다."""
 
 
 #: 실행마다 생기는 이름 — `stamp()` 모양(보정 계획의 묶음은 `-resync`, 조각을 접은 기준은
@@ -78,6 +83,9 @@ _SOURCE_NAME = re.compile(
 )
 #: 정리하는 곳 — (폴더, 이름 모양).
 _PRUNED = (("runs", _RUN_NAME), ("sends", _RUN_NAME), ("work", _SOURCE_NAME))
+#: 실행 추이의 파일과 남기는 줄 — 매일 밤 한 번이면 1년 남짓.
+TREND = "trend.json"
+TREND_MAX = 400
 
 
 def stamp() -> str:
@@ -111,6 +119,7 @@ class Workdir:
             pending=Pending(**pending) if pending else None,
             incrementals=int(raw.get("incrementals") or 0),
             history=list(raw.get("history") or []),
+            held=raw.get("held") or None,
         )
 
     def save_state(self, state: State) -> None:
@@ -181,6 +190,14 @@ class Workdir:
     def write_json(self, name: str, body: Any) -> None:
         self._write(name, body)
 
+    def add_trend(self, entry: dict[str, Any]) -> None:
+        """실행 추이에 한 줄 — 최근 `TREND_MAX` 줄만 남긴다. 작업 기록(DB)은 `JOB_TTL_DAYS` 뒤
+        지워지므로 추이는 여기 둔다(백업이 맨 위의 *.json 을 담는다)."""
+        rows = self.read_json(TREND)
+        rows = rows if isinstance(rows, list) else []
+        rows.append(entry)
+        self._write(TREND, rows[-TREND_MAX:])
+
     def load_mirror(self) -> Mirror:
         """미러를 메모리로 — 화면 · 레시피 시험처럼 미러를 쥐고 쓸 때. 실행은 들지 않는다
         (`merge_mirror` · `MirrorFile`)."""
@@ -222,14 +239,30 @@ class Workdir:
     def merge_mirror(self, fetched: Fetched) -> tuple[Applied, int]:
         """받은 것을 미러 파일에 흘려 반영한다 — `Mirror.apply` 와 같은 규칙 · 같은 수.
         메모리에는 받은 것만 든다. (반영한 수, 새 미러의 행 수)."""
+        staged = self.stage_mirror(fetched)
+        staged.commit()
+        return staged.applied, staged.size
+
+    def stage_mirror(self, fetched: Fetched) -> Staged:
+        """반영할 새 미러를 **임시 파일에만** 쓴다 — `commit` 해야 미러가 된다. 실행은 그
+        사이에 받기 점검(`intake`)을 보고, 멈추면 `discard` 한다(미러는 그대로)."""
         merge = Merge(fetched)
-        self._write_mirror(merge.rows(self.mirror_rows()))
-        return merge.applied, merge.count
+        scratch = self._stage_rows(merge.rows(self.mirror_rows()))
+        return Staged(
+            applied=merge.applied,
+            size=merge.count,
+            tally=merge.tally,
+            scratch=scratch,
+            target=self.root / "mirror.json",
+        )
 
     def _write_mirror(self, rows: Iterable[SourceRecord]) -> None:
+        os.replace(self._stage_rows(rows), self.root / "mirror.json")
+
+    def _stage_rows(self, rows: Iterable[SourceRecord]) -> Path:
         """**한 행씩 흘려 쓴다** — 미러 전체를 글 하나로 만들면(들여쓰기까지) 원천이 수십만
         행일 때 그 글만 수백 MB 다. 모양은 같은 JSON 배열(행마다 한 줄)이다. 임시 파일에 다
-        쓴 뒤 바꿔 끼운다 — 읽던 옛 파일은 그때까지 그대로다."""
+        쓰고 그 자리를 돌려준다 — 바꿔 끼우기 전까지 읽던 옛 파일은 그대로다."""
         target = self.root / "mirror.json"
         target.parent.mkdir(parents=True, exist_ok=True)
         scratch = target.with_suffix(".json.tmp")
@@ -241,7 +274,25 @@ class Workdir:
                 handle.write(",\n" if index else "\n")
                 handle.write(json.dumps(row, ensure_ascii=False))
             handle.write("\n]\n")
-        os.replace(scratch, target)
+        return scratch
+
+
+@dataclass
+class Staged:
+    """임시 파일에 다 쓴 새 미러(`Workdir.stage_mirror`) — 수(`applied` · `size`)와 점검의
+    재료(`tally`)는 이미 맞다."""
+
+    applied: Applied
+    size: int
+    tally: Tally
+    scratch: Path
+    target: Path
+
+    def commit(self) -> None:
+        os.replace(self.scratch, self.target)
+
+    def discard(self) -> None:
+        self.scratch.unlink(missing_ok=True)
 
 
 def _line_shaped(line: str) -> bool:

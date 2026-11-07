@@ -89,6 +89,12 @@ class PipelineDetail(BaseModel):
     auto_apply_label: str = "미사용"
     """자동 적용 — 「미사용」 또는 기준 한 줄(타이머 실행 · 사람 적용 N번 뒤 · 변경 M건
     이하 …)."""
+    intake_label: str = ""
+    """받기 점검(`relay_core.intake`) — 「미사용」 또는 기준 한 줄(삭제 N건 · 미러의 M% 초과 ·
+    빈 칸 K건 이상이면 멈춤)."""
+    late: str = ""
+    """늦음의 까닭(`services.lateness`) — 일정대로라면 끝났어야 할 실행이 끝나지 않았다. 비면
+    늦지 않았다."""
     definition_label: str = "파일"
     """지금 서 있는 정의 — 「파일」 · 「판 N」(사용 중인 판) · 「초안 N」(사용 중인 판이
     없는 새 것)."""
@@ -99,6 +105,43 @@ class PipelineDetail(BaseModel):
     `GET /pipelines/{slug}/reconcile`. 대조한 적이 없으면 None."""
     reconcile_label: str = "수동"
     """대조의 일정 — 「7일마다 03:00」 · 「수동」(`RELAY_RECONCILE_DAYS` · `_AT`)."""
+
+
+class TrendPlan(BaseModel):
+    created: int = 0
+    changed: int = 0
+    gone: int = 0
+
+
+class TrendRow(BaseModel):
+    """실행 한 번(`relay_core.runner._record`) — 실패한 실행은 받은 수 · 미러가 비고 어디까지
+    갔는지(`stage`)가 있다."""
+
+    at: str
+    status: str
+    """nothing · planned · waiting · blocked · failed — 실행의 결과(자동 적용은 안 적는다)."""
+    seconds: float = 0
+    received: int | None = None
+    full: bool | None = None
+    """전량을 받았나 — 그날은 안 온 것이 삭제로 읽힌다."""
+    mirror: int | None = None
+    """그 실행 뒤 미러의 행 수(받기 점검이 멈췄으면 반영 전 그대로)."""
+    added: int | None = None
+    changed: int | None = None
+    removed: int | None = None
+    plan: TrendPlan | None = None
+    """계획의 건수(객체 · 관계 합) — 비교까지 갔을 때만."""
+    held: bool = False
+    """받기 점검이 멈췄다."""
+    stage: str | None = None
+    """실패한 실행이 멈춘 단계 — 받기 · 미러 · 변환 · 비교 · 미리 보기."""
+
+
+class TrendOut(BaseModel):
+    rows: list[TrendRow]
+    """오래된 것부터."""
+    total: int
+    """작업 폴더에 남은 줄 — `rows` 는 그 끝의 `limit` 개다."""
 
 
 class RecipeOut(BaseModel):

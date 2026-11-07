@@ -1,6 +1,7 @@
 """`relay` 명령 — 화면 없이 한 바퀴를 돌린다(3단계의 「지금 실행」 과 같은 함수).
 
     python -m relay_core.cli run    <정의.json> [--work DIR]   받기 → 비교 → 미리보기
+                                       [--accept]   받기 점검의 멈춤을 확인하고 진행
     python -m relay_core.cli apply  <정의.json> [--work DIR]   대기 중인 계획 적용
     python -m relay_core.cli status <정의.json> [--work DIR]   워터마크 · 기준 · 대기 계획
     python -m relay_core.cli check  <정의.json>                이 서버에서 원천 · 대상에 닿나
@@ -19,7 +20,7 @@ import os
 import sys
 from pathlib import Path
 
-from relay_core import reconcile, runner, trace
+from relay_core import intake, reconcile, runner, trace
 from relay_core.adapters.rest import SourceError
 from relay_core.definition import DefinitionError, Pipeline, load
 from relay_core.state import Workdir
@@ -48,6 +49,11 @@ def main(argv: list[str] | None = None) -> int:
             "대상 SP 에서 사람이 수정한 칸 — keep(기본, 비켜 가고 계획에 적음) · "
             "overwrite(원천 값으로 덮음)"
         ),
+    )
+    parser.add_argument(
+        "--accept",
+        action="store_true",
+        help="run: 받기 점검이 멈춘 것(대량 삭제 · 빈 칸)을 확인하고 그만큼까지 진행한다",
     )
     args = parser.parse_args(argv)
     try:
@@ -91,7 +97,13 @@ def main(argv: list[str] | None = None) -> int:
             outcome = reconcile.resync(pipeline, work)
         elif args.command == "run":
             options = {"human_edits": args.human_edits} if args.human_edits else None
-            outcome = runner.run(pipeline, work, options=options)
+            accept = None
+            if args.accept:
+                accept = intake.Accept.of(work.load_state().held, by="relay CLI")
+                if accept is None:
+                    print("멈춤: 받기 점검에서 멈춘 것이 없습니다.", file=sys.stderr)
+                    return 2
+            outcome = runner.run(pipeline, work, options=options, accept=accept)
         else:
             outcome = runner.apply(pipeline, work)
     except (

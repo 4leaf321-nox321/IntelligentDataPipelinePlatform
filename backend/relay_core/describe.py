@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from relay_core import autoapply
+from relay_core import autoapply, intake
 from relay_core.autoapply import Policy
 from relay_core.definition import FORMAT, DefinitionError, check_adapter, column_default
 from relay_core.schedule import ScheduleError, check, label
@@ -59,6 +59,7 @@ class Described:
     schedule_label: str = "수동"
     auto_apply: Policy | None = None
     auto_apply_label: str = "미사용"
+    intake_label: str = intake.label(intake.Policy())
     """자동 적용 — 「미사용」 또는 기준 한 줄(`relay_core.autoapply`)."""
     origin: str = "파일"
     """정의가 어디서 왔나 — 「파일」 · 「판 N」(켜진 판) · 「초안 N」(켜진 판이 없는 새
@@ -180,6 +181,10 @@ def describe_body(
         out.auto_apply = autoapply.check(body.get("auto_apply"))
         out.auto_apply_label = autoapply.label(out.auto_apply)
     except autoapply.AutoApplyError as failure:
+        out.problems.append(str(failure))
+    try:
+        out.intake_label = intake.label(intake.check(body.get("intake")))
+    except intake.IntakeError as failure:
         out.problems.append(str(failure))
     adapter = dict(body.get("adapter") or {})
     try:

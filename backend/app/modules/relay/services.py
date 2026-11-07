@@ -33,12 +33,14 @@ from app.modules.relay.schemas import (
     PipelineDetail,
     RelayJob,
     RelayMap,
+    TrendOut,
+    TrendRow,
 )
 from app.shared import extensions
 from app.shared.errors import AppError, NotFound, code
 from relay_core import reconcile
 from relay_core.describe import Described, describe, find
-from relay_core.state import Workdir
+from relay_core.state import TREND, Workdir
 
 #: 작업 종류 — `relay/jobs.py` 가 등록한다.
 RUN_KIND = "relay_run"
@@ -54,6 +56,7 @@ STATUS_LABEL = {
     "ok": "정상",
     "pending": "적용 대기",
     "blocked": "멈춤",
+    "late": "늦음",
     "failed": "실패",
     "broken": "정의 오류",
     "never": "실행 전",
@@ -132,6 +135,16 @@ def read_report(slug: str) -> dict[str, Any] | None:
     return body
 
 
+def trend(slug: str, limit: int) -> TrendOut:
+    """실행 추이(`trend.json`) — 끝의 `limit` 줄. 읽기만 한다(폴더를 만들지 않는다)."""
+    file = get_settings().relay_work_dir / slug / TREND
+    raw = json.loads(file.read_text(encoding="utf-8")) if file.is_file() else []
+    rows = [one for one in raw if isinstance(one, dict)] if isinstance(raw, list) else []
+    return TrendOut(
+        rows=[TrendRow.model_validate(one) for one in rows[-limit:]], total=len(rows)
+    )
+
+
 def reconcile_status(report: dict[str, Any] | None) -> str | None:
     """마지막 대조 — `same`(대상과 같음) · `drift`(어긋남) · `problem`(대조 못 함), 안 했으면
     None."""
@@ -157,7 +170,11 @@ def recent_jobs(
     return list(rows)
 
 
-def status_of(found: Described, state: dict[str, Any] | None, last_job: Job | None) -> str:
+def status_of(
+    found: Described, state: dict[str, Any] | None, last_job: Job | None, late: str = ""
+) -> str:
+    """`late` 는 `lateness` 의 까닭 — 있으면 정상 · 적용 대기 · 실행 전 대신 「늦음」 이다(실패
+    · 멈춤은 그대로 — 그쪽이 할 일을 말한다)."""
     if found.draft:
         return "draft"
     if found.problems:
@@ -172,13 +189,42 @@ def status_of(found: Described, state: dict[str, Any] | None, last_job: Job | No
         if not last_event or str(last_event.get("at", "")) < finished:
             return "failed"
     if state is None:
-        return "never"
-    pending = state.get("pending")
-    if pending:
-        return "pending" if pending.get("ok") else "blocked"
-    if last_event.get("event") == "blocked":
+        return "late" if late else "never"
+    # 받기 점검이 멈췄다 — 대기 계획이 있어도(앞 실행의 것) 새 원천은 사람을 기다린다.
+    if state.get("held"):
         return "blocked"
-    return "ok"
+    pending = state.get("pending")
+    if pending and not pending.get("ok"):
+        return "blocked"
+    if not pending and last_event.get("event") == "blocked":
+        return "blocked"
+    if late:
+        return "late"
+    return "pending" if pending else "ok"
+
+
+def lateness(db: Session, found: Described, now: datetime | None = None) -> str:
+    """일정대로라면 끝났어야 할 실행이 끝나지 않았나 — 까닭 한 줄, 아니면 빈 글
+    (`relay_core.schedule.late`, `RELAY_LATE_MINUTES`). 일정이 없거나 초안 · 정의 오류면 빈
+    글이다(돌 차례가 없다)."""
+    from relay_core.schedule import late
+
+    minutes = get_settings().relay_late_minutes
+    if found.draft or found.problems or not found.schedule or not minutes:
+        return ""
+    moment = now or datetime.now().astimezone()
+    jobs = recent_jobs(db, found.slug, limit=20, kinds=(RUN_KIND,))
+    finished = next(
+        (one for one in jobs if one.status in ("done", "failed", "cancelled")), None
+    )
+    waiting = [one.created_at for one in jobs if one.status in ("queued", "running")]
+    return late(
+        found.schedule,
+        last=finished.created_at.astimezone(moment.tzinfo) if finished else None,
+        waiting=min(waiting).astimezone(moment.tzinfo) if waiting else None,
+        now=moment,
+        grace=timedelta(minutes=minutes),
+    )
 
 
 def _last_counts(state: dict[str, Any] | None) -> dict[str, Any]:
@@ -224,7 +270,8 @@ def build_map(db: Session) -> RelayMap:
     for found in catalog(db):
         state = read_state(found.slug)
         jobs = recent_jobs(db, found.slug, limit=1, kinds=(RUN_KIND, APPLY_KIND))
-        status = status_of(found, state, jobs[0] if jobs else None)
+        late = lateness(db, found)
+        status = status_of(found, state, jobs[0] if jobs else None, late)
         counts = _last_counts(state)
         report = read_report(found.slug) or {}
         system = _node_id("system", found.system or found.source)
@@ -263,6 +310,8 @@ def build_map(db: Session) -> RelayMap:
                 "drift": int(report.get("drift") or 0),
                 "reconcile_status": reconcile_status(report),
                 "reconciled_at": report.get("at"),
+                "late": late,
+                "held": list(((state or {}).get("held") or {}).get("reasons") or []),
             },
         )
         edges.append(MapEdge(source=system, target=endpoint))
@@ -377,7 +426,8 @@ def detail(db: Session, slug: str) -> PipelineDetail:
     state = read_state(slug)
     jobs = recent_jobs(db, slug)
     runs = [one for one in jobs if one.kind in (RUN_KIND, APPLY_KIND)]
-    status = status_of(found, state, runs[0] if runs else None)
+    late = lateness(db, found)
+    status = status_of(found, state, runs[0] if runs else None, late)
     schema, note = target_schema(found, secrets_env(), db) if found.target_server else ({}, "")
     steps: list[LineageStep] = []
     for one in found.lineage:
@@ -399,7 +449,7 @@ def detail(db: Session, slug: str) -> PipelineDetail:
     safe_state = {
         key: value
         for key, value in (state or {}).items()
-        if key in ("watermark", "applied_run", "applied_at", "pending", "incrementals")
+        if key in ("watermark", "applied_run", "applied_at", "pending", "incrementals", "held")
     }
     report = read_report(slug)
     if report is not None:
@@ -441,6 +491,8 @@ def detail(db: Session, slug: str) -> PipelineDetail:
         schedule_label=found.schedule_label,
         definition_label=found.origin,
         auto_apply_label=found.auto_apply_label,
+        intake_label=found.intake_label,
+        late=late,
         draft=found.draft,
         reconcile=report,
         reconcile_label=reconcile_label(),
@@ -478,10 +530,11 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
     """**적용을 기다리는 계획 · 멈춘 · 실패한 파이프라인**을 홈이 말한다 — 지도를 안 열어도."""
     if not viewer.is_system_admin:
         return []
-    counts = {"pending": 0, "blocked": 0, "failed": 0, "broken": 0, "drift": 0}
+    counts = {"pending": 0, "blocked": 0, "late": 0, "failed": 0, "broken": 0, "drift": 0}
     for found in catalog(db):
         jobs = recent_jobs(db, found.slug, limit=1, kinds=(RUN_KIND, APPLY_KIND))
-        status = status_of(found, read_state(found.slug), jobs[0] if jobs else None)
+        late = lateness(db, found)
+        status = status_of(found, read_state(found.slug), jobs[0] if jobs else None, late)
         if status in counts:
             counts[status] += 1
         if not found.draft and reconcile_status(read_report(found.slug)) in (
@@ -498,8 +551,8 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
         ),
         extensions.MaintenanceItem(
             key="relay_trouble",
-            label="멈추거나 실패한 파이프라인",
-            count=counts["blocked"] + counts["failed"] + counts["broken"],
+            label="멈추거나 실패하거나 늦은 파이프라인",
+            count=counts["blocked"] + counts["late"] + counts["failed"] + counts["broken"],
             link="/relay/map",
             severity="warning",
         ),

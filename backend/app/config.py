@@ -238,6 +238,11 @@ class Settings(BaseSettings):
     relay_reconcile_at: str = "03:00"
     """대조를 넣는 시각(서버의 현지 시각, HH:MM) — 그날 이 시각 뒤 첫 차례에. 원천의 야간
     실행과 겹치지 않게 둔다."""
+    relay_late_minutes: int = 180
+    """**늦음** — 일정이 있는 파이프라인의 실행이 차례가 지나고 이만큼(분) 넘도록 끝나지 않으면
+    시스템 관리자에게 알린다(`relay.alerts.watch_late`, 일정 타이머가 5분마다 본다). 작업
+    워커가 멈추거나 실행이 걸려 있으면 실패도 멈춤도 아니라서 **아무 알림도 가지 않던** 자리다.
+    첫 적재처럼 오래 걸리는 실행보다 넉넉히 둔다. 0 이면 끔."""
     relay_keep_runs: int = 10
     """작업 폴더에 남길 **지난 실행의 수** — 파이프라인마다 `runs/`(실행의 전체 출력) ·
     `sends/`(보낸 묶음) · `work/`(변환 중간 표)의 최근 이만큼과, 상태가 가리키는 것(기준 출력 ·
@@ -377,6 +382,8 @@ class Settings(BaseSettings):
             raise ValueError("RELAY_RECONCILE_DAYS 는 0(끔) 이상입니다.")
         if self.relay_keep_runs < 0:
             raise ValueError("RELAY_KEEP_RUNS 는 0(안 지움) 이상입니다.")
+        if self.relay_late_minutes < 0:
+            raise ValueError("RELAY_LATE_MINUTES 는 0(끔) 이상입니다.")
         return self
 
     @property

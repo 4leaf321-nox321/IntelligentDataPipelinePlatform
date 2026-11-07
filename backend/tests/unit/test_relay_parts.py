@@ -315,6 +315,8 @@ def test_들어간_조각까지로_원천과_같아지면_남은_조각을_내�
     pipeline = _split_pipeline(tmp_path, rows)
     source = pipeline.adapter.source
     pipeline.adapter.source = dataclasses.replace(source, deleted="deleted")
+    # 미러의 90% 를 지우는 받기다 — 받기 점검(대량 삭제)은 꺼 둔다(`test_relay_intake`).
+    pipeline = dataclasses.replace(pipeline, intake=None)
 
     later = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
     assert later.status == "nothing", later.message

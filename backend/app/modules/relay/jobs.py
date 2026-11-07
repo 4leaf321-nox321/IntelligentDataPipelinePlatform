@@ -14,7 +14,7 @@ from typing import Any
 from app.config import get_settings
 from app.modules.jobs import kinds
 from app.modules.relay import alerts, recipes, services
-from relay_core import autoapply, reconcile, runner
+from relay_core import autoapply, intake, reconcile, runner
 from relay_core.definition import DefinitionError, Pipeline, load_body
 from relay_core.describe import Described
 from relay_core.state import Workdir
@@ -81,7 +81,7 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
     else:
         human = str(work.params.get("human_edits") or "")
         options = {"human_edits": human} if human in ("keep", "overwrite") else None
-        outcome = runner.run(pipeline, folder, options=options)
+        outcome = runner.run(pipeline, folder, options=options, accept=_accept(work))
         # **자동 적용은 타이머의 실행에만** — 사람의 「지금 실행」 · MCP 의 실행은 계획만
         # 올린다.
         if work.params.get("by") == "timer" and found.auto_apply is not None:
@@ -97,6 +97,18 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
         "reconciled": reconciled,
         "pruned": _tidy(folder),
     }
+
+
+def _accept(work: kinds.Work) -> intake.Accept | None:
+    """「확인 후 진행」 이 실어 온 받기 점검의 확인(`routes._accept`) — 없으면 None."""
+    given = work.params.get("accept")
+    if not isinstance(given, dict):
+        return None
+    return intake.Accept(
+        deleted=int(given.get("deleted") or 0),
+        columns=tuple(str(one) for one in given.get("columns") or []),
+        by=str(given.get("by") or ""),
+    )
 
 
 def run_job(work: kinds.Work) -> dict[str, Any]:

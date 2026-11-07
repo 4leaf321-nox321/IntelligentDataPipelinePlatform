@@ -5,6 +5,8 @@
  * 돌아간다. 자동 적용은 사실 목록 · 이력 · 켜기 확인 창이 말한다. 대조는 타입마다 건수와 본보기를
  * 보이고, 본보기가 잘렸으면 전체 보고서를 권한다. 보정 계획은 적용을 기다리는 계획이 있으면 막힌다.
  * 값의 출처는 대조 본보기의 식별자를 클릭해도, 직접 입력해도 조회하고, 못 찾으면 서버의 까닭을 보인다.
+ * 받기 점검이 멈추면 까닭과 「확인 후 진행」(확인 창의 숫자), 늦으면 맨 위에 까닭, 실행 추이는 그림과
+ * 실패 · 멈춤의 줄을 보인다.
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -18,6 +20,7 @@ import type {
   PipelineDetail,
   RecipeTrial,
   RecipeVersion,
+  TrendOut,
   ValueTrace,
 } from '@/modules/relay/api'
 import { fullReconcile, sampleReconcile } from '@/modules/relay/fixtures'
@@ -26,6 +29,8 @@ import { statusLabel } from '@/shared/components/StatusBadge'
 
 const relayApi = vi.hoisted(() => ({
   pipeline: vi.fn(),
+  // 실행 추이 — 따로 정하지 않은 시험에서는 기록이 없다.
+  trend: vi.fn((): Promise<TrendOut> => Promise.resolve({ rows: [], total: 0 })),
   run: vi.fn(),
   apply: vi.fn(),
   reconcile: vi.fn(),
@@ -68,6 +73,8 @@ function detail(over: Partial<PipelineDetail> = {}): PipelineDetail {
     recipe_label: '파일',
     schedule_label: '수동',
     auto_apply_label: '미사용',
+    intake_label: '삭제 10건 · 미러의 5% 초과 · 빈 칸 3건 이상이면 멈춤',
+    late: '',
     definition_label: '파일',
     draft: false,
     types: ['plm_task'],
@@ -1146,5 +1153,103 @@ describe('파이프라인 상세 · 값의 출처', () => {
     await waitFor(() => expect(relayApi.trace).toHaveBeenCalledWith('plm-tasks', 'plm_task', 'T999'))
     expect(await box.findByText(/찾지 못했습니다/)).toBeInTheDocument()
     expect(screen.queryByTestId('value-trace-result')).not.toBeInTheDocument()
+  })
+})
+
+describe('받기 점검 · 늦음 · 실행 추이', () => {
+  const HELD = {
+    at: '2026-11-07T01:00:00Z',
+    reasons: ['대량 삭제 — 미러 1,000건 중 800건(80.0%)이 이번 받기로 삭제됩니다.'],
+    findings: {
+      before: 1000,
+      deleted: 800,
+      received: 200,
+      blanks: [{ column: 'KIND', lost: 5, filled: 1000 }],
+    },
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    auth.admin = true
+    relayApi.recipes.mockResolvedValue(VERSIONS)
+    relayApi.definitions.mockResolvedValue([])
+  })
+
+  it('받기 점검이 멈추면 까닭을 보이고, 확인 창이 숫자를 적은 뒤 accept 로 실행한다', async () => {
+    relayApi.pipeline.mockResolvedValue(
+      detail({
+        status: 'blocked',
+        state: { ...detail().state, held: HELD },
+        history: [{ at: HELD.at, event: 'held', reasons: HELD.reasons }],
+      }),
+    )
+    relayApi.run.mockResolvedValue({ job_id: 'job-7', kind: 'relay_run' })
+    await mount()
+
+    expect(screen.getByText(/받기 점검에서 멈췄습니다/)).toBeInTheDocument()
+    expect(screen.getAllByText(HELD.reasons[0]).length).toBeGreaterThan(0)
+    expect(screen.getByText('받기 점검 멈춤')).toBeInTheDocument() // 이력의 이름
+
+    await userEvent.click(screen.getByRole('button', { name: /확인 후 진행/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText('800건')).toBeInTheDocument()
+    expect(within(dialog).getByText('5건')).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: '확인 후 진행' }))
+
+    await waitFor(() => expect(relayApi.run).toHaveBeenCalledWith('plm-tasks', 'keep', true))
+    expect(await screen.findByText('확인 후 진행 작업을 등록했습니다')).toBeInTheDocument()
+  })
+
+  it('멈춘 것이 없으면 「확인 후 진행」 이 없다 — 받기 점검의 기준은 사실 목록에', async () => {
+    relayApi.pipeline.mockResolvedValue(detail())
+    await mount()
+    expect(screen.queryByRole('button', { name: /확인 후 진행/ })).not.toBeInTheDocument()
+    expect(screen.getByText(/빈 칸 3건 이상이면 멈춤/)).toBeInTheDocument()
+  })
+
+  it('늦으면 맨 위에 까닭을 말한다', async () => {
+    relayApi.pipeline.mockResolvedValue(
+      detail({
+        status: 'late',
+        status_label: '늦음',
+        late: '실행 작업이 5시간째 끝나지 않았습니다 — 작업 워커가 멈췄거나 원천 · 대상이 응답하지 않습니다.',
+      }),
+    )
+    await mount()
+    expect(screen.getByText(/실행이 늦습니다/)).toBeInTheDocument()
+    expect(screen.getByText(/5시간째 끝나지 않았습니다/)).toBeInTheDocument()
+    expect(screen.getAllByText(statusLabel('relay_pipeline', 'late')).length).toBeGreaterThan(0)
+  })
+
+  it('실행 추이 — 몇 번 중 실패 · 멈춤을 세고 그 줄을 보인다', async () => {
+    relayApi.pipeline.mockResolvedValue(detail())
+    relayApi.trend.mockResolvedValue({
+      total: 3,
+      rows: [
+        {
+          at: '2026-11-05T01:00:00Z',
+          status: 'planned',
+          seconds: 30,
+          received: 1000,
+          mirror: 1000,
+          plan: { created: 1000, changed: 0, gone: 0 },
+          held: false,
+        },
+        {
+          at: '2026-11-06T01:00:00Z',
+          status: 'blocked',
+          seconds: 12,
+          received: 200,
+          mirror: 1000,
+          held: true,
+        },
+        { at: '2026-11-07T01:00:00Z', status: 'failed', seconds: 3, stage: '받기', held: false },
+      ],
+    })
+    await mount()
+    expect(await screen.findByText(/최근 3번 — 실패 1 · 멈춤 1\(받기 점검 1\)/)).toBeInTheDocument()
+    expect(screen.getByText('받기 단계에서')).toBeInTheDocument()
+    expect(screen.getAllByText('받기 점검 멈춤').length).toBeGreaterThan(0)
+    expect(relayApi.trend).toHaveBeenCalledWith('plm-tasks')
   })
 })

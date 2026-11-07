@@ -42,6 +42,8 @@ const EVENT_LABEL: Record<string, string> = {
   applied: '적용',
   part_applied: '조각 적용',
   blocked: '멈춤',
+  held: '받기 점검 멈춤',
+  held_accepted: '확인 후 진행',
   nothing: '보낼 것 없음',
   auto_skipped: '자동 적용 안 함',
   reconciled: '대조',
@@ -91,6 +93,24 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
         )}
       </Fact>
       <Fact label="마지막 적용">{shownDateTime(state.applied_at)}</Fact>
+      {state.held && (
+        <Fact label="받기 점검">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge kind="relay_pipeline" value="blocked" />
+              <span className="text-muted-foreground text-xs">{shownDateTime(state.held.at)}</span>
+            </div>
+            <ul className="list-disc space-y-0.5 pl-4 text-xs">
+              {state.held.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+            <p className="text-muted-foreground text-xs">
+              미러 · 워터마크에 반영하지 않았습니다 — 다음 실행이 같은 것을 다시 받습니다.
+            </p>
+          </div>
+        </Fact>
+      )}
       <Fact label="적용 대기 계획">
         {pending ? (
           <div className="space-y-1">
@@ -160,6 +180,9 @@ export function PipelineHistory({ detail }: { detail: PipelineDetail }) {
               <StatusBadge kind="relay_reconcile" value={one.drift ? 'drift' : 'same'} />
             )}
             {line && <span className="text-muted-foreground text-xs">{line}</span>}
+            {one.event === 'held_accepted' && one.by && (
+              <span className="text-muted-foreground text-xs">{one.by}</span>
+            )}
             {one.event === 'reconciled' && one.summary && (
               <span className="text-muted-foreground text-xs">{one.summary}</span>
             )}

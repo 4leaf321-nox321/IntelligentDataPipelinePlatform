@@ -32,7 +32,11 @@ RELAY_RUN_FAILED = "relay.run.failed"
 """파이프라인의 실행 · 적용이 실패하거나 멈췄다(`app.modules.relay.alerts`). **나빠질 때
 한 번만** — 타이머가 밤마다 돌므로 매번 알리면 같은 알림이 날마다 쌓인다."""
 RELAY_RUN_RECOVERED = "relay.run.recovered"
-"""실패 · 멈춤 뒤 실행이 다시 된다."""
+"""실패 · 멈춤 · 늦음 뒤 실행이 다시 된다."""
+RELAY_RUN_LATE = "relay.run.late"
+"""일정이 있는 파이프라인의 실행이 차례가 지나도록 끝나지 않는다 — 작업 워커가 멈췄거나 실행이
+걸렸다(`relay.alerts.watch_late`, 일정 타이머가 본다). 끝날 때 알리는 길로는 아무 말도 없는
+자리다."""
 RELAY_DRIFT = "relay.drift"
 """대조에서 대상 SP 가 지난번 적용한 것과 어긋났거나, 대조를 하지 못했다. 어긋난 건수만 바뀐
 것은 새 알림이 아니다."""

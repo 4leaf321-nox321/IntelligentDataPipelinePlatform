@@ -158,6 +158,8 @@ const RELAY_PIPELINE: Record<string, { label: string; tone: Tone }> = {
   pending: { label: '적용 대기', tone: 'warn' },
   // 멈춤은 계획에 오류가 있거나 레시피에 미해결이 있다 — 고치기 전엔 흐르지 않지만 사고는 아니다.
   blocked: { label: '멈춤', tone: 'warn' },
+  // 늦음은 데이터가 흐르지 않는다는 뜻이다 — 작업 워커가 멈췄거나 실행이 걸렸다. 실패와 같은 무게.
+  late: { label: '늦음', tone: 'bad' },
   failed: { label: '실패', tone: 'bad' },
   broken: { label: '정의 오류', tone: 'bad' },
   // 아직 안 돈 것은 사고가 아니다 — 처음 「지금 실행」 을 누르면 된다.

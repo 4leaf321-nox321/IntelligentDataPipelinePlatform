@@ -9,10 +9,14 @@
  * 비밀은 안 나온다 — 대상 토큰은 **환경 변수 이름**만 보인다(값은 서버가 풀어 쓴다).
  *
  * 자동 적용(타이머의 실행이 기준을 넘은 계획을 사람 없이 적용)은 사실 목록에 기준과 함께 적는다 —
- * 꺼진 것이 기본이라 「끔」 은 흐리게.
+ * 꺼진 것이 기본이라 「끔」 은 흐리게. 받기 점검(대량 삭제 · 빈 칸이면 멈춤)도 그 곁에 기준을 적는다.
+ *
+ * **늦음**(일정대로라면 끝났어야 할 실행이 끝나지 않음)은 맨 위에 까닭과 함께 — 실패도 멈춤도
+ * 아니라서 이력에는 아무 줄도 생기지 않는다. 실행 추이(그림)는 그림 라이브러리를 이 화면에서만 받게
+ * `lazy()` 로 매단다.
  */
 
-import { useState } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { useParams } from 'react-router-dom'
 
 import { relayApi } from '@/modules/relay/api'
@@ -35,6 +39,8 @@ import { useResource } from '@/shared/hooks/useResource'
 import { cn } from '@/shared/lib/utils'
 
 const BACK = { to: '/relay/pipelines', label: '파이프라인' }
+
+const PipelineTrend = lazy(() => import('@/modules/relay/PipelineTrend'))
 
 /**
  * 정의 판 · 레시피 판 — 시스템 관리자만. 정의 판의 「시험에 쓸 레시피」 가 레시피 판 목록을 쓰므로
@@ -106,6 +112,15 @@ export default function PipelineDetailPage() {
 
       <ErrorNotice error={detail.error} />
 
+      {data.late && (
+        <Alert variant="destructive">
+          <AlertTitle>실행이 늦습니다 — 일정대로라면 끝났어야 할 실행이 끝나지 않았습니다</AlertTitle>
+          <AlertDescription>
+            {data.late} 작업 워커 · 일정 타이머의 상태는 「서버」 화면, 걸린 작업은 아래 「최근 작업」 에서
+            확인하세요.
+          </AlertDescription>
+        </Alert>
+      )}
       {data.draft && (
         <Alert className="border-dashed">
           <AlertTitle>이 파이프라인은 아직 초안입니다 — 정의 판을 사용해야 실행됩니다</AlertTitle>
@@ -179,6 +194,11 @@ export default function PipelineDetailPage() {
               {data.auto_apply_label}
             </span>
           </Fact>
+          <Fact label="받기 점검">
+            <span className={cn(data.intake_label === '미사용' && 'text-muted-foreground')}>
+              {data.intake_label || '—'}
+            </span>
+          </Fact>
         </dl>
         <PipelineState detail={data} />
       </section>
@@ -218,6 +238,13 @@ export default function PipelineDetailPage() {
       )}
 
       {admin && <VersionPanels detail={data} onChanged={detail.reload} />}
+
+      <section className="space-y-2">
+        <h2 className="text-base font-semibold">실행 추이</h2>
+        <Suspense fallback={<p className="text-muted-foreground text-sm">그림을 불러오는 중…</p>}>
+          <PipelineTrend slug={data.slug} />
+        </Suspense>
+      </section>
 
       <section className="space-y-2">
         <h2 className="text-base font-semibold">실행 이력</h2>

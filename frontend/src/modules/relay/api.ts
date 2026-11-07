@@ -29,6 +29,9 @@ export type LineageStep = Schemas['LineageStep']
 export type RelayJob = Schemas['RelayJob']
 export type QueuedOut = Schemas['QueuedOut']
 export type RunIn = Schemas['RunIn']
+/** 실행 추이 — 실행마다 한 줄(오래된 것부터). 작업 폴더의 `trend.json` 이라 작업 기록이 지워져도 남는다. */
+export type TrendOut = Schemas['TrendOut']
+export type TrendRow = Schemas['TrendRow']
 /** 거꾸로 보기 — 대상 객체 하나의 값이 어느 원천 행 · 칸 · 레시피 규칙에서 왔나(`relay_core/trace`). */
 export type ValueTrace = Schemas['TraceOut']
 export type TraceField = Schemas['TraceField']
@@ -61,12 +64,27 @@ export function partsOf(pending: PendingPlan): number {
   return Math.max(1, pending.parts?.length ?? 0)
 }
 
+/** 받기 점검이 멈춘 것(`relay_core.intake`) — 미러 · 워터마크는 그대로이고 사람의 「확인 후 진행」 을 기다린다. */
+export interface HeldIntake {
+  at: string
+  /** 화면 · 알림에 쓰는 까닭 — 한 줄씩(대량 삭제 · 빈 칸). */
+  reasons: string[]
+  findings: {
+    before: number
+    /** 기준을 넘은 삭제 — 넘지 않았으면 0. */
+    deleted: number
+    received: number
+    blanks: { column: string; lost: number; filled: number }[]
+  }
+}
+
 export interface PipelineState {
   watermark?: string | null
   applied_run?: string | null
   applied_at?: string | null
   pending?: PendingPlan | null
   incrementals?: number
+  held?: HeldIntake | null
 }
 
 /** 칸마다 건수 — `{objects|relations: {타입: {created, changed, unchanged, gone}}}`. */
@@ -74,7 +92,8 @@ export type RunCounts = Record<string, Record<string, Record<string, number>>>
 
 /**
  * 이력 한 줄 — 새것이 먼저 온다. `event` 는 planned · applied · part_applied(나눠 보내는 계획의 한
- * 조각) · blocked · nothing · auto_skipped · reconciled. 자동 적용이 적용했으면 `applied` 에 `by: "auto"` 가 붙고(사람의 적용에는 없다), 타이머의
+ * 조각) · blocked · held(받기 점검 멈춤 — `reasons`) · held_accepted(확인 후 진행 — `by` · `reasons`)
+ * · nothing · auto_skipped · reconciled. 자동 적용이 적용했으면 `applied` 에 `by: "auto"` 가 붙고(사람의 적용에는 없다), 타이머의
  * 실행이 기준을 못 넘어 계획이 사람을 기다리면 `auto_skipped` 가 그 까닭(`reasons`)을 싣는다.
  * 대조는 `reconciled` 에 어긋남 수(`drift`)와 한 줄(`summary`)을, 대조의 보정 계획은 `planned` 에
  * `origin: "reconcile"` 을 싣는다.
@@ -110,6 +129,10 @@ export interface PipelineNodeDetail {
   /** 마지막 대조 — 같음 · 어긋남 · 대조 못 함(대상에 타입이 없는 등). 대조한 적이 없으면 null. */
   reconcile_status?: 'same' | 'drift' | 'problem' | null
   reconciled_at?: string | null
+  /** 늦음의 까닭 — 일정대로라면 끝났어야 할 실행이 끝나지 않았다. 비면 늦지 않았다. */
+  late?: string
+  /** 받기 점검이 멈춘 까닭 — 비면 멈추지 않았다. */
+  held?: string[]
 }
 
 /** 대조의 네 갈래 — 화면의 차례도 이것이다. */
@@ -441,8 +464,14 @@ export const relayApi = {
   map: () => api.get<RelayMap>('/relay/map'),
   pipeline: (slug: string) => api.get<PipelineDetail>(slugPath(slug)),
   /** 작업으로 넣는다(202) — 원천 · 대상이 느리면 요청이 끊기므로 요청 안에서 안 돌린다. */
-  run: (slug: string, humanEdits: HumanEdits) =>
-    api.post<QueuedOut>(`${slugPath(slug)}/run`, { human_edits: humanEdits } satisfies RunIn),
+  run: (slug: string, humanEdits: HumanEdits, accept = false) =>
+    api.post<QueuedOut>(`${slugPath(slug)}/run`, {
+      human_edits: humanEdits,
+      accept,
+    } satisfies RunIn),
+  /** 실행 추이 — 끝의 `limit` 줄(서버 상한 400). 읽기만 한다. */
+  trend: (slug: string, limit = 90) =>
+    api.get<TrendOut>(`${slugPath(slug)}/trend?limit=${limit}`),
   apply: (slug: string) => api.post<QueuedOut>(`${slugPath(slug)}/apply`),
   /**
    * 대조 — 작업으로 넣는다(202). 대상 SP 의 객체를 읽어 기준과 견줄 뿐 아무것도 안 보낸다. `plan` 이면

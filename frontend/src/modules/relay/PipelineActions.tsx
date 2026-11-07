@@ -7,14 +7,18 @@
  *
  * 초안(정의 판이 아직 안 켜진 파이프라인)에는 단추를 세우지 않는다 — 서버가 실행을 거절하므로
  * 눌러 봐야 오류뿐이다. 무엇을 하면 서는지만 적는다.
+ *
+ * **받기 점검이 멈췄으면**(대량 삭제 · 빈 칸) 「확인 후 진행」 을 낸다 — 지금 멈춘 건수 · 칸까지만
+ * 지나가는 실행이다. 원천 · 어댑터를 바로잡았으면 그냥 「지금 실행」 이 지나간다.
  */
 
 import { useState } from 'react'
-import { Loader2, Play, Upload } from 'lucide-react'
+import { CheckCheck, Loader2, Play, Upload } from 'lucide-react'
 import { Link } from 'react-router-dom'
 
 import { jobLink, partsOf, relayApi, stateOf } from '@/modules/relay/api'
-import type { PipelineDetail, QueuedOut } from '@/modules/relay/api'
+import type { HeldIntake, PipelineDetail, QueuedOut } from '@/modules/relay/api'
+import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert'
 import { Button } from '@/shared/components/ui/button'
@@ -32,6 +36,33 @@ export function QueuedNotice({ queued }: { queued: QueuedOut & { what: string } 
   )
 }
 
+/** 「확인 후 진행」 이 무엇을 하나 — 숫자로. 대상에는 아직 아무것도 안 들어간다(계획만). */
+function acceptText(held: HeldIntake) {
+  const found = held.findings
+  return (
+    <div className="space-y-2">
+      <ul className="list-disc space-y-1 pl-4">
+        {found.deleted > 0 && (
+          <li>
+            미러 {found.before.toLocaleString()}건 중 <b>{found.deleted.toLocaleString()}건</b>이 삭제되고,
+            다음 계획에 그만큼의 삭제(사용 중지)가 들어갑니다.
+          </li>
+        )}
+        {found.blanks.map((one) => (
+          <li key={one.column}>
+            칸 <span className="font-mono">{one.column}</span> 의 값이 있던{' '}
+            <b>{one.lost.toLocaleString()}건</b>이 비고, 다음 계획이 대상의 그 칸을 비웁니다.
+          </li>
+        ))}
+      </ul>
+      <p>
+        확인한 건수 · 칸까지만 진행합니다 — 실행할 때 원천이 더 나빠졌으면 다시 멈춥니다. 대상에는 계획을
+        읽고 「적용」 해야 들어갑니다. 원천이 일부만 준 것이면 진행하지 말고 원천 · 어댑터를 먼저 수정하세요.
+      </p>
+    </div>
+  )
+}
+
 export function PipelineActions({
   detail,
   onQueued,
@@ -44,6 +75,8 @@ export function PipelineActions({
   const [busy, setBusy] = useState<'run' | 'apply' | null>(null)
   const [queued, setQueued] = useState<(QueuedOut & { what: string }) | null>(null)
   const [failed, setFailed] = useState<Error | null>(null)
+  const [confirming, setConfirming] = useState(false)
+  const held = stateOf(detail).held
   const pending = stateOf(detail).pending
   // 나눠 보내다 뒤 조각에서 멈춘 계획은 「적용」 이 그 조각부터 다시 미리 본다.
   const resumes = Boolean(pending && !pending.ok && (pending.part ?? 0) > 0)
@@ -58,6 +91,12 @@ export function PipelineActions({
         </p>
       </section>
     )
+  }
+
+  async function accept() {
+    const made = await relayApi.run(detail.slug, overwrite ? 'overwrite' : 'keep', true)
+    setQueued({ ...made, what: '확인 후 진행' })
+    onQueued()
   }
 
   async function act(what: 'run' | 'apply') {
@@ -116,8 +155,38 @@ export function PipelineActions({
             : '적용을 기다리는 계획이 없습니다.'}
         {overwrite && ' 덮기를 선택하면 대상에서 사람이 수정한 칸도 원천 값으로 바뀝니다(계획에 적힙니다).'}
       </p>
+      {held && (
+        <div className="space-y-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
+          <p className="font-medium">받기 점검에서 멈췄습니다 — 미러 · 워터마크에 반영하지 않았습니다</p>
+          <ul className="list-disc space-y-0.5 pl-4 text-xs">
+            {held.reasons.map((reason) => (
+              <li key={reason}>{reason}</li>
+            ))}
+          </ul>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button size="sm" variant="outline" onClick={() => setConfirming(true)} disabled={busy !== null}>
+              <CheckCheck />
+              확인 후 진행
+            </Button>
+            <span className="text-muted-foreground text-xs">
+              원천 · 어댑터를 수정했으면 「지금 실행」 을 클릭하세요 — 바로잡혔으면 점검을 지나갑니다.
+            </span>
+          </div>
+        </div>
+      )}
       <ErrorNotice error={failed} />
       {queued && <QueuedNotice queued={queued} />}
+      {held && (
+        <ConfirmDialog
+          open={confirming}
+          title="받기 점검의 멈춤을 확인하고 진행합니다"
+          description={acceptText(held)}
+          confirmLabel="확인 후 진행"
+          destructive={held.findings.deleted > 0}
+          onConfirm={accept}
+          onClose={() => setConfirming(false)}
+        />
+      )}
     </section>
   )
 }
