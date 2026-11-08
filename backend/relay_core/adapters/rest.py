@@ -27,17 +27,21 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import hashlib
+import os
 import re
+import threading
 import time
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Generator, Iterable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
-from urllib.parse import quote, urljoin, urlsplit
+from urllib.parse import quote, quote_plus, urljoin, urlsplit
 
 import httpx
 
 from relay_core.adapters.base import Fetched
-from relay_core.records import SourceRecord
+from relay_core.records import Records, SourceRecord
 
 #: 여러 값을 한 칸에 — SP 규약(§7)이 `;` 로 잇는다.
 MULTI_JOIN = ";"
@@ -49,29 +53,37 @@ class SourceError(RuntimeError):
     것을 지운다."""
 
 
-#: oauth2 의 받은 토큰 — (토큰 주소, client_id, scope) → (토큰, 만료 시각). 프로세스 안에서만.
-_TOKENS: dict[tuple[str, str, str], tuple[str, float]] = {}
+#: httpx 의 「클라이언트의 인증을 그대로」 표시.
+USE_CLIENT = httpx.USE_CLIENT_DEFAULT
+#: oauth2 의 받은 토큰 — (토큰 주소, client_id, scope, 비밀의 지문) → (토큰, 만료 시각).
+#: 프로세스 안에서만.
+_TOKENS: dict[tuple[str, str, str, str], tuple[str, float]] = {}
 #: 토큰 주소에 묻는 길 — 시험은 가짜를 끼운다.
 TOKEN_POST: Callable[..., httpx.Response] = httpx.post
-AUTH_KINDS = ("none", "bearer", "header", "basic", "query", "oauth2")
+AUTH_KINDS = ("none", "bearer", "header", "basic", "query", "oauth2", "ntlm")
 
 
 @dataclass(frozen=True)
 class Auth:
     kind: str = "none"
-    """none · bearer · header · basic · query · oauth2."""
+    """none · bearer · header · basic · query · oauth2 · ntlm(IIS 의 Windows 인증)."""
     token: str = field(default="", repr=False)
     """비밀 — 정의에는 `token_env`(환경 변수의 이름)로 적는다. oauth2 면 client secret."""
     header: str = "Authorization"
     """header: 비밀을 실을 머리글 이름."""
     user: str = ""
-    """basic: 계정 · oauth2: client_id."""
+    """basic · ntlm: 계정(`CORP\\svc_relay`) · oauth2: client_id."""
     param: str = "api_key"
     """query: 비밀을 실을 질의 이름(`?api_key=…`)."""
     token_url: str = ""
     """oauth2: 토큰을 받는 주소(client credentials). 그 주소도 울타리 안이어야 한다."""
     scope: str = ""
     """oauth2: 요청할 범위(공백으로 여럿)."""
+    cert: str = ""
+    """클라이언트 인증서(mTLS) — 인증서와 키가 든 PEM 의 **자리**(정의에는 인증서 폴더 안의
+    파일 이름만 적고, 정의를 읽을 때 폴더를 붙인다 — `definition._auth`). 다른 인증과 함께."""
+    cert_password: str = field(default="", repr=False)
+    """그 키의 비밀번호 — 정의에는 `cert_password_env` 로."""
 
     def headers(self) -> dict[str, str]:
         if self.kind == "bearer":
@@ -83,32 +95,68 @@ class Auth:
             return {"Authorization": f"Basic {raw}"}
         if self.kind == "oauth2":
             return {"Authorization": f"Bearer {self.access_token()}"}
-        if self.kind in ("none", "query"):
+        if self.kind in ("none", "query", "ntlm"):
             return {}
         raise ValueError(f"모르는 인증 방식입니다: {self.kind}")
+
+    def http_auth(self) -> httpx.Auth | None:
+        """머리글 한 번으로 안 끝나는 인증 — NTLM 은 세 번 주고받는다(같은 연결에서)."""
+        if self.kind == "ntlm":
+            return NtlmAuth(self.user, self.token)
+        return None
+
+    def client_options(self) -> dict[str, Any]:
+        """httpx.Client 에 줄 것 — 클라이언트 인증서가 있으면 그것을 실은 TLS 문맥. 사내 CA
+        (`SSL_CERT_FILE` — `app/modules/relay/network.py`)는 그대로 믿는다."""
+        if not self.cert:
+            return {}
+        import ssl
+
+        import certifi
+
+        context = ssl.create_default_context(
+            cafile=os.environ.get("SSL_CERT_FILE") or certifi.where()
+        )
+        try:
+            context.load_cert_chain(self.cert, password=self.cert_password or None)
+        except (OSError, ssl.SSLError) as failure:
+            raise SourceError(f"클라이언트 인증서를 읽지 못했습니다: {failure}") from None
+        return {"verify": context}
 
     def query(self) -> dict[str, str]:
         """질의 문자열에 실을 비밀 — query 일 때만."""
         return {self.param: self.token} if self.kind == "query" and self.token else {}
 
+    def _cache(self) -> tuple[str, str, str, str]:
+        """받은 토큰의 열쇠 — **client secret 까지** 넣는다. 안 넣으면 같은 토큰 주소 ·
+        client_id 를 적은 다른 정의가 비밀 없이 남이 받은 토큰을 다시 쓴다(2026-11-08 보안
+        점검)."""
+        digest = hashlib.sha256(self.token.encode()).hexdigest()
+        return (self.token_url, self.user, self.scope, digest)
+
     def secrets(self) -> list[str]:
         """오류 글에서 지울 값 — 비밀과 oauth2 로 받은 토큰."""
-        out = [self.token] if self.token else []
-        cached = _TOKENS.get((self.token_url, self.user, self.scope))
+        out = [one for one in (self.token, self.cert_password) if one]
+        cached = _TOKENS.get(self._cache()) if self.kind == "oauth2" else None
         if cached:
             out.append(cached[0])
         return out
 
     def access_token(self) -> str:
         """oauth2 client credentials — 받은 토큰을 만료 1분 전까지 다시 쓴다."""
-        cache = (self.token_url, self.user, self.scope)
-        cached = _TOKENS.get(cache)
-        if cached and cached[1] > time.time():
-            return cached[0]
         if not self.token_url or not self.user:
             raise SourceError(
                 "oauth2 에는 auth.token_url 과 auth.user(client_id)가 필요합니다."
             )
+        if not self.token:
+            raise SourceError(
+                "oauth2 의 client secret 이 비었습니다 — auth.token_env 의 환경 변수를 "
+                "확인하세요."
+            )
+        cache = self._cache()
+        cached = _TOKENS.get(cache)
+        if cached and cached[1] > time.time():
+            return cached[0]
         form = {
             "grant_type": "client_credentials",
             "client_id": self.user,
@@ -135,6 +183,42 @@ class Auth:
             raise SourceError("토큰 주소의 답에 access_token 이 없습니다.") from failure
         _TOKENS[cache] = (access, time.time() + max(life - 60, 30))
         return access
+
+
+class NtlmAuth(httpx.Auth):
+    """NTLM(IIS 의 Windows 인증) — 「협상 → 도전 → 응답」 을 같은 연결에서 주고받는다.
+    pyspnego(공유 폴더가 이미 쓰는 것)로 토큰을 짓는다 — 새 의존이 없다."""
+
+    def __init__(self, user: str, password: str) -> None:
+        self.user = user
+        self.password = password
+
+    def auth_flow(
+        self, request: httpx.Request
+    ) -> Generator[httpx.Request, httpx.Response, None]:
+        import spnego
+
+        context = spnego.client(self.user, self.password, protocol="ntlm")
+        first = context.step()
+        request.headers["Authorization"] = "NTLM " + base64.b64encode(first or b"").decode()
+        response = yield request
+        if response.status_code != 401:
+            return
+        offered = [
+            part.strip()[5:]
+            for part in response.headers.get_list("www-authenticate", split_commas=True)
+            if part.strip().upper().startswith("NTLM ")
+        ]
+        if not offered:
+            return  # 서버가 NTLM 을 안 받는다 — 401 그대로 돌려준다
+        try:
+            answer = context.step(base64.b64decode(offered[0]))
+        except Exception as failure:  # 도전이 틀렸다 — 무엇이든 까닭을 보인다
+            raise SourceError(
+                f"NTLM 도전을 풀지 못했습니다: {type(failure).__name__}"
+            ) from None
+        request.headers["Authorization"] = "NTLM " + base64.b64encode(answer or b"").decode()
+        yield request
 
 
 @dataclass(frozen=True)
@@ -183,6 +267,9 @@ class RestSource:
     """상세를 항목의 어느 칸 아래에 붙이나 — `columns` 가 `detail.…` 로 읽는다."""
     min_interval: float = 0.0
     """요청 사이의 최소 간격(초) — 0 이면 쉬지 않는다."""
+    detail_workers: int = 1
+    """상세를 동시에 몇 개 부르나(1 ~ 16) — 원천이 견디는 만큼만. `min_interval` 은 그래도
+    지킨다."""
 
 
 def value_at(item: Any, path: str) -> Any:
@@ -217,7 +304,11 @@ def scrub(text: str, headers: Mapping[str, str], extra: Iterable[str] = ()) -> s
     """원천의 오류 글에서 그 요청에 실은 비밀을 지운다 — 받은 머리글을 그대로 되돌려 찍는
     서버가 있고, 그 글은 작업 오류 · 알림 · MCP 로 퍼진다. `extra` 는 질의에 실은 키 ·
     oauth2 의 비밀처럼 머리글 밖의 비밀."""
-    secrets: set[str] = {one for one in extra if one}
+    secrets: set[str] = set()
+    for one in extra:
+        if one:
+            # 서버가 받은 주소를 되돌려 찍으면 퍼센트 인코딩된 꼴로 온다(`+` → `%2B`).
+            secrets |= {one, quote(one, safe=""), quote_plus(one)}
     for value in headers.values():
         tail = value.rsplit(" ", 1)[-1]
         secrets |= {value, tail}
@@ -255,25 +346,29 @@ def request_json(
     last = ""
     for attempt in range(retries):
         try:
-            answer = client.request(method, target, json=body, headers=sent)
+            answer = client.request(
+                method, target, json=body, headers=sent, auth=auth.http_auth() or USE_CLIENT
+            )
         except httpx.HTTPError as failure:
             last = f"닿지 않습니다: {failure}"
             if "CERTIFICATE_VERIFY_FAILED" in last:
                 # 다시 물어도 같다 — 사내 CA 를 알려 줘야 한다(`app/modules/relay/network.py`).
-                raise SourceError(
+                said = (
                     f"원천의 인증서를 믿을 수 없습니다({url}): {failure} — 사내 인증서로 "
                     "서명된 주소면 서버의 RELAY_CA_FILE 에 사내 CA(PEM)를 적고 재시작하세요."
-                ) from None
+                )
+                raise SourceError(scrub(said, sent, secrets)) from None
         else:
             if answer.status_code == 200:
                 return answer.json(), answer.headers
             last = f"{answer.status_code} {answer.text[:2000]}"
             if answer.status_code < 500 and answer.status_code != 429:
-                said = scrub(last, sent, secrets)[:300]
-                raise SourceError(f"원천이 거절했습니다({url}): {said}")
+                # 주소까지 지운다 — 다음 쪽 주소에 서버가 `?api_key=…` 를 되돌려 싣는다.
+                said = scrub(f"원천이 거절했습니다({url}): {last}", sent, secrets)
+                raise SourceError(said[:400])
         sleep(min(2**attempt, 10))
-    said = scrub(last, sent, secrets)[:300]
-    raise SourceError(f"원천에 {retries}번 물었지만 실패했습니다({url}): {said}")
+    said = scrub(f"원천에 {retries}번 물었지만 실패했습니다({url}): {last}", sent, secrets)
+    raise SourceError(said[:400])
 
 
 def get_json(
@@ -433,10 +528,13 @@ class RestAdapter:
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.source = source
-        self._client = client or httpx.Client(timeout=source.timeout)
+        self._client = client or httpx.Client(
+            timeout=source.timeout, **source.auth.client_options()
+        )
         self._sleep = sleep
         self._clock = clock
         self._last = 0.0
+        self._lock = threading.Lock()
 
     @property
     def url(self) -> str:
@@ -452,10 +550,12 @@ class RestAdapter:
     ) -> tuple[Any, httpx.Headers]:
         source = self.source
         if source.min_interval > 0:
-            wait = self._last + source.min_interval - self._clock()
-            if wait > 0:
-                self._sleep(wait)
-            self._last = self._clock()
+            # 상세를 여럿이 동시에 불러도 간격은 지킨다 — 자리를 차례로 잡는다.
+            with self._lock:
+                wait = self._last + source.min_interval - self._clock()
+                if wait > 0:
+                    self._sleep(wait)
+                self._last = self._clock()
         return request_json(
             self._client,
             url,
@@ -511,10 +611,20 @@ class RestAdapter:
             got = value_at(got, source.detail_rows_path)
         return {**item, source.detail_as: got}
 
-    def _records(self, item: Any) -> list[SourceRecord]:
+    def _detailed(self, items: list[Any]) -> list[Any]:
+        """한 쪽의 항목에 상세를 붙인다 — `detail_workers` 개를 동시에(차례는 그대로)."""
+        source = self.source
+        if not source.detail_path:
+            return items
+        if source.detail_workers <= 1 or len(items) <= 1:
+            return [self._with_detail(one) for one in items]
+        with ThreadPoolExecutor(max_workers=source.detail_workers) as pool:
+            return list(pool.map(self._with_detail, items))
+
+    def _records(self, item: Any, *, detailed: bool = False) -> list[SourceRecord]:
         source = self.source
         return records_of(
-            self._with_detail(item),
+            item if detailed else self._with_detail(item),
             key=source.key,
             columns=source.columns,
             deleted=source.deleted,
@@ -581,8 +691,7 @@ class RestAdapter:
         post = source.method.upper() == "POST"
         if post and not source.body:
             raise SourceError("method POST 에는 body(본문 틀)가 있어야 합니다.")
-        records: list[SourceRecord] = []
-        marks: list[str] = []
+        records = Records()
         page, offset, cursor, follow = source.start_page, 0, "", ""
         watermark: str | None = None
         for _ in range(source.max_pages):
@@ -617,11 +726,12 @@ class RestAdapter:
                     raise ValueError(f"모르는 쪽 넘김입니다: {source.paging}")
                 body, headers = self._first(params, slots)
             items = self._items(body)
-            for item in items:
-                for one in self._records(item):
+            if limit and source.detail_path:
+                # 시험 — 상세를 쓸데없이 부르지 않게 남은 줄만큼(펼치면 더 짧아질 수 있다).
+                items = items[: max(1, limit - len(records))]
+            for item in self._detailed(items):
+                for one in self._records(item, detailed=True):
                     records.append(one)
-                    if one.updated_at:
-                        marks.append(one.updated_at)
                 if limit and len(records) >= limit:
                     return Fetched(records=records[:limit], complete=False)
             if source.watermark_path:
@@ -653,7 +763,7 @@ class RestAdapter:
         else:
             raise SourceError(f"쪽이 {source.max_pages}개를 넘었습니다 — 끝을 알 수 없습니다.")
         if watermark is None:
-            watermark = max(marks) if marks else since
+            watermark = records.latest or since
         return Fetched(records=records, watermark=watermark, complete=True, full=not since)
 
 

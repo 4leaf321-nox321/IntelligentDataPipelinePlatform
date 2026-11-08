@@ -219,10 +219,15 @@ def describe_body(
         out.endpoint = where
         soap = checked.get("envelope") or checked.get("soap_action")
         out.endpoint_label = ("SOAP " if soap else "XML ") + where.rsplit("/", 1)[-1]
+    elif out.adapter_kind == "push":
+        where = ""
+        out.endpoint = f"/api/relay/inbound/{out.slug}"
+        out.endpoint_label = "받기(push) — 원천이 보낸다"
     else:
         where = str(checked.get("base_url") or "")
         out.endpoint = f"{where.rstrip('/')}{checked.get('path', '')}"
-        out.endpoint_label = f"GET {checked.get('path', '')}"
+        method = str(checked.get("method") or "GET").upper()
+        out.endpoint_label = f"{method} {checked.get('path', '')}"
     host = urlsplit(where).netloc
     if host:
         out.endpoint_label += f" · {host}"

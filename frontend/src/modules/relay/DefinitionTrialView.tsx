@@ -246,6 +246,25 @@ export function DefinitionTrialView({ trial }: { trial: DefinitionTrial }) {
       )}
 
       <SourcePart source={trial.source} />
+      {trial.intake?.held && (
+        <Alert className="border-amber-500/50 bg-amber-500/5">
+          <AlertTitle>이 정의로 받으면 받기 점검에서 멈춥니다</AlertTitle>
+          <AlertDescription>
+            <ul className="list-disc pl-4">
+              {(trial.intake.reasons ?? []).map((one) => (
+                <li key={one}>{one}</li>
+              ))}
+            </ul>
+            <p className="text-muted-foreground mt-1 text-xs">{trial.intake.note}</p>
+          </AlertDescription>
+        </Alert>
+      )}
+      {trial.intake && !trial.intake.held && (
+        <p className="text-muted-foreground text-xs">
+          받기 점검: {trial.intake.checked ? '걸리는 것이 없습니다 — ' : ''}
+          {trial.intake.note}
+        </p>
+      )}
       <TargetPart target={trial.target} />
 
       {recipe ? (

@@ -38,7 +38,7 @@ from relay_core.adapters.rest import (
     records_of,
     value_at,
 )
-from relay_core.records import SourceRecord
+from relay_core.records import Records, SourceRecord
 
 _V2_DATE = re.compile(r"^/Date\((-?\d+)([+-]\d{4})?\)/$")
 
@@ -116,7 +116,9 @@ class ODataAdapter:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.source = source
-        self._client = client or httpx.Client(timeout=source.timeout)
+        self._client = client or httpx.Client(
+            timeout=source.timeout, **source.auth.client_options()
+        )
         self._sleep = sleep
 
     def _since_literal(self, since: str, version: str) -> str:
@@ -199,6 +201,7 @@ class ODataAdapter:
             f"{source.service_url.rstrip('/')}/$metadata",
             headers=source.auth.headers(),
             params=source.auth.query(),
+            auth=source.auth.http_auth() or httpx.USE_CLIENT_DEFAULT,
         )
         if got.status_code != 200:
             raise SourceError(f"$metadata 를 못 읽었습니다: {got.status_code}")
@@ -266,8 +269,7 @@ class ODataAdapter:
         version = source.version if source.version in ("2", "4") else "4"
         url = f"{source.service_url.rstrip('/')}/{source.entity_set}"
         params: dict[str, Any] | None = self._first_params(since, version)
-        records: list[SourceRecord] = []
-        marks: list[str] = []
+        records = Records()
         skip = 0
         for _ in range(source.max_pages):
             body = _clean(
@@ -293,8 +295,6 @@ class ODataAdapter:
             for item in items:
                 for one in self._records(item):
                     records.append(one)
-                    if one.updated_at:
-                        marks.append(one.updated_at)
             if limit and len(records) >= limit:
                 return Fetched(records=records[:limit], complete=False)
             if nxt:
@@ -306,5 +306,5 @@ class ODataAdapter:
                 break
         else:
             raise SourceError(f"쪽이 {source.max_pages}개를 넘었습니다 — 끝을 알 수 없습니다.")
-        watermark = max(marks) if marks else since
+        watermark = records.latest or since
         return Fetched(records=records, watermark=watermark, complete=True, full=not since)

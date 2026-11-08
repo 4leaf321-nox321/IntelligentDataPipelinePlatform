@@ -251,6 +251,9 @@ class Settings(BaseSettings):
     """**사내 사설 인증서(CA, PEM)** — 사내 CA 가 서명한 HTTPS 원천 · 대상에 닿게 한다
     (`relay/network.py`). 공개 CA 묶음에 더해 쓴다. 컨테이너 안 경로(예: `/data/relay/
     certs/corp-ca.pem`)."""
+    relay_cert_dir: Path | None = None
+    """클라이언트 인증서(mTLS — 정의의 `auth.cert`)를 두는 폴더. 비우면 중계 폴더의 `certs/`
+    (`/data/relay/certs`). 정의는 이 폴더 안의 파일 이름만 적는다."""
     relay_proxy: str = ""
     """바깥으로 나갈 때 거치는 프록시(`http://proxy.corp:8080`) — 비우면 바로 나간다."""
     relay_no_proxy: str = "localhost,127.0.0.1"
@@ -265,6 +268,10 @@ class Settings(BaseSettings):
     `sends/`(보낸 묶음) · `work/`(변환 중간 표)의 최근 이만큼과, 상태가 가리키는 것(기준 출력 ·
     대기 계획)만 남기고 나머지는 작업이 끝날 때 지운다(`Workdir.prune`). 실행마다 하나씩
     늘어 안 지우면 디스크가 찬다. 0 이면 안 지운다."""
+
+    @property
+    def relay_cert_path(self) -> Path:
+        return self.relay_cert_dir or self.relay_work_dir.parent / "certs"
 
     @property
     def relay_file_root_paths(self) -> tuple[Path, ...]:

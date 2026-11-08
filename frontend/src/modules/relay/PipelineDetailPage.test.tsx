@@ -43,6 +43,7 @@ const relayApi = vi.hoisted(() => ({
         llm: false,
         references: [],
         splits: [],
+        split_fields: [],
         problems: [],
       }),
   ),
@@ -1299,6 +1300,7 @@ describe('미해결 작업함', () => {
     splits: [
       { what: "plm_task 'T1' 의 칸 label", question: '같은 식별자인데 행마다 값이 다릅니다', options: ['가', '나'], rows: 2 },
     ],
+    split_fields: [],
   }
 
   beforeEach(() => {
@@ -1327,9 +1329,11 @@ describe('미해결 작업함', () => {
     await userEvent.click(screen.getByRole('button', { name: /레시피 초안으로 저장\(1개\)/ }))
 
     await waitFor(() =>
-      expect(relayApi.draftAliases).toHaveBeenCalledWith('plm-tasks', [
-        { target: 't_site', text: '서울시험소', key: 'S-SEOUL' },
-      ]),
+      expect(relayApi.draftAliases).toHaveBeenCalledWith(
+        'plm-tasks',
+        [{ target: 't_site', text: '서울시험소', key: 'S-SEOUL' }],
+        [],
+      ),
     )
     expect(await screen.findByText('레시피 판 3 초안을 저장했습니다')).toBeInTheDocument()
     await waitFor(() => expect(relayApi.recipes.mock.calls.length).toBeGreaterThan(recipesBefore))
@@ -1355,7 +1359,45 @@ describe('미해결 작업함', () => {
     )
     expect(await within(row).findByText(/GLM: S-SEOUL 서울 시험소 \(확신 0.95\)/)).toBeInTheDocument()
     expect(within(row).getByLabelText('서울시험소 의 대상 키')).toHaveValue('S-SEOUL')
+  })
 
+  it('값이 갈리는 칸을 모으는 칸으로 — 대응과 함께 한 초안에, 다시 누르면 취소', async () => {
+    relayApi.unresolved.mockResolvedValue({
+      ...INBOX,
+      references: [],
+      split_fields: [
+        { type_slug: 'plm_task', field: 'label', entities: 3 },
+        { type_slug: 'plm_task', field: 'owner', entities: 1 },
+      ],
+    })
+    relayApi.draftAliases.mockResolvedValue({ version: 4, problems: [] })
+    await mount()
+    const rows = await screen.findAllByTestId('inbox-split-field')
+    expect(rows).toHaveLength(2)
+    expect(within(rows[0]).getByText('객체 3개에서 갈림')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /레시피 초안으로 저장\(0개\)/ })).toBeDisabled()
+
+    await userEvent.click(within(rows[0]).getByRole('button', { name: 'plm_task.label 한 글로 모으기' }))
+    const separator = within(rows[0]).getByLabelText('plm_task.label 구분자')
+    await userEvent.clear(separator)
+    await userEvent.type(separator, ' / ')
+    const collect = within(rows[1]).getByRole('button', { name: 'plm_task.owner 목록으로 모으기' })
+    await userEvent.click(collect)
+    await userEvent.click(collect) // 다시 누르면 취소
+    await userEvent.click(collect)
+    expect(collect).toHaveAttribute('aria-pressed', 'true')
+    await userEvent.click(screen.getByRole('button', { name: /레시피 초안으로 저장\(2개\)/ }))
+    await waitFor(() =>
+      expect(relayApi.draftAliases).toHaveBeenCalledWith(
+        'plm-tasks',
+        [],
+        [
+          { type_slug: 'plm_task', field: 'label', mode: 'join', separator: ' / ' },
+          { type_slug: 'plm_task', field: 'owner', mode: 'collect', separator: '; ' },
+        ],
+      ),
+    )
+    expect(await screen.findByText('레시피 판 4 초안을 저장했습니다')).toBeInTheDocument()
   })
 
   it('멈춘 실행이 없으면 까닭과 별칭 요청 목록 다운로드만', async () => {

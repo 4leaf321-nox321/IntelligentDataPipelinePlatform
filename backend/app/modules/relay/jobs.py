@@ -43,6 +43,8 @@ def _load(work: kinds.Work) -> tuple[Described, Pipeline, Workdir]:
         recipe=recipes.materialize(work.db, slug) or found.recipe,
         path=found.path,
         file_roots=get_settings().relay_file_root_paths,
+        cert_root=get_settings().relay_cert_path,
+        inbox=get_settings().relay_work_dir / slug / "inbox",
     )
     return found, pipeline, Workdir(get_settings().relay_work_dir, pipeline.slug)
 

@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from relay_core import sp
+from relay_core import bundle, sp
 from relay_core.diff import _edge_id, _rows_by_type, write_batches
 
 #: 조각 상한의 기본(MB) — 대상 SP 의 상한(100MB)보다 넉넉히 작게. SP 는 받은 묶음을 메모리에
@@ -89,55 +89,87 @@ class _Part:
 
 def split(send: Path, limit: int, max_edges: int | None = None) -> Split:
     """`send` 의 본문이 `limit` 바이트를 넘거나 선이 `max_edges`(기본 `MAX_EDGES`) 줄을 넘으면
-    `send/parts/` 에 조각을 만든다."""
+    `send/parts/` 에 조각을 만든다.
+
+    **흘려서** 한다(2026-11-08) — 지문 · 크기는 묶음 파일을 하나씩 읽어 재고(`bundle.payload`,
+    틀의 지문과 바이트까지 같다), 조각은 차는 대로 디스크에 쓴다. 메모리에는 조각 하나(상한
+    `limit`)와 파일 하나만 든다 — 예전에는 묶음 전체를 들었다(첫 적재 100만 행에 GB)."""
     max_edges = MAX_EDGES if max_edges is None else max_edges
     disk, edge_files = on_disk(send)
     if disk <= limit and edge_files <= 1 and max_edges >= sp.pipeline.MAX_ROWS:
         return Split(size=disk)
-    run = sp.pipeline.load(send)
-    body = sp.pipeline.payload(run)
-    whole = _size(body)
-    digest = str(sp.pipeline.digest(body))
-    edges = sum(len(batch.rows) for batch in run.relations)
-    if whole <= limit and edges <= max_edges:
-        return Split(size=whole, digest=digest)
+    whole = bundle.payload(send)
+    if whole.size <= limit and whole.edges <= max_edges:
+        return Split(size=whole.size, digest=whole.digest)
 
-    parts: list[_Part] = [_Part()]
+    manifest = _manifest(send)
+    objects = bundle.batches(send, sp.pipeline.OBJECTS_DIR, manifest)
+    relations = bundle.batches(send, sp.pipeline.RELATIONS_DIR, manifest)
+    workspaces = {one.type_slug: one.workspace_slug for one in objects}
+    folders: list[Path] = []
+    current = _Part()
 
-    def put(cost: int, edge: bool = False) -> _Part:
-        last = parts[-1]
-        full = last.used + cost > limit or (edge and last.edges >= max_edges)
-        if full and not last.empty:
-            parts.append(_Part())
-        parts[-1].used += cost
-        parts[-1].edges += edge
-        return parts[-1]
-
-    for batch in run.objects:  # 차례는 `objects_order` 그대로(load 가 맞춘다)
-        for row in batch.rows:
-            if isinstance(row, dict):
-                part = put(_size(_sent(row)) + 1)
-                part.objects.setdefault(batch.type_slug, []).append(row)
-    for batch in run.relations:
-        for row in batch.rows:
-            if isinstance(row, dict):
-                part = put(_size(_sent(row)) + 1, edge=True)
-                part.relations.setdefault(batch.type_slug, []).append(row)
-    graves = run.tombstones or {}
-    for kind in ("objects", "relations"):
-        for grave in graves.get(kind) or []:
-            put(_size(grave) + 1).graves[kind].append(grave)
-
-    workspaces = {batch.type_slug: batch.workspace_slug for batch in run.objects}
-    folders = []
-    for number, part in enumerate(parts, start=1):
-        folder = send / PARTS / f"{number:03d}"
-        _write(folder, run.manifest, part, workspaces, number, len(parts))
+    def flush() -> None:
+        nonlocal current
+        if current.empty:
+            return
+        folder = send / PARTS / f"{len(folders) + 1:03d}"
+        _write(folder, manifest, current, workspaces, len(folders) + 1, 0)
         for name in (sp.pipeline.ONTOLOGY, sp.pipeline.UNRESOLVED):
             if (send / name).exists():
                 shutil.copyfile(send / name, folder / name)
         folders.append(folder)
-    return Split(parts=folders, size=whole, digest=digest)
+        current = _Part()
+
+    def put(cost: int, edge: bool = False) -> _Part:
+        full = current.used + cost > limit or (edge and current.edges >= max_edges)
+        if full and not current.empty:
+            flush()
+        current.used += cost
+        current.edges += edge
+        return current
+
+    for batch in objects:  # 차례는 `objects_order` 그대로(틀의 load 와 같이)
+        for row in batch.rows():
+            if isinstance(row, dict):
+                part = put(_size(_sent(row)) + 1)
+                part.objects.setdefault(batch.type_slug, []).append(row)
+    for batch in relations:
+        for row in batch.rows():
+            if isinstance(row, dict):
+                part = put(_size(_sent(row)) + 1, edge=True)
+                part.relations.setdefault(batch.type_slug, []).append(row)
+    graves = _graves(send)
+    for kind in ("objects", "relations"):
+        for grave in graves.get(kind) or []:
+            put(_size(grave) + 1).graves[kind].append(grave)
+    flush()
+    for number, folder in enumerate(folders, start=1):
+        _number(folder, manifest, number, len(folders))
+    return Split(parts=folders, size=whole.size, digest=whole.digest)
+
+
+def _manifest(run: Path) -> dict[str, Any]:
+    file = run / sp.pipeline.MANIFEST
+    body = json.loads(file.read_text(encoding="utf-8")) if file.is_file() else {}
+    return body if isinstance(body, dict) else {}
+
+
+def _graves(run: Path) -> dict[str, Any]:
+    file = run / sp.pipeline.TOMBSTONES
+    body = json.loads(file.read_text(encoding="utf-8")) if file.is_file() else {}
+    if isinstance(body, dict) and (body.get("objects") or body.get("relations")):
+        return body
+    return {}
+
+
+def _number(folder: Path, manifest: dict[str, Any], number: int, total: int) -> None:
+    """조각의 이름 · 번호 — 다 나눈 뒤에야 조각 수를 안다."""
+    file = folder / sp.pipeline.MANIFEST
+    head = json.loads(file.read_text(encoding="utf-8"))
+    head["title"] = f"{manifest.get('title') or '묶음'} — 조각 {number}/{total}"
+    head["part"] = {"number": number, "total": total}
+    file.write_text(json.dumps(head, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _write(

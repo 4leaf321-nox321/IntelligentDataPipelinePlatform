@@ -5,6 +5,10 @@
     {"kind": "file", "location": "smb://mesfs01/export/daily/lots-*.csv", "key": "LOT_ID",
      "auth": {"kind": "basic", "user": "CORP\\svc_relay", "token_env": "MES_SHARE_PASSWORD"}}
 
+- **SFTP** 는 `sftp://<서버>[:포트]/<폴더…>/<파일>` — 계정은 `auth.user`, 비밀번호는
+  `auth.token_env`(`basic`), 또는 SSH 개인 키(`auth.cert` — 인증서 폴더 안의 파일 이름, 암호는
+  `auth.cert_password_env`). **호스트 키의 지문(`host_key`, `SHA256:…`)을 적어야 읽는다** — 안
+  적었으면 서버의 지문을 보여 주고 멈춘다(처음 보는 서버를 그냥 믿지 않는다). 다르면 멈춘다.
 - 공유 폴더는 `smb://<서버>[:포트]/<공유>/<폴더…>/<파일>` — 서버에 마운트하지 않고 직접 읽는다
   (SMB2/3, NTLM). 계정은 `auth.user`, 비밀번호는 `auth.token_env` 의 환경 변수. `*` 는 마지막
   자리(파일 이름)에만 — 폴더 이름에는 못 쓴다.
@@ -22,10 +26,12 @@
 
 from __future__ import annotations
 
+import base64
 import csv
 import fnmatch
 import glob
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -55,7 +61,8 @@ from relay_core.records import SourceRecord
 @dataclass(frozen=True)
 class FileSource:
     location: str
-    """파일 경로(`*` 로 여럿 중 최신) · `smb://서버/공유/…/파일` · `http(s)://` 주소."""
+    """파일 경로(`*` 로 여럿 중 최신) · `smb://서버/공유/…/파일` · `sftp://서버/…/파일` ·
+    `http(s)://` 주소."""
     key: str | Sequence[str]
     """식별자의 열(자리) — 여러 칸이면 목록(값을 `|` 로 잇는다)."""
     columns: Mapping[str, str] | str = "*"
@@ -75,6 +82,8 @@ class FileSource:
     retries: int = 3
     explode: str = ""
     """JSON: 행 안의 목록 — 원소마다 한 행. 식별자에 그 원소의 칸이 있어야 한다."""
+    host_key: str = ""
+    """sftp: 서버 호스트 키의 지문(`SHA256:…` — `ssh-keygen -lf` 의 그것). 적어야 읽는다."""
 
 
 def _cell(value: Any) -> str:
@@ -106,7 +115,7 @@ class _SmbClient:
             "port": port,
             "connection_timeout": int(source.timeout),
         }
-        if auth.kind == "basic":
+        if auth.kind in ("basic", "ntlm"):  # 공유 폴더는 SMB 가 NTLM 으로 묻는다
             self._kwargs.update(username=auth.user, password=auth.token)
         elif auth.kind != "none":
             raise SourceError(
@@ -131,6 +140,105 @@ class _SmbClient:
         return body
 
 
+class SftpFiles(Protocol):
+    """SFTP 를 읽는 길 — 시험은 가짜를 끼운다."""
+
+    def listdir(self, folder: str) -> list[tuple[str, float]]:
+        """폴더 안의 **파일** `(이름, 바뀐 시각)`."""
+        ...
+
+    def read(self, path: str) -> bytes: ...
+
+
+def fingerprint(blob: bytes) -> str:
+    """호스트 키의 지문 — OpenSSH 와 같은 꼴(`SHA256:` + 패딩 없는 base64)."""
+    digest = base64.b64encode(hashlib.sha256(blob).digest()).decode().rstrip("=")
+    return f"SHA256:{digest}"
+
+
+class _SftpClient:
+    """paramiko — 부를 때마다 이어 붙고 끊는다(밤에 한 번 읽는 원천이다). 호스트 키를 먼저
+    견주고, 맞을 때만 계정을 싣는다."""
+
+    def __init__(self, host: str, port: int, source: FileSource) -> None:
+        self.host, self.port, self.source = host, port, source
+        if source.auth.kind not in ("basic", "none") or (
+            source.auth.kind == "none" and not source.auth.cert
+        ):
+            raise SourceError(
+                "sftp 의 auth 는 basic(계정 · 비밀번호) 또는 auth.cert(SSH 개인 키)입니다."
+            )
+
+    def _open(self) -> Any:
+        import socket
+
+        import paramiko
+
+        source = self.source
+        sock = socket.create_connection((self.host, self.port), timeout=source.timeout)
+        transport = paramiko.Transport(sock)
+        try:
+            transport.start_client(timeout=source.timeout)
+            key = transport.get_remote_server_key()
+            seen = fingerprint(key.asbytes())
+            wanted = source.host_key.strip()
+            if not wanted:
+                raise SourceError(
+                    f"sftp 서버({self.host})의 호스트 키 지문을 정의에 적어야 읽습니다 — 이 "
+                    f"서버의 지문: {seen} ({key.get_name()}). 서버 담당에게 맞는지 확인하고 "
+                    "adapter.host_key 에 적으세요."
+                )
+            if not hmac.compare_digest(seen, wanted):
+                raise SourceError(
+                    f"sftp 서버({self.host})의 호스트 키가 정의와 다릅니다(받은 {seen}) — "
+                    "서버를 바꿨거나 중간에서 가로챘을 수 있습니다. 서버 담당에게 확인하세요."
+                )
+            auth = source.auth
+            if auth.cert:
+                pkey = paramiko.PKey.from_path(
+                    auth.cert, passphrase=auth.cert_password or None
+                )
+                transport.auth_publickey(auth.user, pkey)
+            else:
+                transport.auth_password(auth.user, auth.token)
+            return transport, paramiko.SFTPClient.from_transport(transport)
+        except SourceError:
+            transport.close()
+            raise
+        except Exception as failure:  # paramiko 는 여러 갈래의 예외를 던진다
+            transport.close()
+            said = (
+                str(failure).replace(source.auth.token, "***")
+                if source.auth.token
+                else str(failure)
+            )
+            raise SourceError(
+                f"sftp 에 닿지 못했습니다({self.host}): {type(failure).__name__}: {said}"
+            ) from None
+
+    def listdir(self, folder: str) -> list[tuple[str, float]]:
+        import stat
+
+        transport, sftp = self._open()
+        try:
+            return [
+                (one.filename, float(one.st_mtime or 0))
+                for one in sftp.listdir_attr(folder)
+                if one.st_mode is not None and stat.S_ISREG(one.st_mode)
+            ]
+        finally:
+            transport.close()
+
+    def read(self, path: str) -> bytes:
+        transport, sftp = self._open()
+        try:
+            with sftp.open(path, "rb") as handle:
+                body: bytes = handle.read()
+            return body
+        finally:
+            transport.close()
+
+
 class FileAdapter:
     def __init__(
         self,
@@ -140,14 +248,20 @@ class FileAdapter:
         sleep: Callable[[float], None] = time.sleep,
         roots: Sequence[Path] | None = None,
         smb: SmbFiles | None = None,
+        sftp: SftpFiles | None = None,
     ) -> None:
         self.source = source
-        self._client = client or httpx.Client(timeout=source.timeout)
+        # HTTP 로 받을 때만 — sftp 의 `auth.cert` 는 SSH 키라 TLS 인증서로 읽으면 안 된다.
+        web = source.location.startswith(("http://", "https://"))
+        self._client = client or httpx.Client(
+            timeout=source.timeout, **(source.auth.client_options() if web else {})
+        )
         self._sleep = sleep
         self.roots = tuple(one.resolve() for one in roots) if roots is not None else None
         """읽어도 되는 폴더 — 주면 **실제로 고른 파일**(링크를 따라간 끝)이 그 안이어야 한다.
         `None` 이면 안 본다(CLI · 시험)."""
         self._smb = smb
+        self._sftp = sftp
 
     # --- 읽기 ---------------------------------------------------------------------------
 
@@ -161,6 +275,7 @@ class FileAdapter:
                         where,
                         headers=self.source.auth.headers(),
                         params=self.source.auth.query(),
+                        auth=self.source.auth.http_auth() or httpx.USE_CLIENT_DEFAULT,
                     )
                 except httpx.HTTPError as failure:
                     last = f"닿지 않습니다: {failure}"
@@ -176,6 +291,8 @@ class FileAdapter:
             )
         if where.startswith("smb://"):
             return self._from_share(where)
+        if where.startswith("sftp://"):
+            return self._from_sftp(where)
         matches = (
             sorted(glob.glob(where), key=os.path.getmtime)
             if any(c in where for c in "*?[")
@@ -227,6 +344,30 @@ class FileAdapter:
         raise SourceError(
             f"공유 폴더를 {self.source.retries}번 읽으려 했지만 실패했습니다: {last}"
         )
+
+    def _from_sftp(self, where: str) -> tuple[str, bytes]:
+        """SFTP 에서 — 폴더를 훑어 이름이 맞는 것 중 가장 늦게 바뀐 것 하나."""
+        parts = urlsplit(where)
+        if parts.username or parts.password:
+            raise SourceError(
+                "sftp 주소에 계정을 적지 않습니다 — auth.user · auth.token_env 를 쓰세요."
+            )
+        segments = [unquote(one) for one in parts.path.split("/") if one]
+        if not parts.hostname or not segments:
+            raise SourceError(f"sftp://<서버>/<폴더…>/<파일> 이어야 합니다: {where}")
+        folder, pattern = "/" + "/".join(segments[:-1]), segments[-1]
+        if any(c in folder for c in "*?["):
+            raise SourceError(f"폴더 이름에는 * 를 못 씁니다 — 파일 이름에만: {where}")
+        files = self._sftp or _SftpClient(parts.hostname, parts.port or 22, self.source)
+        found = [
+            (name, mtime)
+            for name, mtime in files.listdir(folder)
+            if fnmatch.fnmatchcase(name.lower(), pattern.lower())
+        ]
+        if not found:
+            raise SourceError(f"파일이 없습니다: {where}")
+        name = max(found, key=lambda one: one[1])[0]
+        return name, files.read(f"{folder.rstrip('/')}/{name}")
 
     def _format(self, name: str) -> str:
         if self.source.format != "auto":

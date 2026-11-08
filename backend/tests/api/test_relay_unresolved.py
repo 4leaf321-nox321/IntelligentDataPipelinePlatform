@@ -141,6 +141,7 @@ def test_작업함은_멈춘_실행의_참조에_대상의_후보를_붙이고_�
     assert keys[0] == "S-SEOUL" and "S-OLD" not in keys  # 안 씀은 후보가 아니다
     (split,) = body["splits"]
     assert split["options"] == ["모델 1", "모델 하나"] and split["rows"] == 2
+    assert body["split_fields"] == [{"type_slug": "t_model", "field": "label", "entities": 1}]
 
     # 실행이 지나가면 작업함은 빈다(까닭과 함께).
     Workdir(get_settings().relay_work_dir, slug).save_state(
@@ -244,3 +245,130 @@ def test_GLM_제안은_설정했을_때만_대상의_후보_안에서(
     offered = seen[0]["response_format"]["json_schema"]["schema"]["properties"]["key"]["enum"]
     assert "S-SEOUL" in offered and "S-OLD" not in offered
     assert as_objects([{"key": ""}]) == []
+
+
+def test_값이_갈리는_칸은_모으는_칸으로_초안에_더한다(
+    client: TestClient, admin: Signed, registry: Path, target: dict[str, set[str]]
+) -> None:
+    slug = _pipeline(registry)
+    url = f"/api/relay/pipelines/{slug}/unresolved/draft"
+    asked = {"aggregates": [{"type_slug": "t_model", "field": "label", "mode": "join"}]}
+    saved = client.post(url, json=asked, headers=admin.headers)
+    assert saved.status_code == 201, saved.text
+    row = client.get(
+        f"/api/relay/pipelines/{slug}/recipes/{saved.json()['version']}", headers=admin.headers
+    ).json()
+    assert row["body"]["types"][0]["label"] == {
+        "join": {"column": "MODEL_NAME"},
+        "separator": "; ",
+    }
+    assert "모으는 칸 1개" in row["note"]
+    wrong = {"aggregates": [{"type_slug": "t_model", "field": "key", "mode": "join"}]}
+    refused = client.post(url, json=wrong, headers=admin.headers)
+    assert refused.status_code == 422 and "식별자" in refused.text
+    assert client.post(url, json={}, headers=admin.headers).status_code == 422
+
+
+def test_보안_점검_초안에는_대상_토큰을_싣지_않고_타입_이름을_가린다(
+    client: TestClient, admin: Signed, registry: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """2026-11-08 보안 점검 — 초안의 대상(사람이 아직 안 본 주소)에 토큰을 싣는 길, 대상 주소에
+    들어가는 타입 이름, 프록시 같은 프로세스의 환경 변수, CSV 의 수식."""
+    from app.modules.relay import unresolved as module
+
+    sent: list[str] = []
+
+    def spy(url: str, **_kwargs: Any) -> httpx.Response:
+        sent.append(url)
+        return httpx.Response(200, json={"items": [], "total": 0})
+
+    monkeypatch.setattr(httpx, "get", spy)
+    monkeypatch.setattr(httpx, "post", spy)
+    monkeypatch.setattr(module, "_llm", lambda: object())
+
+    # 초안 — 정의 판만 있고 사용한 적이 없다. 대상은 울타리 밖이다.
+    slug = _slug()
+    draft = {
+        "format": "relay-pipeline/1",
+        "slug": slug,
+        "source": "plm",
+        "adapter": {
+            "kind": "rest",
+            "base_url": "http://127.0.0.1:9",
+            "path": "/x",
+            "key": "id",
+            "columns": {"ID": "id"},
+        },
+        "target": {"server": "http://evil.example", "token_env": "RELAY_T_TOKEN"},
+    }
+    saved = client.post(
+        f"/api/relay/pipelines/{slug}/definitions", json={"body": draft}, headers=admin.headers
+    )
+    assert saved.status_code == 201, saved.text
+    base = f"/api/relay/pipelines/{slug}"
+    ask = {"target": "t_site", "text": "x", "column": "C"}
+    refused = client.post(f"{base}/unresolved/suggest", json=ask, headers=admin.headers)
+    assert refused.status_code == 409 and refused.json()["error"]["code"].endswith(
+        "RELAY-0030"
+    )
+    entry = {"entries": [{"target": "t_site", "text": "x", "key": "S"}]}
+    assert client.post(
+        f"{base}/unresolved/draft", json=entry, headers=admin.headers
+    ).status_code in (
+        409,
+        422,
+    )
+    assert client.get(f"{base}/aliases.csv", headers=admin.headers).status_code == 409
+    inbox = client.get(f"{base}/unresolved", headers=admin.headers).json()
+    assert "초안" in inbox["note"]
+    assert sent == []  # 초안의 대상에는 아무것도 묻지 않았다
+
+    # 사용 중인 파이프라인 — 레시피가 참조 대조하지 않는 타입 · 주소를 바꾸는 이름은 거절한다.
+    active = _pipeline(registry)
+    url = f"/api/relay/pipelines/{active}/unresolved/suggest"
+    for target in ("t_vendor", "../../api/auth/me?x=", "T_SITE"):
+        got = client.post(url, json={**ask, "target": target}, headers=admin.headers)
+        assert got.status_code == 422, (target, got.text)
+    assert sent == []
+
+
+def test_보안_점검_프로세스의_환경_변수는_비밀_자리로_못_쓴다(
+    client: TestClient, admin: Signed, registry: Path
+) -> None:
+    for name in ("HTTPS_PROXY", "https_proxy", "SSL_CERT_FILE"):
+        slug = _slug()
+        body = {
+            "format": "relay-pipeline/1",
+            "slug": slug,
+            "source": "plm",
+            "adapter": {
+                "kind": "rest",
+                "base_url": "http://127.0.0.1:9",
+                "path": "/x",
+                "key": "id",
+                "columns": {"ID": "id"},
+                "auth": {"kind": "bearer", "token_env": name},
+            },
+            "target": {"server": "http://127.0.0.1:9", "token_env": "RELAY_T_TOKEN"},
+        }
+        got = client.post(
+            f"/api/relay/pipelines/{slug}/definitions",
+            json={"body": body},
+            headers=admin.headers,
+        )
+        assert got.status_code == 403 and got.json()["error"]["code"].endswith("RELAY-0013"), (
+            name
+        )
+
+
+def test_보안_점검_별칭_요청_목록은_수식으로_읽히지_않는다() -> None:
+    from app.modules.relay.unresolved import _cell
+
+    assert [_cell(one) for one in ("=HYPERLINK(1)", "+1", "-2", "@x", "\tA", "보통")] == [
+        "'=HYPERLINK(1)",
+        "'+1",
+        "'-2",
+        "'@x",
+        "'\tA",
+        "보통",
+    ]

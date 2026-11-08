@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -107,9 +108,11 @@ class Tally:
 class Blank:
     column: str
     lost: int
-    """값을 잃는 기존 행."""
+    """값을 잃는 기존 행 — 앞선 실행에서 이미 잃은 것(`carried`)까지."""
     filled: int
     """반영 전 미러에서 값이 있던 행."""
+    carried: int = 0
+    """앞선 실행들이 그 칸을 이미 비운 기존 행 — 그 실행들에서도 받은 행 모두에서 비었다."""
 
 
 @dataclass(frozen=True)
@@ -130,7 +133,12 @@ class Findings:
             "deleted": self.deleted,
             "received": self.received,
             "blanks": [
-                {"column": one.column, "lost": one.lost, "filled": one.filled}
+                {
+                    "column": one.column,
+                    "lost": one.lost,
+                    "filled": one.filled,
+                    "carried": one.carried,
+                }
                 for one in self.blanks
             ],
         }
@@ -145,11 +153,16 @@ class Findings:
                 "주지 않았는지(쪽 넘기기 · 권한 · 빈 응답) 확인하세요."
             )
         for one in self.blanks:
+            earlier = (
+                f" — 앞선 실행들에서 이미 {one.carried:,}건이 같은 식으로 비었음(합쳐서 셈)"
+                if one.carried
+                else ""
+            )
             out.append(
                 f"빈 칸 {one.column} — 받은 행(삭제 표시 빼고 {self.received:,}건) 모두에서 "
                 f"비었고, 값이 있던 {one.lost:,}건이 비게 됩니다(미러의 {one.filled:,}건에 "
-                "값이 있었음). 원천에서 칸 이름이 바뀌지 않았는지(어댑터의 columns) "
-                "확인하세요."
+                f"값이 있었음{earlier}). 원천에서 칸 이름이 바뀌지 않았는지(어댑터의 "
+                "columns) 확인하세요."
             )
         return out
 
@@ -181,8 +194,26 @@ class Accept:
         return all(one.column in self.columns for one in found.blanks)
 
 
-def inspect(policy: Policy | None, tally: Tally) -> Findings:
-    """기준을 넘은 것만 — 안 넘었으면 빈 `Findings`."""
+def carry(before: Mapping[str, int], tally: Tally) -> dict[str, int]:
+    """**실행을 넘어** 빈 칸을 센다 — 한 번에 두세 행씩 바뀌는 원천은 한 실행만으로는 기준
+    (`blank_rows`)에 안 걸리고, 칸 이름이 바뀐 뒤로 밤마다 몇 행씩 조용히 비워 간다. 받은 행
+    모두에서 빈 칸은 잃은 수를 더해 두고, 받은 행 하나라도 값이 있으면 지운다(칸은 살아
+    있다)."""
+    out = dict(before)
+    for column in set(tally.old_filled) | set(out):
+        if tally.filled[column]:
+            out.pop(column, None)
+        elif tally.lost[column]:
+            out[column] = out.get(column, 0) + tally.lost[column]
+    return out
+
+
+def inspect(
+    policy: Policy | None, tally: Tally, carried: Mapping[str, int] | None = None
+) -> Findings:
+    """기준을 넘은 것만 — 안 넘었으면 빈 `Findings`. `carried` 는 앞선 실행들이 이미 비운
+    수(`carry`) — 이번에도 값을 잃는 칸에만 더한다."""
+    carried = carried or {}
     if policy is None:
         return Findings()
     deleted = 0
@@ -197,8 +228,18 @@ def inspect(policy: Policy | None, tally: Tally) -> Findings:
         for column, filled in sorted(tally.old_filled.items()):
             if filled / tally.before <= FILLED or tally.filled[column]:
                 continue
-            if tally.lost[column] >= policy.blank_rows:
-                blanks.append(Blank(column=column, lost=tally.lost[column], filled=filled))
+            if not tally.lost[column]:
+                continue  # 이번엔 값을 잃는 행이 없다 — 증거가 없는 실행에서 멈추지 않는다
+            earlier = int(carried.get(column, 0))
+            if tally.lost[column] + earlier >= policy.blank_rows:
+                blanks.append(
+                    Blank(
+                        column=column,
+                        lost=tally.lost[column] + earlier,
+                        filled=filled,
+                        carried=earlier,
+                    )
+                )
     return Findings(
         before=tally.before, deleted=deleted, blanks=tuple(blanks), received=tally.received
     )

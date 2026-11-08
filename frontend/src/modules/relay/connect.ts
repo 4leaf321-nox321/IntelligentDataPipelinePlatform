@@ -11,7 +11,7 @@ import type { AdapterField, DiscoverOut } from '@/modules/relay/api'
 /** 입력 칸이 따로 있는 것 — 일반 칸 목록에서 뺀다. */
 export const SPECIAL = new Set(['key', 'columns', 'auth'])
 
-export const AUTH_KINDS = ['none', 'bearer', 'header', 'basic', 'query', 'oauth2'] as const
+export const AUTH_KINDS = ['none', 'bearer', 'header', 'basic', 'query', 'oauth2', 'ntlm'] as const
 export type AuthKind = (typeof AUTH_KINDS)[number]
 
 export const AUTH_LABEL: Record<AuthKind, string> = {
@@ -21,6 +21,7 @@ export const AUTH_LABEL: Record<AuthKind, string> = {
   basic: '계정 · 비밀번호(basic)',
   query: '질의 문자열의 키',
   oauth2: 'OAuth2 client credentials',
+  ntlm: 'Windows 통합 인증(NTLM)',
 }
 
 /** 인증 방식마다 더 적을 칸. */
@@ -35,7 +36,17 @@ export const AUTH_EXTRA: Record<AuthKind, { name: string; label: string }[]> = {
     { name: 'user', label: 'client_id' },
     { name: 'scope', label: '범위(scope)' },
   ],
+  ntlm: [{ name: 'user', label: '계정(CORP\\svc_relay)' }],
 }
+
+/**
+ * 어느 방식과도 함께 적는 클라이언트 인증서(mTLS) — 서버의 인증서 폴더(`RELAY_CERT_DIR`) 안의 **파일
+ * 이름**과, 키에 암호가 있으면 그 암호를 담은 환경 변수의 이름.
+ */
+export const AUTH_CERT: { name: string; label: string }[] = [
+  { name: 'cert', label: '클라이언트 인증서 파일 이름(mTLS)' },
+  { name: 'cert_password_env', label: '인증서 키 암호의 환경 변수' },
+]
 
 export interface AuthValues {
   kind: AuthKind
@@ -100,10 +111,11 @@ export function adapterOf(form: AdapterForm, partial = false): Record<string, un
     const value = valueOf(field, form.values[field.name] ?? '')
     if (value !== undefined) out[field.name] = value
   }
-  if (form.auth.kind !== 'none') {
+  const cert = AUTH_CERT.filter((one) => (form.auth[one.name] ?? '').trim())
+  if (form.auth.kind !== 'none' || cert.length > 0) {
     const auth: Record<string, string> = { kind: form.auth.kind }
-    if (form.auth.token_env.trim()) auth.token_env = form.auth.token_env.trim()
-    for (const extra of AUTH_EXTRA[form.auth.kind]) {
+    if (form.auth.kind !== 'none' && form.auth.token_env.trim()) auth.token_env = form.auth.token_env.trim()
+    for (const extra of [...AUTH_EXTRA[form.auth.kind], ...cert]) {
       const value = (form.auth[extra.name] ?? '').trim()
       if (value) auth[extra.name] = value
     }
@@ -125,6 +137,39 @@ export function adapterOf(form: AdapterForm, partial = false): Record<string, un
   return out
 }
 
+/** 여러 칸 식별자의 계산 칸 이름 — 어댑터의 열과 겹치면 뒤에 수를 붙인다. */
+export const KEY_COLUMN = 'RELAY_KEY'
+
+export interface KeyColumn {
+  /** 레시피 · 타입 초안이 식별자로 읽을 열. */
+  column: string
+  /** 표본 값(타입 초안에). */
+  sample: string
+  /** 여러 칸 식별자면 그 열을 만드는 정의의 `computed` — 한 칸이면 없다. */
+  computed?: Record<string, { template: string }>
+}
+
+/**
+ * 레시피가 식별자로 읽을 열. 한 칸이면 그 열 그대로. **여러 칸이면 레시피가 읽을 한 열이 없다** —
+ * 값을 `|` 로 잇는 계산 칸(`{A}|{B}`)을 정의에 더하고 그 열을 쓴다(미러의 식별자와 같은 모양).
+ */
+export function keyColumnOf(picks: Picked[]): KeyColumn | null {
+  const keys = picks.filter((one) => one.key)
+  if (keys.length === 0) return null
+  if (keys.length === 1) return { column: keys[0].column.trim(), sample: keys[0].sample }
+  for (const one of keys) {
+    if (/[{}]/.test(one.column)) throw new Error(`식별자 열 이름에는 { } 를 쓸 수 없습니다: ${one.column}`)
+  }
+  const taken = new Set(picks.filter((one) => one.include).map((one) => one.column.trim()))
+  let column = KEY_COLUMN
+  for (let n = 2; taken.has(column); n += 1) column = `${KEY_COLUMN}_${n}`
+  return {
+    column,
+    sample: keys.map((one) => one.sample).join('|'),
+    computed: { [column]: { template: keys.map((one) => `{${one.column.trim()}}`).join('|') } },
+  }
+}
+
 export type ScheduleKind = 'manual' | 'daily' | 'every'
 
 export interface DefinitionForm {
@@ -135,7 +180,11 @@ export interface DefinitionForm {
   schedule: { kind: ScheduleKind; at: string; minutes: string }
 }
 
-export function definitionOf(form: DefinitionForm, adapter: Record<string, unknown>): Record<string, unknown> {
+export function definitionOf(
+  form: DefinitionForm,
+  adapter: Record<string, unknown>,
+  computed?: Record<string, unknown>,
+): Record<string, unknown> {
   const body: Record<string, unknown> = {
     format: 'relay-pipeline/1',
     slug: form.slug.trim(),
@@ -148,6 +197,7 @@ export function definitionOf(form: DefinitionForm, adapter: Record<string, unkno
       token_env: form.target.token_env.trim(),
     },
   }
+  if (computed && Object.keys(computed).length > 0) body.computed = computed
   if (form.schedule.kind === 'daily') body.schedule = { daily_at: form.schedule.at }
   if (form.schedule.kind === 'every') body.schedule = { every_minutes: Number(form.schedule.minutes) }
   return body

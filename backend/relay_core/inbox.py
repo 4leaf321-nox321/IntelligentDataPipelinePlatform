@@ -29,6 +29,8 @@ from relay_core.state import Workdir
 #: 끝이면 slug 자리가 「관계 <이름>」 이다.
 _REFERENCE = re.compile(r"^(?P<owner>.+?) 의 칸 (?P<name>\S+) 값 (?P<text>(['\"]).*\4)$")
 _RELATION = "관계 "
+#: 객체의 값 갈림 — `f"{slug} {entry.key!r} 의 칸 {name}"`.
+_SPLIT = re.compile(r"^(?P<owner>\S+) (?P<key>(['\"]).*\3) 의 칸 (?P<name>\S+)$")
 #: 견줄 때 지우는 글자 — 띄어쓰기 · 이음표 · 괄호는 표기마다 다르게 쓴다.
 _NOISE = re.compile(r"[\s_\-/.·()\[\]]+")
 #: 이보다 낮은 점수는 후보로 내지 않는다 — 아무것이나 늘어놓으면 사람은 첫 줄을 고른다.
@@ -66,6 +68,9 @@ class Split:
     question: str
     options: list[str]
     rows: int
+    owner: str = ""
+    """그 칸이 있는 타입 — 관계의 칸이면 비어 있다(관계는 레시피에서 고친다)."""
+    name: str = ""
 
 
 @dataclass(frozen=True)
@@ -177,12 +182,15 @@ def parse(
             for option in one.get("options") or []
         ]
         flat = [n for group in rows for n in (group if isinstance(group, list) else [group])]
+        place = _SPLIT.match(what)
         splits.append(
             Split(
                 what=what,
                 question=str(one.get("question") or ""),
                 options=options,
                 rows=len(flat),
+                owner=place["owner"] if place else "",
+                name=place["name"] if place else "",
             )
         )
     return references, splits
@@ -244,3 +252,48 @@ def as_objects(items: list[dict[str, Any]]) -> list[TargetObject]:
             )
         )
     return out
+
+
+def split_fields(splits: list[Split]) -> list[tuple[str, str, int]]:
+    """값 갈림을 칸마다 — (타입, 칸, 갈린 객체 수). 같은 칸이 객체마다 갈리면 그 칸은 행 쪽의
+    속성이거나 여러 값이 답인 칸이다 — 모으는 칸(`join` · `collect`)으로 바꿀 후보."""
+    counts: dict[tuple[str, str], int] = {}
+    for one in splits:
+        if one.owner and one.name and one.name != "key":
+            counts[(one.owner, one.name)] = counts.get((one.owner, one.name), 0) + 1
+    return [(owner, name, n) for (owner, name), n in sorted(counts.items())]
+
+
+MODES = ("join", "collect")
+
+
+def aggregate(
+    body: dict[str, Any], type_slug: str, name: str, mode: str, separator: str = "; "
+) -> dict[str, Any]:
+    """레시피의 그 칸을 **모으는 칸**으로 바꾼 새 본문 — `join` 은 한 글로(`separator`),
+    `collect` 는 목록으로. 식별자 · 이미 모으는 칸 · 레시피에 없는 칸이면 `ValueError`."""
+    if mode not in MODES:
+        raise ValueError(f"모으는 방식은 {' · '.join(MODES)} 입니다: {mode!r}")
+    if name == "key":
+        raise ValueError("식별자는 모으는 칸이 될 수 없습니다 — 레시피의 식별자를 고치세요.")
+    out: dict[str, Any] = json.loads(json.dumps(body))
+    for one in out.get("types") or []:
+        if not isinstance(one, dict) or one.get("type_slug") != type_slug:
+            continue
+        if name == "label":
+            spec = one.get("label") or one.get("key")
+        else:
+            spec = (one.get("fields") or {}).get(name)
+        if not isinstance(spec, dict):
+            raise ValueError(f"레시피의 {type_slug} 에 칸 {name} 이 없습니다.")
+        if any(m in spec for m in MODES):
+            raise ValueError(f"{type_slug}.{name} 은 이미 모으는 칸입니다.")
+        wrapped: dict[str, Any] = (
+            {"join": spec, "separator": separator} if mode == "join" else {"collect": spec}
+        )
+        if name == "label":
+            one["label"] = wrapped
+        else:
+            one["fields"][name] = wrapped
+        return out
+    raise ValueError(f"레시피에 타입 {type_slug} 이 없습니다.")

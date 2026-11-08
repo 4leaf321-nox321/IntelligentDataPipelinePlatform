@@ -355,6 +355,10 @@ cd .. && mcp_server/venv/bin/python -m pytest mcp_server/tests
 `mcp_server/tests` 는 도구 목록 · 안내를 본다. 진짜 앱에 붙는 확인은 개발 서버(8081)에 띄운 MCP(8082)에
 MCP 클라이언트로 한다([devtools/README.md](devtools/README.md)).
 
+**화면을 끝까지 누르는 확인(E2E)** 은 `backend/.venv/bin/python devtools/e2e/run.py` — 진짜 브라우저로 로그인 ·
+지도 · 정의 편집 · 정의 시험 · 새 연결을 누른다. 임시 DB(`datarelay_e2e`) · 8095 · 8096 에 따로 세우고 끝나면
+내린다(개발 DB · 개발 서버를 건드리지 않는다). CI 에는 없다 — 화면의 길을 바꿨으면 밀기 전에 한 번.
+
 **밀기 전에는 위를 하나씩 치는 대신 `scripts/before_push.sh` 를 돌린다** — CI 와 같은 순서 · 같은 조건이다.
 
 `alembic check` 가 여기 있는 이유: **시험은 모델로 표를 만들기 때문에**

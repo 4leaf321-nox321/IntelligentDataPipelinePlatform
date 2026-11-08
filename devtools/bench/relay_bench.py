@@ -19,6 +19,7 @@ import shutil
 import sys
 import tempfile
 import time
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,7 @@ sys.path.insert(0, str(REPO / "backend"))
 from relay_core import reconcile, runner, sp, trace  # noqa: E402
 from relay_core.adapters.base import Fetched  # noqa: E402
 from relay_core.definition import Pipeline, Target  # noqa: E402
-from relay_core.records import SourceRecord  # noqa: E402
+from relay_core.records import Records, SourceRecord  # noqa: E402
 from relay_core.state import Workdir  # noqa: E402
 
 # 대상 SP 대신 — 미리 보기는 지문만, 적용은 표시만(단위 시험의 것 그대로).
@@ -40,10 +41,9 @@ KINDS = ["01", "02", "03"]
 REGIONS = ["KR", "US", "EU"]
 
 
-def rows(n: int, version: int = 0) -> list[SourceRecord]:
+def rows(n: int, version: int = 0) -> Iterator[SourceRecord]:
     """모델 n 개 — 과제는 모델 셋마다 하나(프로젝트 · 시험소를 하나씩만), `version` 이면 1% 가
-    이름이 바뀐다."""
-    out = []
+    이름이 바뀐다. 하나씩 낸다(어댑터가 쪽마다 받듯이)."""
     for i in range(n):
         task = i // 3
         project, site = task // 10, task % 10
@@ -66,8 +66,7 @@ def rows(n: int, version: int = 0) -> list[SourceRecord]:
             "SITE_REGION": REGIONS[site % 3],
         }
         stamp = f"2026-11-0{1 + version}T00:00:00Z"
-        out.append(SourceRecord(key=values["MODEL_ID"], values=values, updated_at=stamp))
-    return out
+        yield SourceRecord(key=values["MODEL_ID"], values=values, updated_at=stamp)
 
 
 @dataclass
@@ -77,15 +76,20 @@ class _Source:
 
 
 class Adapter:
+    """진짜 어댑터(REST · OData · XML)처럼 받은 행을 `records.Records` 에 담아 낸다 — 실행이 준
+    자리(`records.spill_to`)로 넘친다. `next` 는 (행을 내는 함수, Fetched 의 나머지 칸)."""
+
     source = _Source()
 
     def __init__(self) -> None:
-        self.next: Fetched | None = None
+        self.next: tuple[Callable[[], Iterable[SourceRecord]], dict[str, Any]] | None = None
 
     def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
         assert self.next is not None
-        got, self.next = self.next, None
-        return got
+        (make, rest), self.next = self.next, None
+        got = Records()
+        got.extend(make())
+        return Fetched(records=got, **rest)
 
 
 def body_size(send: Path) -> int:
@@ -174,8 +178,8 @@ def main(n: int) -> None:
     fake: Any = FakeSubmitter()
     print(f"N = {n:,} 행 (과제 {n // 3:,} · 프로젝트 {n // 30:,} · 시험소 10) — {root}")
 
-    adapter.next = Fetched(records=rows(n), watermark="w1", complete=True, full=True)
-    _reset()  # 받은 행(어댑터가 내는 목록)은 실행의 몫이다 — 진짜 어댑터도 목록으로 낸다
+    adapter.next = (lambda: rows(n), {"watermark": "w1", "complete": True, "full": True})
+    _reset()  # 받은 행은 실행의 몫이다 — 어댑터가 실행 안에서 받는다(넘치면 파일로)
     t = time.perf_counter()
     first = runner.run(pipeline, work, fake)
     t = step("첫 적재(실행)", t, first.status)
@@ -186,9 +190,10 @@ def main(n: int) -> None:
     runner.apply(pipeline, work, fake)
     t = step("첫 적용", t)
 
-    changed = [r for r in rows(n, 1) if r.values["MODEL_NAME"].endswith("v2")]
-    adapter.next = Fetched(records=changed, watermark="w2", complete=True, full=False)
-    del changed
+    adapter.next = (
+        lambda: (r for r in rows(n, 1) if r.values["MODEL_NAME"].endswith("v2")),
+        {"watermark": "w2", "complete": True, "full": False},
+    )
     _reset()
     t = time.perf_counter()
     again = runner.run(pipeline, work, fake)

@@ -201,6 +201,50 @@ describe('새 연결', () => {
     )
   })
 
+  it('여러 칸 식별자면 계산 칸을 정의에 더하고 레시피 · 타입 초안의 식별자로 쓴다', async () => {
+    relayApi.typeDraft.mockResolvedValue({
+      ontology: { types: [{ slug: 'mes_lot', label: '로트', properties: [] }] },
+      recipe: { format: 'sp-table/1', types: [{ type_slug: 'mes_lot' }] },
+    })
+    await mount()
+    await userEvent.type(await screen.findByLabelText('base_url'), 'http://mes')
+    await userEvent.type(screen.getByLabelText('path'), '/lots')
+    await userEvent.click(screen.getByText(/클라이언트 인증서\(mTLS\)/))
+    await userEvent.type(screen.getByLabelText('클라이언트 인증서 파일 이름(mTLS)'), 'mes.pem')
+    await userEvent.click(screen.getByRole('button', { name: /탐색/ }))
+    await waitFor(() =>
+      expect(relayApi.discover).toHaveBeenCalledWith(
+        expect.objectContaining({ auth: { kind: 'none', cert: 'mes.pem' } }),
+      ),
+    )
+    await userEvent.click(await screen.findByLabelText('LotId 식별자'))
+    await userEvent.click(screen.getByLabelText('MadeOn 식별자'))
+    expect(screen.getByTestId('composite-key')).toHaveTextContent('RELAY_KEY = {LOT_ID}|{MADE_ON}')
+    await userEvent.type(screen.getByLabelText('파이프라인 slug'), 'mes-lots')
+    await userEvent.type(screen.getByLabelText('원천 이름'), 'mes')
+    await userEvent.type(screen.getByLabelText('대상 SP 주소'), 'http://hub')
+    await userEvent.type(screen.getByLabelText('대상 토큰의 환경 변수'), 'HUB_TOKEN')
+    await userEvent.click(screen.getByRole('button', { name: /정의 판 초안 저장/ }))
+    await waitFor(() => expect(relayApi.saveDefinition).toHaveBeenCalled())
+    const body = relayApi.saveDefinition.mock.calls[0][1]
+    expect(body.adapter.key).toEqual(['LotId', 'MadeOn'])
+    expect(body.computed).toEqual({ RELAY_KEY: { template: '{LOT_ID}|{MADE_ON}' } })
+
+    await userEvent.selectOptions(await screen.findByLabelText('대상 타입'), 'mes_lot')
+    await userEvent.click(screen.getByRole('button', { name: /레시피 판 초안 저장/ }))
+    await waitFor(() => expect(relayApi.saveRecipe).toHaveBeenCalled())
+    expect(relayApi.saveRecipe.mock.calls[0][1].types[0].key).toEqual({ column: 'RELAY_KEY' })
+
+    await userEvent.selectOptions(screen.getByLabelText('대상 타입'), '__new__')
+    await userEvent.type(screen.getByLabelText('새 타입 slug'), 'mes_lot')
+    await userEvent.click(screen.getByRole('button', { name: /타입 정의 초안 작성/ }))
+    await waitFor(() => expect(relayApi.typeDraft).toHaveBeenCalled())
+    expect(relayApi.typeDraft.mock.calls[0][0]).toMatchObject({
+      key_column: 'RELAY_KEY',
+      columns: { RELAY_KEY: ['L1|2026-11-01'] },
+    })
+  })
+
   it('식별자를 고르지 않으면 정의를 저장하지 않고 까닭을 말한다 · 관리자가 아니면 만들 수 없다', async () => {
     await mount()
     await userEvent.type(await screen.findByLabelText('base_url'), 'http://mes')

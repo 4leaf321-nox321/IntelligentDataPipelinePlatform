@@ -7,16 +7,25 @@
  *   설정했으면 GLM 의 제안. **정하는 것은 사람이다** — 선택한 대응은 「레시피 초안으로 저장」 이 지금
  *   레시피의 relay 사전에 더해 레시피 판 초안이 되고, 시험 · 사용은 아래 「레시피 판」 에서 한다.
  * - **값 갈림**(같은 식별자인데 행마다 값이 다름)은 고를 키가 없다 — 레시피(모으는 칸)나 원천에서
- *   수정한다.
+ *   수정한다. 객체마다 같은 칸이 갈리면(**값이 갈리는 칸**) 그 칸을 모으는 칸(「한 글로」 join ·
+ *   「목록으로」 collect)으로 바꾸는 것을 대응과 함께 같은 초안에 담는다.
  * - **별칭 요청 목록**은 relay 사전 그대로를 CSV 로 — 대표 플랫폼에 별칭 등록을 요청한다. 등록돼
- *   대상이 그 표기를 풀면 목록이 「예」 로 말한다(relay 사전에서 삭제해도 된다).
+ *   대상이 그 표기를 풀면 목록이 「예」 로 말한다 — 그 줄은 relay 사전에서 걷는다. 정본은 SP 의 별칭이고 relay
+ *   사전은 그때까지의 임시 지름길이다(SP ADR 0063).
  */
 
 import { useState } from 'react'
 import { Download, Loader2, Save, Sparkles } from 'lucide-react'
 
 import { relayApi } from '@/modules/relay/api'
-import type { AliasEntry, InboxReference, RecipeSaved, SuggestOut } from '@/modules/relay/api'
+import type {
+  AggregateEntry,
+  AliasEntry,
+  InboxReference,
+  InboxSplitField,
+  RecipeSaved,
+  SuggestOut,
+} from '@/modules/relay/api'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert'
 import { Button } from '@/shared/components/ui/button'
@@ -35,6 +44,14 @@ import { cn } from '@/shared/lib/utils'
 
 /** 참조 한 줄의 자리 — 같은 대상 타입의 같은 표기는 한 줄이다. */
 const slotOf = (one: Pick<InboxReference, 'target' | 'text'>) => `${one.target} ${one.text}`
+/** 값이 갈리는 칸의 자리 — 타입.칸. */
+const fieldOf = (one: Pick<InboxSplitField, 'type_slug' | 'field'>) => `${one.type_slug}.${one.field}`
+
+type Mode = 'join' | 'collect'
+const MODES: { mode: Mode; label: string; title: string }[] = [
+  { mode: 'join', label: '한 글로 모으기', title: '값들을 구분자로 이어 한 글로 보냅니다' },
+  { mode: 'collect', label: '목록으로 모으기', title: '값들의 목록으로 보냅니다 — 대상 속성이 목록이어야 합니다' },
+]
 
 function Suggestion({ got }: { got: SuggestOut }) {
   return (
@@ -56,6 +73,7 @@ export function UnresolvedInbox({
 }) {
   const inbox = useResource(() => relayApi.unresolved(slug), [slug])
   const [chosen, setChosen] = useState<Record<string, string>>({})
+  const [folded, setFolded] = useState<Record<string, { mode: Mode; separator: string }>>({})
   const [asked, setAsked] = useState<Record<string, SuggestOut>>({})
   const [asking, setAsking] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -67,6 +85,20 @@ export function UnresolvedInbox({
   const entries: AliasEntry[] = references
     .filter((one) => (chosen[slotOf(one)] ?? '').trim())
     .map((one) => ({ target: one.target, text: one.text, key: chosen[slotOf(one)].trim() }))
+  const splitFields = data?.split_fields ?? []
+  const aggregates: AggregateEntry[] = splitFields
+    .filter((one) => folded[fieldOf(one)])
+    // 목록으로 모으면 구분자는 쓰지 않는다 — 서버의 기본값을 그대로 싣는다.
+    .map((one) => ({ type_slug: one.type_slug, field: one.field, ...folded[fieldOf(one)] }))
+  const picks = entries.length + aggregates.length
+
+  function fold(one: InboxSplitField, mode: Mode) {
+    const slot = fieldOf(one)
+    setFolded((before) => {
+      const { [slot]: was, ...rest } = before
+      return was?.mode === mode ? rest : { ...rest, [slot]: { mode, separator: was?.separator ?? '; ' } }
+    })
+  }
 
   async function suggest(one: InboxReference) {
     setAsking(slotOf(one))
@@ -87,8 +119,9 @@ export function UnresolvedInbox({
     setFailed(null)
     setSaved(null)
     try {
-      setSaved(await relayApi.draftAliases(slug, entries))
+      setSaved(await relayApi.draftAliases(slug, entries, aggregates))
       setChosen({})
+      setFolded({})
       onDrafted()
     } catch (caught) {
       setFailed(caught instanceof Error ? caught : new Error('알 수 없는 오류'))
@@ -247,10 +280,59 @@ export function UnresolvedInbox({
         </Table>
       )}
 
+      {splitFields.length > 0 && (
+        <div className="space-y-1">
+          <h3 className="text-sm font-medium">값이 갈리는 칸 {splitFields.length}개 — 모으는 칸으로 바꿀 수 있습니다</h3>
+          <p className="text-muted-foreground text-xs">
+            객체마다 같은 칸이 갈리면 그 칸은 행 쪽의 속성이거나 여러 값이 답인 칸입니다. 바꾸지 않으면 원천에서
+            수정해야 합니다.
+          </p>
+          <ul className="divide-y rounded-md border text-sm">
+            {splitFields.map((one) => {
+              const slot = fieldOf(one)
+              const picked = folded[slot]
+              return (
+                <li key={slot} data-testid="inbox-split-field" className="flex flex-wrap items-center gap-2 px-3 py-2">
+                  <span className="font-mono text-xs">{slot}</span>
+                  <span className="text-muted-foreground text-xs">객체 {one.entities}개에서 갈림</span>
+                  <div className="ml-auto flex flex-wrap items-center gap-1">
+                    {MODES.map((choice) => (
+                      <Button
+                        key={choice.mode}
+                        size="sm"
+                        variant={picked?.mode === choice.mode ? 'default' : 'outline'}
+                        className="h-7 text-xs"
+                        title={choice.title}
+                        aria-pressed={picked?.mode === choice.mode}
+                        aria-label={`${slot} ${choice.label}`}
+                        onClick={() => fold(one, choice.mode)}
+                      >
+                        {choice.label}
+                      </Button>
+                    ))}
+                    {picked?.mode === 'join' && (
+                      <Input
+                        aria-label={`${slot} 구분자`}
+                        value={picked.separator}
+                        maxLength={10}
+                        className="h-7 w-16 font-mono text-xs"
+                        onChange={(event) =>
+                          setFolded((before) => ({ ...before, [slot]: { mode: 'join', separator: event.target.value } }))
+                        }
+                      />
+                    )}
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
-        <Button size="sm" onClick={() => void save()} disabled={saving || entries.length === 0}>
+        <Button size="sm" onClick={() => void save()} disabled={saving || picks === 0}>
           {saving ? <Loader2 className="animate-spin" /> : <Save />}
-          레시피 초안으로 저장({entries.length}개)
+          레시피 초안으로 저장({picks}개)
         </Button>
         {csvButton}
         <span className="text-muted-foreground text-xs">

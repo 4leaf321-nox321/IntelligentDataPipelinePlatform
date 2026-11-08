@@ -31,14 +31,18 @@ from __future__ import annotations
 
 import json
 import math
+import shutil
 import urllib.parse
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any, Protocol
 
-from relay_core import sp
+from relay_core import sp, spill
 from relay_core.definition import Pipeline, Target
+from relay_core.diff import _batches as diff_batches
+from relay_core.diff import _head as diff_head
 from relay_core.diff import write_batches
 from relay_core.runner import Outcome, fold, pending_of, propose, settle_pending
 from relay_core.state import Workdir, stamp
@@ -595,20 +599,149 @@ def _now() -> str:
     return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _baseline(work: Workdir, applied_run: str) -> Any:
-    loaded = sp.pipeline.load(work.path(applied_run))
-    if loaded.problems:
-        raise ReconcileError(f"기준 출력을 못 읽었습니다({applied_run}): {loaded.problems}")
-    return loaded
+#: 바구니 하나에 드는 줄 — 기준 · 대상의 줄을 식별자의 해시로 나눠 바구니마다 견준다
+#: (시험이 줄여 여러 바구니로 나눠 본다).
+BUCKET_ROWS = spill.BUCKET_ROWS
 
 
-def _rows(batches: Iterable[Any]) -> dict[str, list[dict[str, Any]]]:
-    out: dict[str, list[dict[str, Any]]] = {}
-    for batch in batches:
-        out.setdefault(batch.type_slug, []).extend(
-            row for row in batch.rows if isinstance(row, dict)
-        )
-    return out
+def _head(run: Path, applied_run: str) -> dict[str, Any]:
+    manifest, problems = diff_head(run)
+    if problems:
+        raise ReconcileError(f"기준 출력을 못 읽었습니다({applied_run}): {problems}")
+    return manifest
+
+
+def _ranked(slugs: Iterable[str], manifest: dict[str, Any], folder: str) -> list[str]:
+    """틀의 `load` 와 같은 타입 차례 — 파일 이름 차례로 처음 나온 차례, 그다음 `*_order`."""
+    order = [str(one) for one in manifest.get(f"{folder}_order") or []]
+    return sorted(
+        dict.fromkeys(slugs), key=lambda one: order.index(one) if one in order else len(order)
+    )
+
+
+def _files(run: Path, folder: str) -> int:
+    return len(list((run / folder).glob("*.json"))) if (run / folder).is_dir() else 0
+
+
+def _bucket(slug: str, key: str, count: int) -> int:
+    return spill.bucket_of(f"{slug}\x00{key}", count)
+
+
+@dataclass
+class _Base:
+    """기준(적용한 출력)의 객체 — 바구니에 나눠 둔다. 줄은 메모리에 들지 않는다."""
+
+    manifest: dict[str, Any]
+    rows: dict[str, int]
+    """타입마다 기준의 줄 — 틀의 차례로."""
+    held: spill.Spill
+
+
+def _base(work: Workdir, applied_run: str, folder: Path) -> _Base:
+    run = work.path(applied_run)
+    manifest = _head(run, applied_run)
+    count = spill.count_for(
+        _files(run, sp.pipeline.OBJECTS_DIR) * int(sp.pipeline.MAX_ROWS), BUCKET_ROWS
+    )
+    held = spill.Spill(folder / "base", count)
+    problems: list[str] = []
+    rows: dict[str, int] = {}
+    for slug, _workspace, batch in diff_batches(run, sp.pipeline.OBJECTS_DIR, problems):
+        rows.setdefault(slug, 0)
+        for row in batch:
+            if isinstance(row, dict):
+                key = str(row.get("key"))
+                held.put(_bucket(slug, key, count), [slug, key, row])
+                rows[slug] += 1
+    held.close()
+    if problems:
+        held.drop()
+        raise ReconcileError(f"기준 출력을 못 읽었습니다({applied_run}): {problems}")
+    ranked = _ranked(rows, manifest, sp.pipeline.OBJECTS_DIR)
+    return _Base(manifest=manifest, rows={slug: rows[slug] for slug in ranked}, held=held)
+
+
+def _compare(
+    pipeline: Pipeline,
+    work: Workdir,
+    applied_run: str,
+    folder: Path,
+    reader: Reader | None,
+    report: Report,
+) -> None:
+    """**기준도 대상도 메모리에 다 들지 않는다** — 둘 다 (타입, 식별자)의 해시로 바구니에 나눠
+    두고 바구니마다 견준다(`BUCKET_ROWS` 줄씩). 한 식별자는 늘 한 바구니라 결과가 한꺼번에
+    견준 것과 같다. 목록 API(참조가 id 로 온다)만은 대상 객체를 다 받아 두어야 id 를 푼다."""
+    base = _base(work, applied_run, folder)
+    count = base.held.count
+    there = spill.Spill(folder / "target", count)
+    try:
+        if reader is None:
+            reader = best_reader(pipeline.target, base.rows)
+        report.via = str(getattr(reader, "via", ""))
+        fallback = str(getattr(reader, "fallback", "") or "")
+        if fallback:
+            report.notes.append(f"목록 API 로 읽었습니다 — {fallback}")
+        notice = str(getattr(reader, "notice", "") or "")
+        if notice:
+            report.notes.append(notice)
+        keyed = bool(getattr(reader, "keyed", False))
+        blind = frozenset(getattr(reader, "blind", frozenset()))
+        managed = reader.managed_by()
+        refs = _Refs()
+        # 참조가 id 로 오면(목록 API) 다른 타입의 객체까지 받아 두어야 그 id 를 식별자로 푼다.
+        # 식별자로 오면(코어 · 내보내기) 타입마다 **흘려** 바구니에 넣는다.
+        held: dict[str, Iterable[dict[str, Any]] | None] = {}
+        if not keyed:
+            for slug in base.rows:
+                got = reader.objects(slug)
+                held[slug] = list(got) if got is not None else None
+                refs.add(held[slug] or [])
+        for slug, rows in base.rows.items():
+            one = report.types.setdefault(slug, TypeDrift(rows=rows))
+            one.managed = bool(managed.get(slug)) and managed.get(slug) == pipeline.source
+            items = held.pop(slug) if not keyed else reader.objects(slug)
+            if items is None:
+                one.absent = True
+                report.problems.append(f"대상에 타입이 없습니다: {slug}")
+                continue
+            for item in items:
+                key = str(item.get("key") or "")
+                if key:
+                    there.put(_bucket(slug, key, count), [slug, key, item])
+        there.close()
+        for bucket in range(count):
+            wanted: dict[tuple[str, str], dict[str, Any]] = {
+                (slug, key): row for slug, key, row in base.held.read(bucket)
+            }
+            seen: set[tuple[str, str]] = set()
+            for slug, key, item in there.read(bucket):
+                if (slug, key) in seen:
+                    continue
+                one = report.types[slug]
+                row = wanted.get((slug, key))
+                if row is None:
+                    if item.get("status") != "deprecated":
+                        one.extra.append(key)
+                    continue
+                seen.add((slug, key))
+                if item.get("status") == "deprecated":
+                    one.deprecated.append(key)
+                differs, unverified = _diff_row(row, item, refs, blind)
+                one.unverified += unverified
+                if differs:
+                    one.changed[key] = differs
+            for slug, key in wanted.keys() - seen:
+                report.types[slug].missing.append(key)
+            del wanted, seen
+    finally:
+        there.drop()
+        base.held.drop()
+    for one in report.types.values():
+        one.missing.sort()
+        one.extra.sort()
+        one.deprecated.sort()
+        one.changed = dict(sorted(one.changed.items()))
 
 
 def compare(
@@ -631,58 +764,11 @@ def compare(
     if not state.applied_run:
         report.problems.append("아직 적용한 것이 없습니다 — 견줄 기준이 없습니다.")
         return report
-    baseline = _rows(_baseline(work, state.applied_run).objects)
-    if reader is None:
-        reader = best_reader(pipeline.target, baseline)
-    report.via = str(getattr(reader, "via", ""))
-    fallback = str(getattr(reader, "fallback", "") or "")
-    if fallback:
-        report.notes.append(f"목록 API 로 읽었습니다 — {fallback}")
-    notice = str(getattr(reader, "notice", "") or "")
-    if notice:
-        report.notes.append(notice)
-    keyed = bool(getattr(reader, "keyed", False))
-    blind = frozenset(getattr(reader, "blind", frozenset()))
-    managed = reader.managed_by()
-    refs = _Refs()
-    # 참조가 id 로 오면(목록 API) 다른 타입의 객체까지 받아 두어야 그 id 를 식별자로 푼다.
-    # 식별자로 오면(코어 · 내보내기) 타입마다 **흘려** 견준다 — 대상 객체를 다 쥐지 않는다.
-    held: dict[str, Iterable[dict[str, Any]] | None] = {}
-    if not keyed:
-        for slug in baseline:
-            got = reader.objects(slug)
-            held[slug] = list(got) if got is not None else None
-            refs.add(held[slug] or [])
-    for slug, rows in baseline.items():
-        one = report.types.setdefault(slug, TypeDrift(rows=len(rows)))
-        one.managed = bool(managed.get(slug)) and managed.get(slug) == pipeline.source
-        items = held.pop(slug) if not keyed else reader.objects(slug)
-        if items is None:
-            one.absent = True
-            one.missing = sorted(str(row.get("key")) for row in rows)
-            report.problems.append(f"대상에 타입이 없습니다: {slug}")
-            continue
-        wanted = {str(row.get("key")): row for row in rows}
-        seen: set[str] = set()
-        for item in items:
-            key = str(item.get("key") or "")
-            if not key or key in seen:
-                continue
-            row = wanted.get(key)
-            if row is None:
-                if item.get("status") != "deprecated":
-                    one.extra.append(key)
-                continue
-            seen.add(key)
-            if item.get("status") == "deprecated":
-                one.deprecated.append(key)
-            differs, unverified = _diff_row(row, item, refs, blind)
-            one.unverified += unverified
-            if differs:
-                one.changed[key] = differs
-        one.missing = sorted(set(wanted) - seen)
-        one.extra.sort()
-        one.deprecated.sort()
+    folder = work.path(f"work/{stamp()}.reconcile.spill")
+    try:
+        _compare(pipeline, work, state.applied_run, folder, reader, report)
+    finally:
+        shutil.rmtree(folder, ignore_errors=True)
     work.write_json(REPORT, report.to_json())
     state = work.load_state()
     state.history.append(
@@ -733,21 +819,36 @@ def resync(
         return Outcome("nothing", report.summary())
 
     assert report.baseline  # compare 가 기준 없음을 problems 로 돌려준다
-    loaded = _baseline(work, report.baseline)
-    objects = _rows(loaded.objects)
-    workspaces = {batch.type_slug: batch.workspace_slug for batch in loaded.objects}
+    run = work.path(report.baseline)
+    manifest_before = _head(run, report.baseline)
+    # 기준은 파일 하나씩 흘려 읽고 **어긋난 줄만** 든다.
+    picks = {
+        slug: (set(drift.missing) | set(drift.changed) | set(drift.deprecated))
+        for slug, drift in report.types.items()
+    }
+    found: dict[str, list[dict[str, Any]]] = {}
+    workspaces: dict[str, Any] = {}
+    problems: list[str] = []
+    for slug, workspace, batch in diff_batches(run, sp.pipeline.OBJECTS_DIR, problems):
+        workspaces[slug] = workspace
+        keys = picks.get(slug)
+        if not keys:
+            continue
+        revive = set(report.types[slug].deprecated)
+        found.setdefault(slug, []).extend(
+            {**row, "status": "active"} if str(row.get("key")) in revive else row
+            for row in batch
+            if isinstance(row, dict) and str(row.get("key")) in keys
+        )
+    if problems:
+        raise ReconcileError(f"기준 출력을 못 읽었습니다({report.baseline}): {problems}")
     send: dict[str, list[dict[str, Any]]] = {}
     resent: dict[str, set[str]] = {}
     graves: list[dict[str, Any]] = []
     counts: dict[str, Any] = {"objects": {}, "relations": {}}
     for slug, drift in report.types.items():
         revive = set(drift.deprecated)
-        keys = set(drift.missing) | set(drift.changed) | revive
-        rows = [
-            {**row, "status": "active"} if str(row.get("key")) in revive else row
-            for row in objects.get(slug, [])
-            if str(row.get("key")) in keys
-        ]
+        rows = found.get(slug, [])
         if rows:
             send[slug] = rows
             resent[slug] = {str(row.get("key")) for row in rows}
@@ -766,16 +867,23 @@ def resync(
             "잠기지 않은 타입이라 사람이 정합니다.",
         )
     every = set().union(*resent.values()) if resent else set()
-    edges: dict[str, list[dict[str, Any]]] = {}
-    for batch in loaded.relations:
-        for row in batch.rows:
-            if not isinstance(row, dict):
-                continue
-            if (
-                str(row.get("src")) in resent.get(batch.type_slug, set())
-                or str(row.get("dst")) in every
-            ):
-                edges.setdefault(batch.type_slug, []).append(row)
+    touching: dict[str, list[dict[str, Any]]] = {}
+    for slug, _workspace, batch in diff_batches(run, sp.pipeline.RELATIONS_DIR, problems):
+        mine = resent.get(slug, set())
+        rows = touching.setdefault(slug, [])
+        rows.extend(
+            row
+            for row in batch
+            if isinstance(row, dict)
+            and (str(row.get("src")) in mine or str(row.get("dst")) in every)
+        )
+    if problems:
+        raise ReconcileError(f"기준 출력을 못 읽었습니다({report.baseline}): {problems}")
+    edges = {
+        slug: touching[slug]
+        for slug in _ranked(touching, manifest_before, sp.pipeline.RELATIONS_DIR)
+        if touching[slug]
+    }
     for slug, rows in edges.items():
         counts["relations"][slug] = {
             "created": 0,
@@ -789,12 +897,12 @@ def resync(
     folder.mkdir(parents=True)
     order = write_batches(folder, sp.pipeline.OBJECTS_DIR, send, workspaces)
     edge_order = write_batches(folder, sp.pipeline.RELATIONS_DIR, edges, {})
-    manifest = dict(loaded.manifest)
+    manifest = dict(manifest_before)
     manifest["objects_order"] = [
-        slug for slug in loaded.manifest.get("objects_order", []) if slug in order
+        slug for slug in manifest_before.get("objects_order", []) if slug in order
     ] or order
     manifest["relations_order"] = [
-        slug for slug in loaded.manifest.get("relations_order", []) if slug in edge_order
+        slug for slug in manifest_before.get("relations_order", []) if slug in edge_order
     ] or edge_order
     manifest["source"] = pipeline.source
     manifest["title"] = f"{manifest.get('title') or pipeline.slug} — 대조의 보정 계획"
@@ -806,7 +914,6 @@ def resync(
             json.dumps({"objects": graves, "relations": []}, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-    run = work.path(report.baseline)
     if (run / sp.pipeline.ONTOLOGY).exists():
         (folder / sp.pipeline.ONTOLOGY).write_bytes((run / sp.pipeline.ONTOLOGY).read_bytes())
 

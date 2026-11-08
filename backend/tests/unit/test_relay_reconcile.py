@@ -381,3 +381,26 @@ def test_코어가_주지_않는_칸은_확인_못_함으로_센다(tmp_path: Pa
     report = compare(pipeline, work, Core({"plm_model": items}, {"plm_model": "plm"}), fake)
     assert report.drift == 0 and report.via == "코어"
     assert report.types["plm_model"].unverified == 3
+
+
+def test_바구니로_나눠_견줘도_한꺼번에_견준_것과_같다(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """기준 · 대상을 (타입, 식별자)의 해시로 나눠 견준다 — 바구니가 여럿이어도 보고서가 같고,
+    바구니 폴더는 남지 않는다."""
+    pipeline, work, fake = _applied(tmp_path)
+    items = [
+        _item("M2", "엣지", "선행", status="deprecated"),
+        _item("M3", "노트 2", "양산"),
+        _item("M3", "노트 2 — 같은 식별자가 또", "양산"),  # 처음 것만 본다
+        _item("M9", "누가 만든 것", "양산"),
+    ]
+    reader = FakeReader({"plm_model": items}, {})
+    whole = compare(pipeline, work, reader, fake).to_json()
+    monkeypatch.setattr(reconcile, "BUCKET_ROWS", 2000)  # 파일 하나(5,000줄 몫) → 바구니 3
+    split = compare(pipeline, work, reader, fake).to_json()
+    assert {k: v for k, v in split.items() if k != "at"} == {
+        k: v for k, v in whole.items() if k != "at"
+    }
+    assert whole["types"]["plm_model"]["changed"] == {"M3": ["label"]}
+    assert not list(work.path("work").glob("*.reconcile.spill"))

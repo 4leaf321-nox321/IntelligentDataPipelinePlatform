@@ -67,6 +67,9 @@ def test_계산_칸의_모양을_먼저_본다() -> None:
         ({"A": {"sum": "X"}}, "하나만"),
         ({"A": {"number": "X", "scale": 2}}, "모르는 칸"),
         ({"A": {"replace": "X", "pattern": "("}}, "정규식"),
+        ({"A": {"replace": "X", "pattern": "^(a+)+$"}}, "중첩"),
+        ({"A": {"replace": "X", "pattern": r"(\d{1,3})*x"}}, "중첩"),
+        ({"A": {"replace": "X", "pattern": "a" * 201}}, "200자"),
         ({"A": {"datetime": "X", "timezone": "Mars/Base"}}, "timezone"),
         ({"A": {"number": "X", "round": 20}}, "round"),
         ({"MODEL_ID": {"template": "{X}"}}, "이미 내는 열"),
@@ -175,3 +178,37 @@ def test_타입_정의_초안은_표본이_모두_그_모양일_때만_그_타�
         draft(type_slug="Bad-Slug", label="", columns={"A": []}, key_column="A")
     with pytest.raises(ValueError, match="식별자"):
         draft(type_slug="t", label="", columns={"A": []}, key_column="B")
+
+
+def test_여러_칸_식별자는_계산_칸으로_레시피의_식별자가_된다(tmp_path: Path) -> None:
+    """새 연결이 식별자 칸을 여럿 고르면 `{A}|{B}` 계산 칸을 더해 레시피의 식별자로 쓴다 —
+    값이 비면 그 자리만 빈다(짐작하지 않는다)."""
+    adapter = _Adapter()
+    adapter.records = [_model(n) for n in range(1, 3)]
+    pipeline = _pipeline(tmp_path, adapter)
+    pipeline.recipe.write_text(
+        json.dumps(
+            {
+                "format": "sp-table/1",
+                "types": [
+                    {
+                        "type_slug": "plm_model",
+                        "key": {"column": "RELAY_KEY"},
+                        "label": {"column": "MODEL_NAME"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    keyed = dataclasses.replace(
+        pipeline, computed=compute.check({"RELAY_KEY": {"template": "{MODEL_ID}|{KIND}"}})
+    )
+    fake = FakeSubmitter()
+    outcome = runner.run(keyed, Workdir(tmp_path / "work", "t"), fake)  # type: ignore[arg-type]
+    assert outcome.status == "planned", outcome.message
+    rows = json.loads(
+        (fake.previews[-1] / "objects" / "plm_model.json").read_text(encoding="utf-8")
+    )["rows"]
+    want = [f"{one.values['MODEL_ID']}|{one.values['KIND']}" for one in adapter.records]
+    assert sorted(row["key"] for row in rows) == sorted(want)

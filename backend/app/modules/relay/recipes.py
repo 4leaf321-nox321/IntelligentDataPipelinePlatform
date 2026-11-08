@@ -313,9 +313,15 @@ def trial(db: Session, found: Described, version: int) -> dict[str, Any]:
             "(미러가 생깁니다)."
         )
         raise Conflict(code("RELAY", 8), hint)
-    from app.modules.relay import services
+    from app.modules.relay import guard, services
 
     out: dict[str, Any] = {"version": row.version, "problems": problems_of(found, row.body)}
+    if found.draft:
+        # 초안의 대상은 사람이 아직 안 본 주소다 — 그 토큰을 싣기 전에 울타리를 지난다.
+        guard.check_target(
+            {"server": found.target_server, "token_env": found.target_token_env},
+            guard.fence(services.catalog(db)),
+        )
     token = services.secrets_env().get(found.target_token_env, "")
     out.update(
         dry_run(

@@ -6,15 +6,17 @@ PLM 에서 직접 받든, 중간 시스템(데이터레이크 · 파일 내보�
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
-from relay_core.records import SourceRecord
+from relay_core.records import Records, SourceRecord
 
 
 @dataclass
 class Fetched:
-    records: list[SourceRecord] = field(default_factory=list)
+    records: list[SourceRecord] | Records = field(default_factory=list)
+    """받은 행 — 원천이 크면 디스크로 넘치는 `Records`(넘친 뒤의 차례는 키 차례)."""
     watermark: str | None = None
     """다음에 `since` 로 되돌려 줄 값 — **원천이 준 값을 그대로.** 이쪽 시계로 만들면 그 사이
     행이 샌다(SP 연동 지침서 §4.2 「지킬 것」 1)."""
@@ -23,6 +25,9 @@ class Fetched:
     것으로 보기)도 하지 않는다 — 덜 받은 채 대조하면 아직 안 받은 것이 지워진다."""
     full: bool = False
     """전량을 받았나(`since` 없이). 그때만 「이번에 안 온 것」 을 지운 것으로 본다."""
+    done: Callable[[], None] | None = None
+    """미러에 **반영한 뒤** 부른다 — 보내 주는 원천(push)이 받을 함의 묶음을 지운다. 받기
+    점검이 멈추면 안 부른다(다음 실행이 같은 것을 다시 받는다)."""
 
 
 class Adapter(Protocol):

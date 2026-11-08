@@ -70,13 +70,20 @@ def test_종류는_코드의_설명을_보이고_비밀_칸은_없다(client: Te
     assert got.status_code == 200, got.text
     body = got.json()
     kinds = {one["kind"]: one for one in body["kinds"]}
-    assert set(kinds) == {"rest", "odata", "file", "xml"}
+    assert set(kinds) == {"rest", "odata", "file", "xml", "push"}
     assert kinds["odata"]["required"] == ["service_url", "entity_set", "key", "columns"]
     names = {f["name"] for one in kinds.values() for f in one["fields"]}
     assert not names & {"dsn", "token", "password", "secret"}
     sheet = next(f for f in kinds["file"]["fields"] if f["name"] == "sheet")
     assert sheet["default"] == "" and sheet["doc"]  # 칸 아래의 설명 글이 그대로 온다
-    assert "token_env" in {one["name"] for one in body["auth"]}
+    auth = {one["name"] for one in body["auth"]}
+    assert {"token_env", "cert", "cert_password_env"} <= auth
+    assert not auth & {
+        "token",
+        "cert_password",
+        "password",
+        "secret",
+    }  # 비밀의 값을 담는 칸은 없다
 
 
 def test_탐색은_울타리_안만_닿는다(client: TestClient, admin: Signed, drop: Path) -> None:

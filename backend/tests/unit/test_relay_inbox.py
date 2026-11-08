@@ -273,3 +273,25 @@ def test_실행은_대상의_식별자로_참조_대조하고_멈춘_실행을_�
     done = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
     assert done.status == "planned", done.message
     assert inbox.blocked_run(work) is None
+
+
+def test_값이_갈리는_칸은_모으는_칸으로_바꾸면_풀린다(tmp_path: Path) -> None:
+    rows = [*ROWS[:2], ("M1", "모델 하나", "S-SEOUL")]  # 같은 M1 인데 이름이 갈린다
+    body = {**RECIPE, "types": [{**RECIPE["types"][0], "fields": {}}], "relations": []}
+    run = _convert(tmp_path, body, rows)
+    _, splits = inbox.parse(_unresolved(run), body)
+    assert splits[0].owner == "t_model" and splits[0].name == "label"
+    assert inbox.split_fields(splits) == [("t_model", "label", 1)]
+
+    joined = inbox.aggregate(body, "t_model", "label", "join", " / ")
+    assert joined["types"][0]["label"] == {"join": {"column": "NAME"}, "separator": " / "}
+    assert "join" not in body["types"][0]["label"]  # 새 본문이다
+    run = _convert(tmp_path, joined, rows)
+    assert _unresolved(run) == [] and _objects(run)["M1"]["label"] == "모델 1 / 모델 하나"
+
+    with pytest.raises(ValueError, match="식별자"):
+        inbox.aggregate(body, "t_model", "key", "join")
+    with pytest.raises(ValueError, match="이미"):
+        inbox.aggregate(joined, "t_model", "label", "collect")
+    with pytest.raises(ValueError, match="없습니다"):
+        inbox.aggregate(body, "t_model", "nope", "join")

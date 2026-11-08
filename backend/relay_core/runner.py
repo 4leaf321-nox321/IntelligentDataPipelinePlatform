@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from relay_core import compute, intake, parts, sp
+from relay_core import compute, intake, parts, records, sp
 from relay_core.convert import transform, write_source
 from relay_core.definition import Pipeline, Target
 from relay_core.diff import Delta, delta
@@ -258,15 +258,24 @@ def _run(
     if since and due and not getattr(source, "deleted", None):
         since = None
     sheet["stage"] = "받기"
-    fetched = pipeline.adapter.fetch(since)
+    # 받은 행이 많으면 키 차례로 정렬해 디스크로 넘긴다(`records.Records`) — 첫 적재 100만 행에
+    # 받은 행 목록만 1.2GB 였다. 미러에 넣은 뒤 지운다.
+    with records.spill_to(work.path(f"work/{stamp()}.fetch.spill")):
+        fetched = pipeline.adapter.fetch(since)
     full, complete, watermark = fetched.full, fetched.complete, fetched.watermark
+    consumed = fetched.done
+    received = len(fetched.records)
     # 미러는 파일에서 흘려 이어 쓴다 — 메모리에는 받은 것만 든다(원천이 수십만 행이면 미러
     # 한 벌이 GB 다). 먼저 임시 파일에만 쓰고 받기 점검을 본다.
     sheet["stage"] = "미러"
-    staged = work.stage_mirror(fetched)
+    try:
+        staged = work.stage_mirror(fetched)
+    finally:
+        if isinstance(fetched.records, records.Records):
+            fetched.records.close()
     took, size = staged.applied, staged.size
     sheet.update(
-        received=len(fetched.records),
+        received=received,
         full=full,
         mirror=size,
         added=took.added,
@@ -274,11 +283,11 @@ def _run(
         removed=took.removed,
     )
     note += (
-        f"받음 {len(fetched.records)}건(추가 {took.added} · 변경 {took.changed} · "
+        f"받음 {received}건(추가 {took.added} · 변경 {took.changed} · "
         f"그대로 {took.unchanged} · 삭제 {took.removed}) · 미러 {size}건. "
     )
     del fetched
-    checked = intake.inspect(pipeline.intake, staged.tally)
+    checked = intake.inspect(pipeline.intake, staged.tally, state.blank_watch)
     if checked.held and not (accept is not None and accept.covers(checked)):
         staged.discard()
         sheet["mirror"] = staged.tally.before  # 반영하지 않았다 — 미러는 그대로다
@@ -294,11 +303,17 @@ def _run(
             }
         )
         note += "받기 점검의 멈춤을 확인하고 진행했습니다. "
+    state.blank_watch = intake.carry(state.blank_watch, staged.tally)
+    if checked.held and accept is not None:
+        for column in accept.columns:  # 사람이 맞다고 했다 — 그 칸은 다시 처음부터 센다
+            state.blank_watch.pop(column, None)
     state.held = None
     state.incrementals = 0 if full else state.incrementals + 1
     if complete:
         state.watermark = watermark
     work.save_state(state)
+    if consumed is not None:
+        consumed()  # 미러에 들어갔다 — 보내 준 묶음을 지운다(push)
     if size == 0:
         return Outcome("nothing", note + "미러가 비어 있습니다.")
     sheet["stage"] = "변환"

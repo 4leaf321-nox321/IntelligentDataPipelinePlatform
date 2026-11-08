@@ -69,9 +69,14 @@ class Llm:
                 f"{self.url}/chat/completions", json=payload, headers=headers
             )
         except httpx.HTTPError as failure:
-            raise LlmError(f"GLM 에 닿지 않습니다({self.url}): {failure}") from failure
+            raise LlmError(
+                f"GLM 에 닿지 않습니다({self.url}): {type(failure).__name__}"
+            ) from failure
         if answer.status_code != 200:
-            raise LlmError(f"GLM 이 거절했습니다({answer.status_code}): {answer.text[:200]}")
+            said = answer.text[:200]
+            if self.token:
+                said = said.replace(self.token, "***")  # 받은 머리글을 되돌려 찍는 서버가 있다
+            raise LlmError(f"GLM 이 거절했습니다({answer.status_code}): {said}")
         try:
             content = answer.json()["choices"][0]["message"]["content"]
             body = json.loads(content)

@@ -204,16 +204,23 @@ def kinds() -> dict[str, Any]:
                 "fields": _fields_of(shape, need),
             }
         )
-    auth = [one for one in _fields_of(Auth, ()) if one["name"] != "token"]
-    auth.append(
-        {
-            "name": "token_env",
-            "type": "str",
-            "required": False,
-            "default": "",
-            "doc": "비밀(토큰 · 비밀번호)이 든 환경 변수의 이름 — 값은 정의에 적지 않는다.",
-        }
-    )
+    # 비밀의 값을 담는 칸(`token` · `cert_password`)은 정의에 없다 — 이름의 칸(`*_env`)만.
+    auth = [
+        one for one in _fields_of(Auth, ()) if one["name"] not in ("token", "cert_password")
+    ]
+    for name, doc in (
+        (
+            "token_env",
+            "비밀(토큰 · 비밀번호)이 든 환경 변수의 이름 — 값은 정의에 적지 않는다.",
+        ),
+        (
+            "cert_password_env",
+            "클라이언트 인증서의 키 암호가 든 환경 변수의 이름(암호가 있을 때만).",
+        ),
+    ):
+        auth.append(
+            {"name": name, "type": "str", "required": False, "default": "", "doc": doc}
+        )
     return {"kinds": out, "auth": auth, "secret_fields": sorted(SECRET_FIELDS)}
 
 
@@ -252,6 +259,7 @@ def discover(db: Session, spec: dict[str, Any]) -> dict[str, Any]:
             services.secrets_env(),
             partial=True,
             file_roots=get_settings().relay_file_root_paths,
+            cert_root=get_settings().relay_cert_path,
         )
     except DefinitionError as failure:
         raise _invalid(str(failure)) from failure
@@ -501,7 +509,11 @@ def trial(
 
     try:
         adapter = build_adapter(
-            dict(body["adapter"]), env, file_roots=get_settings().relay_file_root_paths
+            dict(body["adapter"]),
+            env,
+            file_roots=get_settings().relay_file_root_paths,
+            cert_root=get_settings().relay_cert_path,
+            inbox=get_settings().relay_work_dir / slug / "inbox",
         )
         probe = adapter.probe()
         cap = get_settings().relay_trial_rows
@@ -535,6 +547,7 @@ def trial(
             for one in fetched.records[: max(0, min(limit, SAMPLE_MAX))]
         ],
     }
+    out["intake"] = _intake_preview(body, slug, fetched)
     if recipe_body is None:
         out["recipe"] = {
             "note": "레시피가 아직 없습니다 — recipe_draft_save 로 작성한 뒤 recipe_version "
@@ -559,6 +572,45 @@ def trial(
         ),
     }
     return out
+
+
+#: 시험에서 받기 점검을 미리 볼 미러의 상한 — 미러를 한 번 다 읽으므로(요청 안이다).
+PREVIEW_MIRROR_MAX = 500_000
+
+
+def _intake_preview(body: dict[str, Any], slug: str, fetched: Any) -> dict[str, Any]:
+    """**이 정의로 받으면** 받기 점검에 걸리나 — 시험이 받은 행을 지금 미러와 견준다(쓰지
+    않는다). 칸 이름을 바꾼 정의 판을 사용하기 전에 「빈 칸으로 멈출 것」 을 알게. 앞부분만
+    받은 시험이라 안 온 것(부재)은 삭제로 보지 않는다 — 삭제 표시만 센다."""
+    from relay_core import intake
+    from relay_core.mirror import Merge
+
+    root = get_settings().relay_work_dir / slug
+    if not (root / "mirror.json").is_file():
+        return {
+            "checked": False,
+            "note": "아직 받은 미러가 없어 받기 점검은 첫 실행부터 봅니다.",
+        }
+    work = Workdir(get_settings().relay_work_dir, slug)
+    size = work.mirror_size()
+    if size > PREVIEW_MIRROR_MAX:
+        return {
+            "checked": False,
+            "note": f"미러가 커서({size:,}건) 시험에서는 받기 점검을 미리 보지 않았습니다.",
+        }
+    merge = Merge(fetched)
+    for _row in merge.rows(work.mirror_rows()):
+        pass
+    found = intake.inspect(
+        intake.check(body.get("intake")), merge.tally, work.load_state().blank_watch
+    )
+    return {
+        "checked": True,
+        "held": found.held,
+        "reasons": found.reasons(),
+        "note": "시험이 받은 행을 지금 미러와 견줬습니다 — 앞부분만 받았으면 안 온 것(부재)은 "
+        "삭제로 보지 않았습니다.",
+    }
 
 
 def discard(db: Session, user: User, slug: str, version: int) -> RelayDefinition:

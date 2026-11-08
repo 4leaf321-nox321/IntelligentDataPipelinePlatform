@@ -220,7 +220,7 @@ def test_oauth2_는_토큰을_받아_만료_전까지_다시_쓴다(monkeypatch:
         "client_secret": "client-secret",
     }
     # 만료되면 다시 받는다.
-    key = ("http://idp.test/token", "relay", "")
+    (key,) = rest._TOKENS
     rest._TOKENS[key] = (rest._TOKENS[key][0], 0.0)
     adapter.fetch(None)
     assert seen[-1] == "Bearer tok-2"
@@ -293,7 +293,7 @@ def test_정의의_모양을_먼저_본다() -> None:
     assert "모르는 칸" in bad(auth={"kind": "bearer", "token_env": "T", "realm": "x"})
     assert "token_url" in bad(auth={"kind": "oauth2", "token_env": "T"})
     assert "param" in bad(auth={"kind": "query", "token_env": "T", "param": ""})
-    assert "kind" in bad(auth={"kind": "ntlm"})
+    assert "kind" in bad(auth={"kind": "kerberos"})
     assert "GET · POST" in bad(method="DELETE")
     assert "body" in bad(method="POST")
     assert "paging" in bad(paging="scroll")
@@ -345,3 +345,53 @@ def test_oauth2_의_토큰_주소도_울타리_안이고_비밀이_묶인다() -
     )
     with pytest.raises(AppError, match="PLM_SECRET"):
         guard.check_source("rest", spec, bound)
+
+
+def test_원격_파일_원천은_로컬_경로_검사에_걸리지_않는다() -> None:
+    from app.modules.relay import guard
+
+    fenced = guard.Fence(hosts=frozenset({"mesfs01", "plm.test"}))
+    for location in ("smb://mesfs01/export/lots-*.csv", "http://plm.test/export.csv"):
+        guard.check_source("file", {"location": location, "key": "id"}, fenced)
+
+
+def test_oauth2_의_받은_토큰은_같은_비밀을_적은_정의만_다시_쓴다(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rest._TOKENS.clear()
+    issued: list[str] = []
+
+    def post(url: str, *, data: dict[str, str], timeout: float) -> httpx.Response:
+        issued.append(data["client_secret"])
+        return httpx.Response(
+            200,
+            json={"access_token": f"tok-{len(issued)}"},
+            request=httpx.Request("POST", url),
+        )
+
+    monkeypatch.setattr(rest, "TOKEN_POST", post)
+    same = {"kind": "oauth2", "user": "relay", "token_url": "http://idp.test/token"}
+    assert Auth(**same, token="s1").access_token() == "tok-1"
+    # 같은 토큰 주소 · client_id 라도 비밀이 다르면(또는 없으면) 남이 받은 토큰을 쓰지 않는다.
+    assert Auth(**same, token="s2").access_token() == "tok-2"
+    with pytest.raises(SourceError, match="client secret"):
+        Auth(**same, token="").access_token()
+    assert Auth(**same, token="s1").access_token() == "tok-1" and issued == ["s1", "s2"]
+    rest._TOKENS.clear()
+
+
+def test_오류_글은_주소까지_비밀을_지운다() -> None:
+    key = "k+y/z=secret"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.params.get("page") == "2":
+            # 서버가 받은 주소를 퍼센트 인코딩된 꼴로 되돌려 찍는다.
+            return httpx.Response(400, text=f"bad: {request.url}")
+        nxt = f"http://plm.test/api/orders?page=2&api_key={key}"
+        return httpx.Response(200, json={"items": ORDERS[:1], "next": nxt})
+
+    auth = Auth(kind="query", param="api_key", token=key)
+    with pytest.raises(SourceError) as caught:
+        _rest(handler, paging="next_url", auth=auth).fetch(None)
+    said = str(caught.value)
+    assert key not in said and "k%2By%2Fz%3Dsecret" not in said and "***" in said

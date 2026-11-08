@@ -5539,6 +5539,40 @@
         "title": "AccountWorkspaceOut",
         "description": "소속 한 줄 — **이름과 경로를 함께 준다.**\n\nslug 만 주면 화면은 「hq」 라고 쓰게 된다. 그것은 주소지 부서 이름이 아니고,\n사람은 자기 부서를 「본사」 로 안다."
       },
+      "AggregateIn": {
+        "properties": {
+          "type_slug": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Type Slug"
+          },
+          "field": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Field"
+          },
+          "mode": {
+            "type": "string",
+            "pattern": "^(join|collect)$",
+            "title": "Mode",
+            "default": "join"
+          },
+          "separator": {
+            "type": "string",
+            "maxLength": 10,
+            "title": "Separator",
+            "default": "; "
+          }
+        },
+        "type": "object",
+        "required": [
+          "type_slug",
+          "field"
+        ],
+        "title": "AggregateIn"
+      },
       "ApproveRequest": {
         "properties": {
           "workspace_slug": {
@@ -6355,7 +6389,16 @@
               "$ref": "#/components/schemas/EntryIn"
             },
             "type": "array",
-            "title": "Entries"
+            "title": "Entries",
+            "default": []
+          },
+          "aggregates": {
+            "items": {
+              "$ref": "#/components/schemas/AggregateIn"
+            },
+            "type": "array",
+            "title": "Aggregates",
+            "default": []
           },
           "note": {
             "type": "string",
@@ -6365,9 +6408,6 @@
           }
         },
         "type": "object",
-        "required": [
-          "entries"
-        ],
         "title": "DraftIn"
       },
       "EntryIn": {
@@ -6686,6 +6726,14 @@
             },
             "type": "array",
             "title": "Splits",
+            "default": []
+          },
+          "split_fields": {
+            "items": {
+              "$ref": "#/components/schemas/SplitFieldOut"
+            },
+            "type": "array",
+            "title": "Split Fields",
             "default": []
           },
           "problems": {
@@ -9089,6 +9137,30 @@
           "workspace_slug"
         ],
         "title": "SignupRequest"
+      },
+      "SplitFieldOut": {
+        "properties": {
+          "type_slug": {
+            "type": "string",
+            "title": "Type Slug"
+          },
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "entities": {
+            "type": "integer",
+            "title": "Entities"
+          }
+        },
+        "type": "object",
+        "required": [
+          "type_slug",
+          "field",
+          "entities"
+        ],
+        "title": "SplitFieldOut",
+        "description": "값이 갈리는 칸 — 객체마다 같은 칸이 갈리면 모으는 칸(join · collect)으로 바꿀 후보."
       },
       "SplitOut": {
         "properties": {

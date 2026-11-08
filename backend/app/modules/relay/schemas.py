@@ -186,6 +186,15 @@ class SplitOut(BaseModel):
     rows: int
 
 
+class SplitFieldOut(BaseModel):
+    """값이 갈리는 칸 — 객체마다 같은 칸이 갈리면 모으는 칸(join · collect)으로 바꿀 후보."""
+
+    type_slug: str
+    field: str
+    entities: int
+    """그 칸이 갈린 객체의 수(이번 실행)."""
+
+
 class InboxOut(BaseModel):
     run: str = ""
     """미해결로 멈춘 실행(`runs/<때>`) — 없으면 빈 글(`note` 가 까닭)."""
@@ -197,6 +206,7 @@ class InboxOut(BaseModel):
     """GLM 이 설정됐나 — 그때만 「GLM 제안」 을 낸다."""
     references: list[ReferenceOut] = []
     splits: list[SplitOut] = []
+    split_fields: list[SplitFieldOut] = []
     problems: list[str] = []
     """후보를 못 낸 까닭(대상에 못 닿음 · 대상 SP 의 타입이 아님)."""
 
@@ -222,8 +232,17 @@ class EntryIn(BaseModel):
     key: str = Field(min_length=1, max_length=200)
 
 
+class AggregateIn(BaseModel):
+    type_slug: str = Field(min_length=1, max_length=80)
+    field: str = Field(min_length=1, max_length=80)
+    mode: str = Field("join", pattern="^(join|collect)$")
+    separator: str = Field("; ", max_length=10)
+
+
 class DraftIn(BaseModel):
-    entries: list[EntryIn]
+    entries: list[EntryIn] = []
+    aggregates: list[AggregateIn] = []
+    """값이 갈리는 칸을 모으는 칸으로 — relay 사전과 함께 한 초안에."""
     note: str = Field("", max_length=500)
 
 

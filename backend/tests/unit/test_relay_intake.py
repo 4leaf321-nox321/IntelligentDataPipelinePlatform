@@ -162,7 +162,7 @@ def test_칸_이름이_바뀌면_빈_칸으로_멈춘다(tmp_path: Path) -> None
     held = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
     assert held.status == "blocked" and "빈 칸 KIND" in held.message, held.message
     blanks = work.load_state().held["findings"]["blanks"]  # type: ignore[index]
-    assert blanks == [{"column": "KIND", "lost": 5, "filled": 100}]
+    assert blanks == [{"column": "KIND", "lost": 5, "filled": 100, "carried": 0}]
     assert work.mirror_size() == 100
 
     # 칸이 아예 없어도(파일의 머리글이 바뀜) 같다.
@@ -274,3 +274,32 @@ def test_전량_다시_받기는_워터마크를_두고_처음부터_받는다(t
     adapter.records = adapter.records[:2]
     held = runner.run(pipeline, work, fake, full=True)
     assert held.status == "blocked" and "대량 삭제" in held.message
+
+
+def test_한두_행씩_비는_칸은_실행을_넘어_쌓아_센다(tmp_path: Path) -> None:
+    adapter, pipeline, work, fake = _loaded(tmp_path)
+    adapter.full = False
+    # 칸 이름이 바뀐 뒤로 밤마다 한 행씩 — 한 실행만으로는 기준(3건)에 안 걸린다.
+    for night in (1, 2):
+        adapter.records = [_model(night, kind="")]
+        assert runner.run(pipeline, work, fake).status == "planned"  # type: ignore[arg-type]
+        runner.apply(pipeline, work, fake)  # type: ignore[arg-type]
+    assert work.load_state().blank_watch == {"KIND": 2}
+    adapter.records = [_model(3, kind="")]
+    held = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
+    assert held.status == "blocked" and "앞선 실행들에서 이미 2건" in held.message, (
+        held.message
+    )
+    (blank,) = work.load_state().held["findings"]["blanks"]  # type: ignore[index]
+    assert blank["lost"] == 3 and blank["carried"] == 2
+
+    # 확인하면 그 칸은 처음부터 다시 센다. 받은 행에 값이 있으면(칸이 살아 있다) 셈을 지운다.
+    accept = Accept.of(work.load_state().held)
+    assert runner.run(pipeline, work, fake, accept=accept).status == "planned"  # type: ignore[arg-type]
+    assert work.load_state().blank_watch == {}
+    adapter.records = [_model(4, kind="")]
+    runner.run(pipeline, work, fake)  # type: ignore[arg-type]
+    assert work.load_state().blank_watch == {"KIND": 1}
+    adapter.records = [_model(5, kind="B")]
+    runner.run(pipeline, work, fake)  # type: ignore[arg-type]
+    assert work.load_state().blank_watch == {}

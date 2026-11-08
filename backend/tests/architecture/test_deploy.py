@@ -685,3 +685,22 @@ def test_단독_서버에_준_백업_폴더도_설치가_만든다(tmp_path: Pat
     )
     assert done.returncode == 0, done.stderr
     assert backup.is_dir() and (install / "relay" / "pipelines").is_dir()
+
+
+def test_동기화_타이머는_켜지면_첫_차례가_있고_remove_는_타이머의_기록을_지운다() -> None:
+    """2026-11-08 개발 PC 리허설 — remove 뒤 같은 이름으로 다시 설치한 동기화 타이머가
+    「elapsed」 로 서서 재부팅 전까지 한 번도 안 돌았다. 남은 기록 파일로 systemd 가
+    「이미 돈 타이머」 로 보아 지나간 OnBootSec 를 버리고, OnUnitActiveSec 는 서비스가 한 번
+    돌아야 기준이 생긴다. 켜진 뒤의 첫 차례(OnActiveSec)가 그 둘과 상관없이 첫 실행을
+    만든다."""
+    timer = (DEPLOY / "sync.timer.template").read_text(encoding="utf-8")
+    lines = {
+        line.split("=", 1)[0]
+        for line in timer.splitlines()
+        if "=" in line and not line.startswith("#")
+    }
+    assert {"OnActiveSec", "OnUnitActiveSec"} <= lines
+    assert "Persistent" not in lines  # 단조 타이머에는 뜻이 없고 기록 파일만 남긴다
+    remove = _piece((DEPLOY / "deploy.sh").read_text(encoding="utf-8"), "cmd_remove")
+    assert 'systemctl clean --what=state "$unit"' in remove
+    assert remove.index("systemctl clean") < remove.index('rm -f "/etc/systemd/system/$unit"')

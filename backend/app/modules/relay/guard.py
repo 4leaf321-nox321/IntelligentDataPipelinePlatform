@@ -28,7 +28,7 @@ from relay_core.definition import SECRET_FIELDS, env_names
 from relay_core.describe import Described
 
 #: 서버가 바깥으로 닿는 자리의 앞머리 — 파일 원천은 공유 폴더(`smb://`)도 된다.
-REMOTE = ("http://", "https://", "smb://")
+REMOTE = ("http://", "https://", "smb://", "sftp://")
 
 #: 비밀처럼 보이는 값 — 주소 안의 비밀번호(`://u:p@` · `://:p@`), 머리글 그대로
 #: (`Bearer …`), 주소의 질의에 실은 키(`?access_token=…` · `&api_key=…`).
@@ -183,18 +183,30 @@ def check_file(location: str) -> None:
 def check_source(kind: str, spec: dict[str, Any], fenced: Fence) -> None:
     url = source_url(kind, spec)
     if url:
-        schemes = ("http", "https", "smb") if kind == "file" else ("http", "https")
+        schemes = ("http", "https", "smb", "sftp") if kind == "file" else ("http", "https")
         check_url(url, fenced.hosts, "adapter", schemes)
         for name in env_names(spec):
             check_secret(name, SOURCE, url, fenced)
+    elif kind == "file":
+        check_file(str(spec.get("location") or ""))
+    elif kind == "push":
+        # 보내 주는 원천의 비밀은 원천이 relay 에 보낼 때 싣는 것 — 다른 정의가 이미 쓰는
+        # 비밀(대상 SP 의 토큰 등)을 받는 열쇠로 쓰면 그 비밀을 아는 누구나 보낼 수 있다.
+        for name in env_names(spec):
+            if name in fenced.bound:
+                raise Forbidden(
+                    code("RELAY", 21),
+                    f"{name} 은 사용 중인 정의가 쓰는 비밀입니다 — 보내 주는 원천의 비밀은 "
+                    "따로 둡니다.",
+                )
+    # 토큰 주소는 따로 본다 — 원천 주소의 갈래(원격 · 로컬 파일)와 섞으면 한쪽이 빠진다
+    # (smb 원천이 로컬 경로 검사에 걸렸다, 2026-11-08 보안 점검).
     issuer = token_url(spec)
     if issuer:
         # client secret 은 토큰 주소로 간다 — 그 주소도 울타리 안, 비밀이 묶인 곳이어야 한다.
         check_url(issuer, fenced.hosts, "adapter.auth.token_url")
         for name in env_names(spec):
             check_secret(name, SOURCE, issuer, fenced)
-    elif kind == "file":
-        check_file(str(spec.get("location") or ""))
 
 
 def check_target(target: dict[str, Any], fenced: Fence) -> None:
@@ -203,13 +215,28 @@ def check_target(target: dict[str, Any], fenced: Fence) -> None:
     check_secret(str(target.get("token_env") or ""), TARGET, server, fenced)
 
 
+#: 설정이 아니어도 이 프로세스가 스스로 거는 환경 변수 — 프록시 주소에 계정이 들 수 있고
+#: (`network.apply` 가 `RELAY_PROXY` 를 옮겨 건다), 인증서 자리는 비밀은 아니어도 원천에 보낼
+#: 값이 아니다(2026-11-08 보안 점검).
+PROCESS_ENV = {
+    "HTTPS_PROXY",
+    "HTTP_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "REQUESTS_CA_BUNDLE",
+}
+
+
 def forbidden_env() -> set[str]:
-    """이 플랫폼 자신의 설정 이름 — 정의가 비밀 자리로 가리키면 안 된다."""
-    return {name.upper() for name in Settings.model_fields}
+    """이 플랫폼 자신의 설정 이름 — 정의가 비밀 자리로 가리키면 안 된다. 대소문자를 가리지
+    않는다(`https_proxy` 도 같다)."""
+    return {name.upper() for name in Settings.model_fields} | PROCESS_ENV
 
 
 def check_env(body: Any) -> None:
-    bad = sorted(set(env_names(body)) & forbidden_env())
+    bad = sorted({one for one in env_names(body) if one.upper() in forbidden_env()})
     if bad:
         raise Forbidden(
             code("RELAY", 13),

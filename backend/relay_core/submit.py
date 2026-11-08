@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from relay_core import sp
+from relay_core import bundle, sp
 from relay_core.definition import Target
 
 
@@ -45,8 +45,9 @@ class Plan:
 
 
 def digest_of(run: Path) -> str:
-    """보낼 몸통의 지문 — 대기 중인 계획과 같은 것을 또 올리지 않으려고 견준다."""
-    return str(sp.pipeline.digest(sp.pipeline.payload(sp.pipeline.load(run))))
+    """보낼 몸통의 지문 — 대기 중인 계획과 같은 것을 또 올리지 않으려고 견준다. 흘려서 잰다
+    (`bundle.payload` — 틀의 지문과 바이트까지 같고, 실행 폴더를 메모리에 들지 않는다)."""
+    return bundle.payload(run).digest
 
 
 class Submitter:

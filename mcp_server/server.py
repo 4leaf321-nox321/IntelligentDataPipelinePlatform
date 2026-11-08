@@ -340,8 +340,9 @@ async def pipeline_unresolved(ctx: Context, slug: str) -> Any:
     """미해결 작업함 — 미해결로 멈춘 실행의 **참조**(대상에서 못 찾은 원천 표기 — 칸 · 행
     수 · 대상의 후보)와 **값 갈림**(같은 식별자인데 행마다 값이 다름). 참조의 대응을
     제안하려면 후보 안에서만 골라 레시피의 `relay_aliases` 에 더한 초안을 `recipe_draft_save`
-    로 저장한다(사용은 사람이 화면에서). 값 갈림은 레시피(모으는 칸)나 원천의 문제다. 읽기만
-    한다."""
+    로 저장한다(사용은 사람이 화면에서). 값 갈림은 레시피(모으는 칸)나 원천의 문제다 —
+    `split_fields` 는 객체마다 갈리는 칸(모으는 칸 `join` · `collect` 로 바꿀 후보, 안내의
+    `recipe`). 읽기만 한다."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/unresolved")
 
 

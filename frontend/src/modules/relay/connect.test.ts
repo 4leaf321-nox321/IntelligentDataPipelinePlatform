@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AdapterField } from '@/modules/relay/api'
-import { adapterOf, definitionOf, picksOf, recipeOf, valueOf } from '@/modules/relay/connect'
+import { adapterOf, definitionOf, keyColumnOf, picksOf, recipeOf, valueOf } from '@/modules/relay/connect'
 import type { AdapterForm, DefinitionForm } from '@/modules/relay/connect'
 
 const field = (name: string, type = 'str'): AdapterField => ({
@@ -110,5 +110,47 @@ describe('새 연결의 입력', () => {
         },
       ],
     })
+  })
+
+  it('여러 칸 식별자면 `{A}|{B}` 계산 칸을 정의에 더해 레시피의 식별자로', () => {
+    const picks = form().picks.map((one) => ({ ...one, key: one.path !== 'steps.Grams' }))
+    expect(keyColumnOf(form().picks)).toBeNull()
+    expect(keyColumnOf(picks.map((one) => ({ ...one, key: one.path === 'LotId' })))).toEqual({
+      column: 'LOT_ID',
+      sample: 'L1',
+    })
+    const key = keyColumnOf(picks)
+    expect(key).toEqual({
+      column: 'RELAY_KEY',
+      sample: 'L1|1',
+      computed: { RELAY_KEY: { template: '{LOT_ID}|{STEPS_SEQ}' } },
+    })
+    // 어댑터의 열과 겹치면 뒤에 수를 붙인다.
+    const taken = picks.map((one, at) => (at === 2 ? { ...one, column: 'RELAY_KEY' } : one))
+    expect(keyColumnOf(taken)?.column).toBe('RELAY_KEY_2')
+    expect(() => keyColumnOf(picks.map((one) => ({ ...one, column: `{${one.column}}` })))).toThrow(/\{ \}/)
+
+    const meta: DefinitionForm = {
+      slug: 'mes-lots',
+      source: 'mes',
+      system: '',
+      target: { name: '허브', server: 'http://hub', token_env: 'HUB_TOKEN' },
+      schedule: { kind: 'manual', at: '', minutes: '' },
+    }
+    expect(definitionOf(meta, { kind: 'rest' }, key?.computed).computed).toEqual({
+      RELAY_KEY: { template: '{LOT_ID}|{STEPS_SEQ}' },
+    })
+    expect(definitionOf(meta, { kind: 'rest' })).not.toHaveProperty('computed')
+  })
+
+  it('NTLM 은 계정을, 클라이언트 인증서는 어느 방식과도 — 인증이 없어도 인증서만 적는다', () => {
+    const ntlm = adapterOf(form({ auth: { kind: 'ntlm', token_env: 'MES_PW', user: 'CORP\\svc' } }), true)
+    expect(ntlm.auth).toEqual({ kind: 'ntlm', token_env: 'MES_PW', user: 'CORP\\svc' })
+    const certOnly = adapterOf(
+      form({ auth: { kind: 'none', token_env: 'IGNORED', cert: 'mes-client.pem', cert_password_env: 'MES_CERT_PW' } }),
+      true,
+    )
+    expect(certOnly.auth).toEqual({ kind: 'none', cert: 'mes-client.pem', cert_password_env: 'MES_CERT_PW' })
+    expect(adapterOf(form({ auth: { kind: 'none', token_env: '' } }), true)).not.toHaveProperty('auth')
   })
 })

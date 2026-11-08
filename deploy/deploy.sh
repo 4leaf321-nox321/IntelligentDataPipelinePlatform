@@ -757,8 +757,10 @@ setup_sync_timer() {
     sed -e "s|@@APP_NAME@@|$(sed_escape "$APP_NAME")|g" "$HERE/sync.timer.template" > "$SYNC_TIMER_UNIT"
     chmod 644 "$SYNC_SERVICE_UNIT" "$SYNC_TIMER_UNIT"
     systemctl daemon-reload
-    systemctl enable --now "${SYNC_SERVICE_NAME}.timer" >/dev/null 2>&1 \
-        || warn "동기화 타이머 기동 실패 — 'systemctl status ${SYNC_SERVICE_NAME}.timer' 확인"
+    # **다시 켠다** — `enable --now` 는 이미 켜진 타이머를 그대로 둔다. 켜진 시각이 첫 차례(OnActiveSec)의
+    # 기준이라, 그대로 두면 바뀐 틀이 들지 않고 첫 차례도 다시 생기지 않는다(2026-11-08 리허설).
+    { systemctl enable "${SYNC_SERVICE_NAME}.timer" && systemctl restart "${SYNC_SERVICE_NAME}.timer"; } \
+        >/dev/null 2>&1 || warn "동기화 타이머 기동 실패 — 'systemctl status ${SYNC_SERVICE_NAME}.timer' 확인"
     info "동기화 타이머: 5분마다 차례가 된 파이프라인을 작업으로 넣습니다 — 돌리는 것은 $WORKER_SERVICE_NAME (journalctl -u $SYNC_SERVICE_NAME)"
 }
 
@@ -1209,6 +1211,12 @@ MSG
     for unit in "$SERVICE_NAME.service" "$WORKER_SERVICE_NAME.service" "$MCP_SERVICE_NAME.service" "$SYNC_SERVICE_NAME.timer" \
                 "$SYNC_SERVICE_NAME.service" "$BACKUP_SERVICE_NAME.timer" "$BACKUP_SERVICE_NAME.service"; do
         systemctl disable --now "$unit" >/dev/null 2>&1 || true
+        # **타이머의 기록 파일(/var/lib/systemd/timers/stamp-…)도 지운다** — 남으면 같은 이름으로 다시 설치한
+        # 타이머를 systemd 가 「이미 돈 적이 있다」 고 본다: 백업이 설치하자마자 놓친 03:00 을 따라잡아 돌고,
+        # 동기화 타이머는 첫 차례(OnBootSec)를 버려 재부팅 전까지 안 돌았다(2026-11-08 리허설).
+        if [[ "$unit" == *.timer ]]; then
+            systemctl clean --what=state "$unit" >/dev/null 2>&1 || rm -f "/var/lib/systemd/timers/stamp-$unit"
+        fi
         rm -f "/etc/systemd/system/$unit"
     done
     systemctl daemon-reload

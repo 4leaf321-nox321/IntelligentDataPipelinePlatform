@@ -30,12 +30,14 @@ import type {
   TypeDraft,
 } from '@/modules/relay/api'
 import {
+  AUTH_CERT,
   AUTH_EXTRA,
   AUTH_KINDS,
   AUTH_LABEL,
   SPECIAL,
   adapterOf,
   definitionOf,
+  keyColumnOf,
   picksOf,
   recipeOf,
 } from '@/modules/relay/connect'
@@ -168,7 +170,15 @@ export default function NewConnectionPage() {
   const main = fields.filter((one) => MAIN[kind]?.includes(one.name) || one.required)
   const rest = fields.filter((one) => !main.includes(one))
   const chosen = picks.filter((one) => one.include)
-  const keyColumns = picks.filter((one) => one.key).map((one) => one.column)
+  const keyColumn = (() => {
+    try {
+      return keyColumnOf(picks)
+    } catch {
+      return null // 저장할 때 까닭을 보인다
+    }
+  })()
+  /** 레시피가 읽을 열 — 고른 열, 그리고 여러 칸 식별자의 계산 칸. */
+  const readable = [...chosen.map((one) => one.column), ...(keyColumn?.computed ? [keyColumn.column] : [])]
   const form = { kind, fields: spec?.fields ?? [], values, auth, picks }
 
   if (!isSystemAdmin(user)) {
@@ -201,7 +211,7 @@ export default function NewConnectionPage() {
 
   const saveDefinition = () =>
     step('definition', async () => {
-      const body = definitionOf(meta, adapterOf(form))
+      const body = definitionOf(meta, adapterOf(form), keyColumnOf(picks)?.computed)
       const saved = await relayApi.saveDefinition(meta.slug.trim(), body, '새 연결')
       setSavedDefinition(saved)
       setSchema(await relayApi.targetSchema(meta.slug.trim()))
@@ -211,11 +221,13 @@ export default function NewConnectionPage() {
     step('type', async () => {
       const columns: Record<string, string[]> = {}
       for (const one of chosen) columns[one.column] = [one.sample]
+      const key = keyColumnOf(picks)
+      if (key?.computed) columns[key.column] = [key.sample]
       setTypeDraft(
         await relayApi.typeDraft({
           type_slug: newType.slug.trim(),
           label: newType.label.trim(),
-          key_column: keyColumns[0] ?? '',
+          key_column: key?.column ?? '',
           label_column: labelColumn,
           columns,
           system: meta.system,
@@ -236,8 +248,8 @@ export default function NewConnectionPage() {
             .filter((one) => one.data_type === 'date')
             .map((one) => one.key),
         )
-        // 여러 칸 식별자면 계산 칸 없이는 한 열이 아니다 — 첫 칸을 쓰고 레시피에서 다듬는다.
-        body = recipeOf(typeSlug, keyColumns[0] ?? '', labelColumn, fieldMap, dates)
+        // 여러 칸 식별자면 정의에 더한 계산 칸(`{A}|{B}`)을 식별자로 읽는다.
+        body = recipeOf(typeSlug, keyColumnOf(picks)?.column ?? '', labelColumn, fieldMap, dates)
       }
       setSavedRecipe(await relayApi.saveRecipe(meta.slug.trim(), body, '새 연결 — 첫 판'))
     })
@@ -348,6 +360,27 @@ export default function NewConnectionPage() {
             />
           </Labeled>
         ))}
+        <details className="text-sm">
+          <summary className="text-muted-foreground cursor-pointer text-xs">
+            클라이언트 인증서(mTLS) — 원천이 인증서를 요구할 때만
+          </summary>
+          <div className="mt-2 space-y-2">
+            <p className="text-muted-foreground text-xs">
+              운영자가 서버의 인증서 폴더(RELAY_CERT_DIR)에 둔 PEM(인증서 + 키)의 파일 이름만 적습니다 — 경로가
+              아니라. 어느 인증 방식과도 함께 씁니다.
+            </p>
+            {AUTH_CERT.map((extra) => (
+              <Labeled key={extra.name} label={extra.label}>
+                <Input
+                  aria-label={extra.label}
+                  className="font-mono text-xs"
+                  value={auth[extra.name] ?? ''}
+                  onChange={(event) => setAuth({ ...auth, [extra.name]: event.target.value })}
+                />
+              </Labeled>
+            ))}
+          </div>
+        </details>
         <Button size="sm" onClick={() => void explore()} disabled={busy !== null}>
           {busy === 'discover' ? <Loader2 className="animate-spin" /> : <Search />}
           탐색
@@ -427,6 +460,15 @@ export default function NewConnectionPage() {
               ))}
             </TableBody>
           </Table>
+          {keyColumn?.computed && (
+            <p className="text-xs" data-testid="composite-key">
+              식별자 칸이 {picks.filter((one) => one.key).length}개입니다 — 정의에 계산 칸{' '}
+              <span className="font-mono">
+                {keyColumn.column} = {keyColumn.computed[keyColumn.column].template}
+              </span>{' '}
+              을 더해 레시피의 식별자로 씁니다.
+            </p>
+          )}
         </Step>
       )}
 
@@ -568,9 +610,9 @@ export default function NewConnectionPage() {
               onChange={(event) => setLabelColumn(event.target.value)}
             >
               <option value="">식별자와 같음</option>
-              {chosen.map((one) => (
-                <option key={one.column} value={one.column}>
-                  {one.column}
+              {readable.map((one) => (
+                <option key={one} value={one}>
+                  {one}
                 </option>
               ))}
             </select>
@@ -600,9 +642,9 @@ export default function NewConnectionPage() {
                         onChange={(event) => setFieldMap((before) => ({ ...before, [prop.key]: event.target.value }))}
                       >
                         <option value="">보내지 않음</option>
-                        {chosen.map((one) => (
-                          <option key={one.column} value={one.column}>
-                            {one.column}
+                        {readable.map((one) => (
+                          <option key={one} value={one}>
+                            {one}
                           </option>
                         ))}
                       </select>

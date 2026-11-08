@@ -25,7 +25,7 @@ from lxml import etree
 
 from relay_core.adapters.base import Fetched
 from relay_core.adapters.rest import KEY_JOIN, Auth, SourceError, key_paths, scrub, truthy
-from relay_core.records import SourceRecord
+from relay_core.records import Records, SourceRecord
 
 _PARSER = etree.XMLParser(
     resolve_entities=False, no_network=True, huge_tree=False, remove_blank_text=True
@@ -98,7 +98,9 @@ class XmlAdapter:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self.source = source
-        self._client = client or httpx.Client(timeout=source.timeout)
+        self._client = client or httpx.Client(
+            timeout=source.timeout, **source.auth.client_options()
+        )
         self._sleep = sleep
 
     @property
@@ -135,7 +137,12 @@ class XmlAdapter:
         for attempt in range(source.retries):
             try:
                 got = self._client.request(
-                    method, source.url, params=params, content=body, headers=headers
+                    method,
+                    source.url,
+                    params=params,
+                    content=body,
+                    headers=headers,
+                    auth=source.auth.http_auth() or httpx.USE_CLIENT_DEFAULT,
                 )
             except httpx.HTTPError as failure:
                 last = f"닿지 않습니다: {failure}"
@@ -197,16 +204,13 @@ class XmlAdapter:
     def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
         """`limit` 이면 그만큼만 받고 멈춘다(시험용 — `complete=False`)."""
         source = self.source
-        records: list[SourceRecord] = []
-        marks: list[str] = []
+        records = Records()
         page = source.start_page
         for _ in range(source.max_pages):
             rows = self._rows(self._request(since, page))
             for row in rows:
                 one = self._record(row)
                 records.append(one)
-                if one.updated_at:
-                    marks.append(one.updated_at)
             if limit and len(records) >= limit:
                 return Fetched(records=records[:limit], complete=False)
             if source.paging != "page" or len(rows) < source.page_size:
@@ -216,7 +220,7 @@ class XmlAdapter:
             raise SourceError(f"쪽이 {source.max_pages}개를 넘었습니다.")
         return Fetched(
             records=records,
-            watermark=max(marks) if marks else since,
+            watermark=records.latest or since,
             complete=True,
             full=not since or not (source.since_param or "{since}" in source.envelope),
         )

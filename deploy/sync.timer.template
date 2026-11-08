@@ -4,9 +4,15 @@ Description=@@APP_NAME@@ 중계 타이머 — 차례가 된 파이프라인 · �
 [Timer]
 # 몇 분마다 「차례가 된 것」 을 묻는다. 소스마다의 간격은 화면에서 정한다 — 이 값은
 # 그 간격을 얼마나 촘촘히 확인하느냐일 뿐이다.
+#
+# **켜지면 1분 뒤에 첫 차례(OnActiveSec)** — 그 뒤로는 서비스가 돈 때부터 5분마다(OnUnitActiveSec).
+# OnUnitActiveSec 만으로는 서비스가 한 번 돌아야 기준이 생기고, OnBootSec 은 **이미 돈 적이 있는
+# 타이머**(재설치 · 같은 부팅 안에서 다시 켬)면 지나간 차례를 버린다 — 그러면 재부팅할 때까지 한 번도
+# 안 돈다(2026-11-08 리허설: remove 뒤 다시 설치한 타이머가 「elapsed」 로 서 있었다).
+# Persistent 는 달력 타이머(OnCalendar)에만 뜻이 있다 — 여기서는 기록 파일만 남겨 위 일을 부르므로 적지 않는다.
+OnActiveSec=1min
 OnBootSec=2min
 OnUnitActiveSec=5min
-Persistent=true
 
 [Install]
 WantedBy=timers.target

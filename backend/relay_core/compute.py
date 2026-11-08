@@ -40,6 +40,11 @@ _KEYS = {
     "first": {"first"},
 }
 _SLOT = re.compile(r"\{([^{}]+)\}")
+#: 바꾸기 정규식의 상한 · 바꿀 값의 상한(글자).
+PATTERN_MAX = 200
+VALUE_MAX = 4000
+#: 반복 안의 반복 — 괄호 안에 `*` · `+` · `}` 가 있고 그 괄호 뒤에 다시 반복이 붙은 것.
+_NESTED = re.compile(r"\((?:[^()\\]|\\.)*[*+}](?:[^()\\]|\\.)*\)\s*[*+{]")
 
 
 class ComputeError(ValueError):
@@ -76,12 +81,20 @@ def check(spec: Any, columns: Iterable[str] = ()) -> dict[str, dict[str, Any]]:
         elif not isinstance(rule[op], str) or not rule[op].strip():
             raise ComputeError(f"{where}.{op} 이 비었습니다.")
         if op == "replace":
+            pattern = str(rule.get("pattern") or "")
             try:
-                re.compile(str(rule.get("pattern") or ""))
+                re.compile(pattern)
             except re.error as failure:
                 raise ComputeError(
                     f"{where}.pattern 이 정규식이 아닙니다: {failure}"
                 ) from None
+            if len(pattern) > PATTERN_MAX or _NESTED.search(pattern):
+                # 파이썬의 re 에는 시간 제한이 없다 — `(a+)+` 는 25글자에 0.5초, 한 글자마다
+                # 두 배다. 행마다 도는 계산이라 워커가 멈춘다(2026-11-08 보안 점검).
+                raise ComputeError(
+                    f"{where}.pattern 은 {PATTERN_MAX}자 이내, 반복 안의 반복(`(a+)+` 같은 "
+                    "중첩)은 쓰지 않습니다 — 값마다 시간이 폭발할 수 있습니다."
+                )
         if op == "datetime":
             zone = str(rule.get("timezone") or "")
             if zone:
@@ -184,7 +197,7 @@ def values_with(
         elif "datetime" in rule:
             out[name] = _datetime(out.get(str(rule["datetime"]), ""), rule)
         elif "replace" in rule:
-            text = out.get(str(rule["replace"]), "")
+            text = out.get(str(rule["replace"]), "")[:VALUE_MAX]
             out[name] = re.sub(
                 str(rule.get("pattern") or ""), str(rule.get("with") or ""), text
             )

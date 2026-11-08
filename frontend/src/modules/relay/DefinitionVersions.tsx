@@ -1,6 +1,7 @@
 /**
- * 정의 판 — **AI(MCP)가 파이프라인 정의(relay-pipeline/1)의 초안을 짓고 시험한다. 켜는 일은 사람이
- * 여기서 한다**(ADR 0001 §2). 레시피 판과 같은 길이다.
+ * 정의 판 — **AI(MCP)가, 또는 사람이 여기 「초안 작성」(`DefinitionEditor`)으로 파이프라인 정의
+ * (relay-pipeline/1)의 초안을 짓고 시험한다. 켜는 일은 사람이 여기서 한다**(ADR 0001 §2). 레시피 판과
+ * 같은 길이다.
  *
  * 서버는 토큰으로 온 「켜기」 를 거절한다. 켜면 다음 실행부터 이 판이 같은 slug 의 정의 파일 대신
  * 돈다 — 그래서 켜기 전에 여기서 한 번 더 시험해 원천 · 대상에 닿는지 사람이 읽게 한다. 시험하지
@@ -20,10 +21,12 @@ import { useNavigate } from 'react-router-dom'
 import { autoApplyOf, countsLine, relayApi } from '@/modules/relay/api'
 import type {
   DefinitionBody,
+  DefinitionSaved,
   DefinitionTrial,
   DefinitionVersion,
   RecipeVersion,
 } from '@/modules/relay/api'
+import { DefinitionEditor } from '@/modules/relay/DefinitionEditor'
 import {
   DefinitionTrialView,
   trialBlocks,
@@ -233,6 +236,8 @@ export function DefinitionVersions({
   const [discarding, setDiscarding] = useState<DefinitionVersion | null>(null)
   const [askingDiscard, setAskingDiscard] = useState(false)
   const [shown, setShown] = useState<Shown | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [saved, setSaved] = useState<DefinitionSaved | null>(null)
   /** 빈 글이면 서버의 기본 — 켜진 레시피 판, 없으면 정의 파일의 레시피. */
   const [recipeChoice, setRecipeChoice] = useState('')
   // 버린 레시피 판은 고를 것에서 뺀다 — 고른 판을 그새 버렸으면 기본으로 돌아간다.
@@ -315,18 +320,60 @@ export function DefinitionVersions({
           {busy === 'file' && <Loader2 className="animate-spin" />}
           정의 파일 보기
         </Button>
+        {!editing && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="ml-auto"
+            onClick={() => {
+              setSaved(null)
+              setEditing(true)
+            }}
+          >
+            초안 작성
+          </Button>
+        )}
       </div>
       <p className="text-muted-foreground text-sm">
-        AI(MCP)가 파이프라인 정의(원천 · 어댑터 · 대상 · 일정)의 초안을 작성하고 시험합니다 — 사용
-        여부는 사람이 여기서 정합니다. 사용하면 다음 실행부터 같은 slug 의 정의 파일 대신 그 판을
+        AI(MCP)가, 또는 여기 「초안 작성」 으로 파이프라인 정의(원천 · 어댑터 · 대상 · 일정)의 초안을
+        작성하고 시험합니다 — 사용 여부는 사람이 여기서 정합니다. 사용하면 다음 실행부터 같은 slug 의 정의 파일 대신 그 판을
         따릅니다. 현재 정의:{' '}
         <span className="text-foreground font-medium">{currentText(definitionLabel)}</span>
       </p>
       <ErrorNotice error={versions.error ?? failed} />
+      {editing && (
+        <DefinitionEditor
+          slug={slug}
+          versions={list}
+          onClose={() => setEditing(false)}
+          onSaved={(got) => {
+            setSaved(got)
+            setEditing(false)
+            versions.reload()
+          }}
+        />
+      )}
+      {saved && (
+        <Alert data-testid="definition-saved">
+          <AlertDescription>
+            <p>
+              판 {saved.version} 초안을 저장했습니다 — 아래 목록에서 「시험」 으로 원천 · 대상에 닿는지 확인한 뒤
+              「사용」 하세요.
+            </p>
+            {saved.problems.length > 0 && (
+              <ul className="list-disc pl-4">
+                {saved.problems.map((one) => (
+                  <li key={one}>{one}</li>
+                ))}
+              </ul>
+            )}
+          </AlertDescription>
+        </Alert>
+      )}
       {versions.data && list.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          아직 판이 없습니다 — 정의 파일을 사용합니다. AI(MCP)가 정의 초안을 작성하면 여기 한
-          줄이 생깁니다.
+          아직 판이 없습니다 — 정의 파일을 사용합니다. AI(MCP)가, 또는 「초안 작성」 으로 정의 초안을
+          작성하면 여기 한 줄이 생깁니다.
         </p>
       )}
       {list.length > 0 && pickable.length > 0 && (

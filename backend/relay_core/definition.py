@@ -31,6 +31,7 @@ from typing import Any
 from relay_core.adapters.base import SourceAdapter
 from relay_core.adapters.file import FileAdapter, FileSource
 from relay_core.adapters.odata import ODataAdapter, ODataSource
+from relay_core.adapters.push import PushAdapter, PushSource
 from relay_core.adapters.rest import (
     AUTH_KINDS,
     PAGINGS,
@@ -96,7 +97,21 @@ def _secret(spec: dict[str, Any], where: str, env: Mapping[str, str]) -> str:
 
 
 #: 정의에 적는 인증의 칸 — 비밀은 `token_env`(환경 변수의 이름)로만.
-AUTH_KEYS = {"kind", "token_env", "header", "user", "param", "token_url", "scope"}
+AUTH_KEYS = {
+    "kind",
+    "token_env",
+    "header",
+    "user",
+    "param",
+    "token_url",
+    "scope",
+    "cert",
+    "cert_password_env",
+}
+#: 비밀의 **이름**을 담는 칸 — 값은 서버의 `.env` 에(`env_names` · 울타리가 이 이름들을 본다).
+ENV_KEYS = ("token_env", "cert_password_env")
+#: 클라이언트 인증서는 이 모양의 **파일 이름**만 — 경로를 받으면 서버의 아무 파일이나 가리킨다.
+_CERT_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$")
 
 
 def check_auth(spec: Any) -> dict[str, Any]:
@@ -122,11 +137,35 @@ def check_auth(spec: Any) -> dict[str, Any]:
         raise DefinitionError("auth.token_url 은 http(s) 주소여야 합니다.")
     if kind == "query" and not str(spec.get("param") or "").strip():
         raise DefinitionError("query 에는 auth.param(키를 실을 질의 이름)이 필요합니다.")
+    if kind == "ntlm" and not str(spec.get("user") or "").strip():
+        raise DefinitionError("ntlm 에는 auth.user(계정 — CORP\\svc_relay)가 필요합니다.")
+    cert = str(spec.get("cert") or "")
+    if cert and (not _CERT_NAME.fullmatch(cert) or ".." in cert):
+        raise DefinitionError(
+            "auth.cert 는 서버의 인증서 폴더(RELAY_CERT_DIR) 안의 파일 이름만 적습니다 — "
+            f"경로가 아니라: {cert!r}"
+        )
     return spec
 
 
-def _auth(spec: dict[str, Any], env: Mapping[str, str]) -> Auth:
+def _auth(spec: dict[str, Any], env: Mapping[str, str], cert_root: Path | None = None) -> Auth:
     check_auth(spec)
+    cert = ""
+    if spec.get("cert"):
+        if cert_root is None:
+            raise DefinitionError("클라이언트 인증서를 둘 폴더(RELAY_CERT_DIR)가 없습니다.")
+        found = (cert_root / str(spec["cert"])).resolve()
+        if not found.is_relative_to(cert_root.resolve()) or not found.is_file():
+            raise DefinitionError(
+                f"클라이언트 인증서가 인증서 폴더에 없습니다: {spec['cert']} "
+                f"({cert_root}) — 운영자가 그 폴더에 PEM(인증서 + 키)을 둡니다."
+            )
+        cert = str(found)
+    password = ""
+    if spec.get("cert_password_env"):
+        password = env.get(str(spec["cert_password_env"]), "")
+        if not password:
+            raise DefinitionError(f"환경 변수 {spec['cert_password_env']} 가 비어 있습니다.")
     return Auth(
         kind=str(spec.get("kind") or "none"),
         token=_secret(spec, "adapter.auth", env),
@@ -135,6 +174,8 @@ def _auth(spec: dict[str, Any], env: Mapping[str, str]) -> Auth:
         param=str(spec.get("param") or "api_key"),
         token_url=str(spec.get("token_url") or ""),
         scope=str(spec.get("scope") or ""),
+        cert=cert,
+        cert_password=password,
     )
 
 
@@ -144,6 +185,7 @@ ADAPTERS: dict[str, tuple[type[Any], type[Any], tuple[str, ...]]] = {
     "odata": (ODataSource, ODataAdapter, ("service_url", "entity_set", "key", "columns")),
     "file": (FileSource, FileAdapter, ("location", "key")),
     "xml": (XmlSource, XmlAdapter, ("url", "rows_xpath", "key", "columns")),
+    "push": (PushSource, PushAdapter, ("key", "columns")),
 }
 
 
@@ -254,6 +296,9 @@ def _check_shape(kind: str, body: dict[str, Any], *, partial: bool) -> None:
             "method POST 에는 body(본문 틀, JSON 객체)가 있어야 합니다 — 조회 본문 없이 "
             "POST 하면 남의 API 를 부르는 길이 된다."
         )
+    workers = body.get("detail_workers", 1)
+    if isinstance(workers, bool) or not isinstance(workers, int) or not 1 <= workers <= 16:
+        raise DefinitionError("adapter.detail_workers 는 1 이상 16 이하의 정수입니다.")
     interval = body.get("min_interval", 0)
     if (
         isinstance(interval, bool)
@@ -275,26 +320,36 @@ def build_adapter(
     *,
     partial: bool = False,
     file_roots: Sequence[Path] | None = None,
+    cert_root: Path | None = None,
+    inbox: Path | None = None,
 ) -> SourceAdapter:
     """어댑터 설정 → 어댑터 — 비밀(`auth.token_env`)은 `env` 에서 푼다.
-    `file_roots` 를 주면 파일 어댑터가 그 폴더 밖을 읽지 않는다(앱이 준다)."""
+    `file_roots` 를 주면 파일 어댑터가 그 폴더 밖을 읽지 않는다(앱이 준다). `cert_root` 는
+    클라이언트 인증서(`auth.cert`)를 찾는 폴더."""
     kind, body = check_adapter(spec, partial=partial)
     shape, adapter, _need = ADAPTERS[kind]
     names = {one.name for one in fields(shape)}
     if "auth" in names:
-        body["auth"] = _auth(dict(body.pop("auth", None) or {}), env)
+        body["auth"] = _auth(dict(body.pop("auth", None) or {}), env, cert_root)
     if kind == "file":
         return FileAdapter(shape(**body), roots=file_roots)
+    if kind == "push":
+        if body["auth"].kind != "bearer" or not body["auth"].token:
+            raise DefinitionError(
+                "보내 주는 원천(push)은 auth.kind bearer 와 auth.token_env(원천이 보낼 때 "
+                "실을 비밀)가 있어야 합니다."
+            )
+        return PushAdapter(shape(**body), inbox=inbox)
     built: SourceAdapter = adapter(shape(**body))
     return built
 
 
 def env_names(body: Any) -> list[str]:
-    """정의가 푸는 환경 변수의 이름 전부(`token_env`) — 어디에 있든."""
+    """정의가 푸는 환경 변수의 이름 전부(`token_env` · `cert_password_env`) — 어디에 있든."""
     found: list[str] = []
     if isinstance(body, dict):
         for key, value in body.items():
-            if key == "token_env" and isinstance(value, str) and value:
+            if key in ENV_KEYS and isinstance(value, str) and value:
                 found.append(value)
             else:
                 found.extend(env_names(value))
@@ -377,6 +432,8 @@ def load_body(
     recipe: Path | None = None,
     path: Path | None = None,
     file_roots: Sequence[Path] | None = None,
+    cert_root: Path | None = None,
+    inbox: Path | None = None,
 ) -> Pipeline:
     """달릴 수 있게 — 비밀(`token_env`)까지 푼다. 레시피는 `recipe` 가 이기고,
     없으면 정의의 `recipe`(그 자리는 `base` 기준). DB 의 정의(판)는 `base` 가 없다 — 켜진
@@ -403,7 +460,13 @@ def load_body(
     return Pipeline(
         slug=slug,
         source=source,
-        adapter=build_adapter(dict(body.get("adapter") or {}), env, file_roots=file_roots),
+        adapter=build_adapter(
+            dict(body.get("adapter") or {}),
+            env,
+            file_roots=file_roots,
+            cert_root=cert_root,
+            inbox=inbox,
+        ),
         recipe=recipe,
         target=target,
         path=path or Path(f"<판:{slug}>"),

@@ -74,8 +74,9 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    | --- | --- | --- |
    | OData(v4 · v2) | `odata` | `service_url` · `entity_set` · `expand` · `modified_field`(증분) · `deleted` |
    | JSON REST(쪽 넘김) | `rest` | `base_url` · `path` · `rows_path` · `paging` · `since_param` |
-   | CSV · Excel(xlsx) · JSON 파일 | `file` | `location` — 서버 폴더(`/data/relay/drop/…`) · 공유 폴더(`smb://서버/공유/폴더/lots-*.csv`, 계정은 `auth: {"kind": "basic", "user": "CORP\\svc", "token_env": …}`) · URL. `*` 면 가장 늦게 바뀐 것 · `sheet` · `header_row` · `encoding` |
+   | CSV · Excel(xlsx) · JSON 파일 | `file` | `location` — 서버 폴더(`/data/relay/drop/…`) · 공유 폴더(`smb://서버/공유/폴더/lots-*.csv`, 계정은 `auth: {"kind": "basic", "user": "CORP\\svc", "token_env": …}`) · SFTP(`sftp://서버/폴더/lots-*.csv` — 아래) · URL. `*` 면 가장 늦게 바뀐 것 · `sheet` · `header_row` · `encoding` |
    | XML · SOAP | `xml` | `url` · `rows_xpath` · `namespaces` · `envelope`(SOAP, `{since}` 자리) · `soap_action` |
+   | 원천이 **보내 준다**(webhook · 일괄 전송 — 가져갈 API 가 없다) | `push` | `key` · `columns` · `deleted` · `auth: {"kind": "bearer", "token_env": …}`. 원천이 `POST /api/relay/inbound/<slug>` 에 머리글 `X-Relay-Token` 으로 JSON 목록을 보낸다 — **사용 중인 정의만** 받으므로 처음에는 탐색할 것이 없다. 원천 담당에게 받은 보낼 모양(예시 JSON)으로 `columns` 를 적는다. 지운 것은 삭제 표시로 보내야 한다 |
 
    **원천 시스템의 DB 에 바로 붙는 종류는 없다** — 원천은 API · 파일 · 공유 폴더로만 받는다. API 가 없다면
    원천 시스템 담당에게 API(또는 내보낸 파일)를 부탁하라고 사람에게 전한다.
@@ -93,6 +94,10 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    | 초당 몇 건으로 막힘 | `"min_interval": 0.5`(초) |
    | 질의 문자열의 API 키 | `"auth": {"kind": "query", "param": "api_key", "token_env": …}` |
    | OAuth2 client credentials | `"auth": {"kind": "oauth2", "token_url": …, "user": "<client_id>", "scope": …, "token_env": <client secret 의 이름>}` — 토큰 주소도 울타리 안이어야 한다 |
+   | Windows 통합 인증(IIS) | `"auth": {"kind": "ntlm", "user": "CORP\\svc_relay", "token_env": <비밀번호의 이름>}` |
+   | 클라이언트 인증서(mTLS) | 어느 방식에든 `"cert": "mes-client.pem"`(+ 키 암호가 있으면 `"cert_password_env"`) — 운영자가 서버의 인증서 폴더(`RELAY_CERT_DIR`)에 둔 PEM 의 **파일 이름**만. 인증만 인증서면 `"kind": "none"` 에 `cert` |
+   | 상세가 느림(항목마다 한 번씩) | `"detail_workers": 4`(1–16) — 상세를 동시에 부른다(행의 차례는 그대로). 원천이 감당할 만큼만 · `min_interval` 은 그래도 지킨다 |
+   | SFTP | `"location": "sftp://서버/폴더/lots-*.csv"`, `"host_key": "SHA256:…"`, 계정은 `auth.user` · `auth.token_env`. **지문을 모르면 적지 말고** 시험한다 — 서버가 보인 지문을 `problems` 가 말한다. 그 지문은 **사람이 서버 담당과 확인한 뒤** 적게 한다(AI 가 그대로 옮겨 적지 않는다) |
 
    레시피에 없는 값 바꾸기는 정의의 **계산 칸**(`computed`, 맨 위 칸)으로 — 여러 열 잇기
    (`{"template": "{LAST} {FIRST}"}`) · 숫자(`{"number": "G", "multiply": 0.001, "round": 3}`) · 시각(`{"datetime":
@@ -276,7 +281,13 @@ python sp_pipeline.py validate runs/2026-09-13-plm-models      # 그 뒤는 여�
   못 푼 표기에만 쓰이고, 대상에 없는 키는 쓰이지 않는다(그 표기는 다시 미해결). 미해결로 멈춘 실행은
   `pipeline_unresolved` 가 보여 준다(참조마다 대상의 후보). 대응을 제안할 때는 그 후보 안에서만 고르고,
   확신이 없으면 고르지 않는다 — 초안(`recipe_draft_save`)으로 저장하면 **사람이 화면에서** 시험 · 사용한다.
-  같은 목록은 화면에서 대표 플랫폼에 보낼 별칭 요청 목록(CSV)이 된다.
+  같은 목록은 화면에서 대표 플랫폼에 보낼 별칭 요청 목록(CSV)이 된다. **정본은 SP 의 별칭이다** — relay 사전은
+  별칭이 굳기 전까지의 임시 지름길이고, 굳으면 그 줄을 걷는다(둘이 다르면 SP 가 이긴다). AI 의 판정은 SP 에
+  미확인 별칭 제안으로만 간다 — 사전을 정본처럼 늘리지 않는다.
+- **값이 갈리는 칸**(`pipeline_unresolved` 의 `split_fields` — 객체마다 같은 칸이 행마다 다르다) — 그 칸이 행 쪽의
+  속성이거나 여러 값이 답인 칸이라는 신호다. 레시피의 그 칸을 모으는 칸으로 바꾼 초안을 제안할 수 있다:
+  `{"join": <원래 규칙>, "separator": "; "}`(한 글로) · `{"collect": <원래 규칙>}`(목록으로 — 대상 속성이 목록이어야
+  한다). 어느 쪽이 맞는지는 대상 타입의 정의와 사람이 정한다 — 모르면 제안만 하고 고르지 않는다.
 
 ### 선(관계) — `relations`
 

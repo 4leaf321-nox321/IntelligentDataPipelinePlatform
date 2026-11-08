@@ -7,7 +7,7 @@
     초안     승인한 대응을 지금 레시피에 더해 **레시피 판 초안**으로 저장한다(relay 사전,
              `relay_core.aliases`). 시험 · 사용은 레시피 판에서 사람이.
     요청 목록 relay 사전 그대로를 대표 플랫폼에 별칭 등록을 요청할 CSV 로 — 대상이 이미 푸는
-             표기는 그렇다고 적는다(relay 사전에서 지워도 된다).
+             표기는 그렇다고 적는다(그 줄은 relay 사전에서 걷는다 — 정본은 SP 의 별칭).
 
 대상에는 **읽기만** 한다(`GET /api/objects/{타입}` · `resolve-many`) — 보내는 것은 실행이다.
 """
@@ -17,7 +17,9 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from fastapi import Request
@@ -27,11 +29,13 @@ from app.config import get_settings
 from app.modules.accounts.models import User
 from app.modules.relay import recipes, services
 from app.modules.relay.schemas import (
+    AggregateIn,
     CandidateOut,
     EntryIn,
     InboxOut,
     RecipeSaved,
     ReferenceOut,
+    SplitFieldOut,
     SplitOut,
     SuggestOut,
 )
@@ -59,17 +63,43 @@ CSV_HEADER = [
 ]
 
 
+#: 대상 SP 의 타입 slug — 주소에 들어가므로 모양을 본다(`../` · `?` 로 다른 경로를 못 부르게).
+_TYPE = re.compile(r"^[a-z][a-z0-9_-]{0,79}$")
+
+
+def _active(found: Described) -> None:
+    """**사용 중인 정의만** — 초안의 대상은 사람이 아직 안 본 주소라 그 토큰을 싣지 않는다
+    (초안은 실행된 적도 없어 작업함이 없다, 2026-11-08 보안 점검)."""
+    if found.draft:
+        raise Conflict(
+            code("RELAY", 30),
+            f"{found.slug} 은 아직 초안입니다 — 미해결 작업함은 정의 판을 사용해 실행한 뒤에 "
+            "씁니다.",
+        )
+
+
 def _auth(found: Described) -> tuple[str, dict[str, str]]:
+    """대상의 주소와 토큰 — 사용 중인 정의만(`_active`)."""
+    _active(found)
     token = services.secrets_env().get(found.target_token_env, "")
     return found.target_server, ({"Authorization": f"Bearer {token}"} if token else {})
+
+
+def _type_path(type_slug: str) -> str:
+    if not _TYPE.fullmatch(type_slug):
+        raise AppError(
+            code("RELAY", 28), f"대상 타입의 이름이 맞지 않습니다: {type_slug!r}", status=422
+        )
+    return quote(type_slug, safe="")
 
 
 def target_objects(found: Described, type_slug: str) -> list[TargetObject]:
     """대상의 그 타입 객체 — 키 · 이름 · 별칭 · 상태(쪽마다, `OBJECTS_MAX` 까지)."""
     server, headers = _auth(found)
+    path = _type_path(type_slug)
     items: list[dict[str, Any]] = []
     while len(items) < OBJECTS_MAX:
-        url = f"{server}/api/objects/{type_slug}"
+        url = f"{server}/api/objects/{path}"
         try:
             answer = httpx.get(
                 url,
@@ -105,7 +135,7 @@ def _resolve_many(found: Described, type_slug: str, texts: list[str]) -> list[di
         return []
     try:
         answer = httpx.post(
-            f"{server}/api/objects/{type_slug}/resolve-many",
+            f"{server}/api/objects/{_type_path(type_slug)}/resolve-many",
             json={"names": texts[:500]},
             headers=headers,
             timeout=TIMEOUT,
@@ -197,6 +227,11 @@ def _merged(rule: list[Candidate], platform: list[TargetObject]) -> list[Candida
 def read(db: Session, slug: str) -> InboxOut:
     found = services.by_slug(slug, db)
     llm = _llm() is not None
+    if found.draft:
+        return InboxOut(
+            note="아직 초안입니다 — 정의 판을 사용해 실행한 뒤 미해결이 생기면 여기 모입니다.",
+            llm=llm,
+        )
     work = _work(slug)
     if work is None:
         return InboxOut(
@@ -244,7 +279,7 @@ def read(db: Session, slug: str) -> InboxOut:
     for item in grouped.values():
         by_target.setdefault(item.target, []).append(item)
     for target, items in sorted(by_target.items()):
-        if not target or target.startswith("@"):
+        if not target or target.startswith("@") or not _TYPE.fullmatch(target):
             problems.append(
                 f"{target or '(대상 타입을 모름)'} — 대상 SP 의 타입이 아니라 후보를 낼 수 "
                 "없습니다."
@@ -270,18 +305,30 @@ def read(db: Session, slug: str) -> InboxOut:
             SplitOut(what=one.what, question=one.question, options=one.options, rows=one.rows)
             for one in splits
         ],
+        split_fields=[
+            SplitFieldOut(type_slug=owner, field=name, entities=count)
+            for owner, name, count in inbox.split_fields(splits)
+        ],
         problems=problems,
     )
 
 
 def suggest(db: Session, slug: str, target: str, text: str, column: str) -> SuggestOut:
     found = services.by_slug(slug, db)
+    _active(found)
     llm = _llm()
     if llm is None:
         raise Conflict(
             code("RELAY", 26),
             "GLM 이 설정되지 않았습니다 — 서버의 RELAY_LLM_URL · RELAY_LLM_MODEL 을 적으면 "
             "제안을 받을 수 있습니다.",
+        )
+    current, _label = current_recipe(db, found)
+    if target not in aliases.match_targets(current or {}):
+        raise AppError(
+            code("RELAY", 28),
+            f"지금 레시피가 {target} 와 참조 대조하지 않습니다 — 제안할 곳이 없습니다.",
+            status=422,
         )
     objects = target_objects(found, target)
     rule = inbox.candidates(text, objects, limit=20)
@@ -312,16 +359,25 @@ def suggest(db: Session, slug: str, target: str, text: str, column: str) -> Sugg
 
 
 def draft(
-    db: Session, user: User, request: Request, slug: str, entries: list[EntryIn], note: str
+    db: Session,
+    user: User,
+    request: Request,
+    slug: str,
+    entries: list[EntryIn],
+    note: str,
+    aggregates: list[AggregateIn] | None = None,
 ) -> RecipeSaved:
-    """승인한 대응을 지금 레시피에 더해 **초안**으로 — 사용은 레시피 판에서 사람이."""
+    """승인한 대응(relay 사전)과 모으는 칸을 지금 레시피에 더해 **초안**으로 — 사용은 레시피
+    판에서 사람이."""
+    aggregates = aggregates or []
     found = services.by_slug(slug, db)
+    _active(found)
     body, label = current_recipe(db, found)
     if body is None:
         raise Conflict(
             code("RELAY", 28), f"{slug} 에 레시피가 없습니다 — 먼저 레시피를 작성하세요."
         )
-    if not entries or len(entries) > ENTRIES_MAX:
+    if (not entries and not aggregates) or len(entries) > ENTRIES_MAX:
         raise AppError(
             code("RELAY", 28), f"대응은 한 번에 1 ~ {ENTRIES_MAX}개를 저장합니다.", status=422
         )
@@ -346,16 +402,30 @@ def draft(
                 "대상에 있는 키만 고를 수 있습니다.",
                 status=422,
             )
-    merged = aliases.merge(
-        body, [aliases.Entry(one.target, one.text.strip(), one.key.strip()) for one in entries]
+    merged = (
+        aliases.merge(
+            body,
+            [aliases.Entry(one.target, one.text.strip(), one.key.strip()) for one in entries],
+        )
+        if entries
+        else dict(body)
     )
+    for asked in aggregates:
+        try:
+            merged = inbox.aggregate(
+                merged, asked.type_slug, asked.field, asked.mode, asked.separator
+            )
+        except ValueError as failure:
+            raise AppError(code("RELAY", 28), str(failure), status=422) from failure
     row, problems = recipes.save_draft(
         db,
         user,
         request,
         found,
         merged,
-        note.strip() or f"미해결 작업함 — 대응 {len(entries)}개({label}에 더함)",
+        note.strip()
+        or f"미해결 작업함 — 대응 {len(entries)}개 · 모으는 칸 {len(aggregates)}개"
+        f"({label}에 더함)",
     )
     return RecipeSaved(version=row.version, problems=problems)
 
@@ -363,6 +433,7 @@ def draft(
 def alias_csv(db: Session, slug: str) -> str:
     """대표 플랫폼에 별칭 등록을 요청할 목록 — 지금 레시피의 relay 사전 그대로."""
     found = services.by_slug(slug, db)
+    _active(found)
     body, _label = current_recipe(db, found)
     rows = aliases.rows_for_platform(body or {})
     labels: dict[str, dict[str, str]] = {}
@@ -381,13 +452,22 @@ def alias_csv(db: Session, slug: str) -> str:
     for one in rows:
         writer.writerow(
             [
-                one.target,
-                one.key,
-                labels.get(one.target, {}).get(one.key, ""),
-                one.text,
-                found.source,
-                found.slug,
-                "예" if one.text in done.get(one.target, set()) else "",
+                _cell(value)
+                for value in (
+                    one.target,
+                    one.key,
+                    labels.get(one.target, {}).get(one.key, ""),
+                    one.text,
+                    found.source,
+                    found.slug,
+                    "예" if one.text in done.get(one.target, set()) else "",
+                )
             ]
         )
     return buffer.getvalue()
+
+
+def _cell(value: str) -> str:
+    """Excel 이 수식으로 읽지 않게 — `=` · `+` · `-` · `@` · 탭 · CR 로 시작하는 칸은 `'` 를
+    앞에(원천 표기 · 대상 이름은 바깥에서 온 글이다)."""
+    return "'" + value if value[:1] in ("=", "+", "-", "@", "\t", "\r") else value

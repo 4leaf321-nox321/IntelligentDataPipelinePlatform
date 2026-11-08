@@ -58,6 +58,26 @@ curl -X POST http://127.0.0.1:8088/_mock/scenario/change
 devtools/sandbox_sp/down.sh
 ```
 
+## 화면 끝까지(E2E) — `e2e/`
+
+```bash
+backend/.venv/bin/python devtools/e2e/run.py              # 화면 빌드 → 임시 DB · API · 샘플 PLM → 브라우저
+backend/.venv/bin/python devtools/e2e/run.py --no-build   # 빌드한 frontend/dist 로
+```
+
+진짜 브라우저(Playwright · Chromium, `.work/e2e/venv` — 없으면 만든다)로 로그인 → 연결 지도 → 정의 파일에서 정의 판
+초안 작성 · 저장 → 그 판의 정의 시험(원천 쪽) → 새 연결의 탐색 · 정의 판 저장 → 새 파이프라인 상세를 누른다. 단계마다
+화면 사진이 `.work/e2e/shots/` 에, 서버 기록이 `.work/e2e/api.log` 에 남는다. 화면의 JavaScript 오류가 하나라도 나면
+실패다.
+
+- **따로 세우고 끝나면 내린다** — DB `datarelay_e2e`(개발 DB 의 접속 정보에서 이름만 바꿔 매번 새로), API 8095(빌드한
+  화면을 함께 서빙), 샘플 PLM 8096, 관리자 `e2e-admin`(비밀번호는 매번 무작위 — `.work/e2e/admin.json`). 끌 때는 이
+  스크립트가 띄운 프로세스만. `--keep` 이면 DB 를 남긴다.
+- 대상 SP 는 세우지 않는다 — 실행 · 적용 · 미해결 작업함은 위의 한 바퀴가 본다.
+- 브라우저가 쓰는 시스템 라이브러리(`libnss3` …)가 PC 에 없으면 sudo 없이 패키지만 내려받아 `.work/e2e/libroot` 에
+  풀어 쓴다. Playwright 가 기대하는 Chromium 이 캐시에 없으면 캐시의 가장 새 headless shell 로 띄운다.
+- 2026-11-08 처음 돌려 7단계 모두 통과.
+
 시험 인스턴스 화면은 http://127.0.0.1:8087 — 관리자 계정과 (바뀐) 비밀번호는
 `.work/sandbox_sp/admin.json`. 계획은 화면의 「작업」 에서도 적용할 수 있고, 그러면 다음 `run` 이
 그것을 알아챈다(`applied_by`).

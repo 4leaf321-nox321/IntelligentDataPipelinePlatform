@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import csv
+import itertools
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,7 +21,7 @@ from typing import Any
 
 from relay_core.adapters.base import Fetched
 from relay_core.intake import Tally
-from relay_core.records import SourceRecord
+from relay_core.records import Records, SourceRecord
 
 
 @dataclass(frozen=True)
@@ -123,16 +124,25 @@ def write_csv(rows: Callable[[], Iterable[SourceRecord]], path: Path) -> Path:
 
 class Merge:
     """`Mirror.apply` 를 **흘려서** — 키 차례의 옛 행과 받은 것을 이어 키 차례의 새 행을 낸다.
-    받은 것만 메모리에 든다(증분이면 몇 건). 같은 키가 여러 번 오면 온 차례대로 하나씩 반영한다
-    — `apply` 처럼. 수(`applied` · `count`)는 `rows` 를 끝까지 돈 뒤에 맞다."""
+    같은 키가 여러 번 오면 온 차례대로 하나씩 반영한다 — `apply` 처럼. 수(`applied` ·
+    `count`)는 `rows` 를 끝까지 돈 뒤에 맞다.
+
+    받은 것이 디스크로 넘쳤으면(`records.Records` — 원천이 크다) 그 묶음들을 **키 차례로 이어
+    읽는다** — 메모리에는 받은 것도 다 들지 않는다. 아니면 받은 것만 메모리에 든다."""
 
     def __init__(self, fetched: Fetched) -> None:
         self._full = fetched.full and fetched.complete
+        self._source: Records | None = (
+            fetched.records
+            if isinstance(fetched.records, Records) and fetched.records.spilled
+            else None
+        )
         self._incoming: dict[str, list[SourceRecord]] = {}
         self.tally = Tally()
         """받기 점검(`intake`)의 재료 — 반영 전 미러 · 받은 행에서 칸마다 값이 있던 수."""
         for one in fetched.records:
-            self._incoming.setdefault(one.key, []).append(one)
+            if self._source is None:
+                self._incoming.setdefault(one.key, []).append(one)
             if not one.deleted:
                 self.tally.received += 1
                 self.tally.filled.update(c for c, v in one.values.items() if _has(v))
@@ -149,9 +159,20 @@ class Merge:
             removed=self.removed,
         )
 
-    def _settle(self, before: SourceRecord | None, key: str) -> SourceRecord | None:
+    def _groups(self) -> Iterator[tuple[str, list[SourceRecord]]]:
+        """받은 것을 키 차례로 — 키마다 받은 차례의 목록."""
+        if self._source is None:
+            for key in sorted(self._incoming):
+                yield key, self._incoming[key]
+            return
+        for key, group in itertools.groupby(self._source.in_key_order(), key=lambda r: r.key):
+            yield key, list(group)
+
+    def _settle(
+        self, before: SourceRecord | None, incoming: list[SourceRecord]
+    ) -> SourceRecord | None:
         old = before
-        settled = self._fold(before, key)
+        settled = self._fold(before, incoming)
         if old is not None and settled is not None:
             # 값이 있던 칸을 이번에 잃었나 — 빈 값이든 칸이 아예 없든(파일의 머리글이 바뀜).
             self.tally.lost.update(
@@ -159,8 +180,10 @@ class Merge:
             )
         return settled
 
-    def _fold(self, before: SourceRecord | None, key: str) -> SourceRecord | None:
-        for one in self._incoming[key]:
+    def _fold(
+        self, before: SourceRecord | None, incoming: list[SourceRecord]
+    ) -> SourceRecord | None:
+        for one in incoming:
             if one.deleted:
                 if before is not None:
                     self.removed += 1
@@ -177,8 +200,8 @@ class Merge:
 
     def rows(self, existing: Iterable[SourceRecord]) -> Iterator[SourceRecord]:
         """`existing` 는 키 차례(파일의 미러) — 어긋나면 멈춘다(이어 쓴 미러가 틀어진다)."""
-        waiting = sorted(self._incoming)
-        at = 0
+        groups = self._groups()
+        waiting = next(groups, None)
         last: str | None = None
         for old in existing:
             if last is not None and old.key <= last:
@@ -186,15 +209,15 @@ class Merge:
             last = old.key
             self.tally.before += 1
             self.tally.old_filled.update(c for c, v in old.values.items() if _has(v))
-            while at < len(waiting) and waiting[at] < old.key:
-                new = self._settle(None, waiting[at])
-                at += 1
+            while waiting is not None and waiting[0] < old.key:
+                new = self._settle(None, waiting[1])
+                waiting = next(groups, None)
                 if new is not None:
                     self.count += 1
                     yield new
-            if at < len(waiting) and waiting[at] == old.key:
-                new = self._settle(old, old.key)
-                at += 1
+            if waiting is not None and waiting[0] == old.key:
+                new = self._settle(old, waiting[1])
+                waiting = next(groups, None)
                 if new is not None:
                     self.count += 1
                     yield new
@@ -204,9 +227,9 @@ class Merge:
                 continue
             self.count += 1
             yield old
-        while at < len(waiting):
-            new = self._settle(None, waiting[at])
-            at += 1
+        while waiting is not None:
+            new = self._settle(None, waiting[1])
+            waiting = next(groups, None)
             if new is not None:
                 self.count += 1
                 yield new

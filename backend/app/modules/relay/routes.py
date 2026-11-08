@@ -17,7 +17,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.jobs import services as job_services
-from app.modules.relay import definitions, recipes, services, unresolved
+from app.modules.relay import definitions, inbound, recipes, services, unresolved
 from app.modules.relay import jobs as relay_jobs  # noqa: F401 — import 가 곧 작업 종류 등록
 from app.modules.relay.models import RelayDefinition, RelayRecipe
 from app.modules.relay.schemas import (
@@ -250,7 +250,7 @@ def pipeline_unresolved_draft(
 ) -> RecipeSaved:
     """승인한 대응을 지금 레시피의 relay 사전에 더해 **레시피 판 초안**으로 저장한다 — 대상에
     있는 키만. 시험 · 사용은 레시피 판에서(사용은 화면의 사람만)."""
-    return unresolved.draft(db, user, request, slug, body.entries, body.note)
+    return unresolved.draft(db, user, request, slug, body.entries, body.note, body.aggregates)
 
 
 @router.get("/pipelines/{slug}/aliases.csv", include_in_schema=False)
@@ -423,6 +423,17 @@ def target_schema(
 def adapter_kinds(_: User = Depends(require_system_admin)) -> dict[str, Any]:
     """어댑터 종류마다 적을 칸 · 기본값 · 설명 — 코드의 설명을 그대로."""
     return definitions.kinds()
+
+
+@router.post("/inbound/{slug}", status_code=202, include_in_schema=False)
+async def inbound_push(
+    slug: str, request: Request, db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """**보내 주는 원천(push)** 이 부른다 — 로그인 없이, 머리글 `X-Relay-Token` 의 비밀로.
+    받을 함에 쌓기만 하고, 미러에 넣는 것은 다음 실행이다(`relay/inbound.py`)."""
+    inbound.check_size(request.headers.get("content-length"))
+    raw = await request.body()
+    return inbound.receive(db, slug, request.headers.get(inbound.HEADER, ""), raw)
 
 
 @router.post("/type-draft")

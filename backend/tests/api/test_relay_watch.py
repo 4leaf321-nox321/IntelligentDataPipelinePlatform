@@ -168,3 +168,30 @@ def test_늦음은_일정_타이머가_한_번_알리고_다시_끝나면_재개
     assert _bell(db, admin.email, slug)[-1] == ("relay.run.recovered", f"{slug} 실행 재개")
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
     assert detail["status"] != "late" and detail["late"] == ""
+
+
+def test_정의_시험은_이_정의로_받으면_받기_점검에_걸리는지_미리_말한다(registry: Path) -> None:
+    from app.modules.relay.definitions import _intake_preview
+    from relay_core.adapters.base import Fetched
+    from relay_core.records import SourceRecord
+
+    slug = _slug()
+    body = {"intake": {"blank_rows": 3}}
+    none = _intake_preview(body, slug, Fetched())
+    assert none["checked"] is False and "첫 실행부터" in none["note"]
+
+    rows = [
+        SourceRecord(key=f"M{n}", values={"MODEL_ID": f"M{n}", "KIND": "A"}) for n in range(10)
+    ]
+    work = _work(slug)
+    work.merge_mirror(Fetched(records=rows, full=True))
+    # 칸 이름을 바꾼 정의 — 시험이 받은 다섯 행 모두에서 KIND 가 빈다.
+    renamed = [
+        SourceRecord(key=f"M{n}", values={"MODEL_ID": f"M{n}", "KIND": ""}) for n in range(5)
+    ]
+    got = _intake_preview(body, slug, Fetched(records=renamed, complete=False))
+    assert got["checked"] and got["held"] and "빈 칸 KIND" in got["reasons"][0]
+    assert work.mirror_size() == 10  # 쓰지 않는다
+    # 앞부분만 받은 시험이라 안 온 다섯 행은 삭제로 보지 않는다.
+    fine = _intake_preview(body, slug, Fetched(records=rows[:5], complete=False))
+    assert fine["checked"] and not fine["held"]

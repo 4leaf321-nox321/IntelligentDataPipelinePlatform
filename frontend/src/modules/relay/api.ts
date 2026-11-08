@@ -39,6 +39,10 @@ export type InboxCandidate = Schemas['CandidateOut']
 export type InboxSplit = Schemas['SplitOut']
 export type SuggestOut = Schemas['SuggestOut']
 export type AliasEntry = Schemas['EntryIn']
+/** 값이 갈리는 칸 — 객체마다 같은 칸이 갈리면 모으는 칸(join · collect)으로 바꿀 후보. */
+export type InboxSplitField = Schemas['SplitFieldOut']
+/** 그 칸을 모으는 칸으로 — `join` 은 한 글로(`separator`), `collect` 는 목록으로. */
+export type AggregateEntry = Schemas['AggregateIn']
 /** 거꾸로 보기 — 대상 객체 하나의 값이 어느 원천 행 · 칸 · 레시피 규칙에서 왔나(`relay_core/trace`). */
 export type ValueTrace = Schemas['TraceOut']
 export type TraceField = Schemas['TraceField']
@@ -507,6 +511,8 @@ export interface DefinitionTrial {
   target?: DefinitionTargetCheck
   source?: DefinitionSourceCheck
   recipe?: DefinitionRecipeCheck
+  /** 이 정의로 받으면 받기 점검에 걸리나 — 시험이 받은 행을 지금 미러와 견준 것(쓰지 않는다). */
+  intake?: { checked: boolean; held?: boolean; reasons?: string[]; note?: string }
 }
 
 const slugPath = (slug: string) => `/relay/pipelines/${encodeURIComponent(slug)}`
@@ -528,9 +534,16 @@ export const relayApi = {
   /** GLM 이 대상의 후보 안에서 하나를 고른다 — 설정하지 않았으면 409. 제안일 뿐이다. */
   suggest: (slug: string, target: string, text: string, column: string) =>
     api.post<SuggestOut>(`${slugPath(slug)}/unresolved/suggest`, { target, text, column }),
-  /** 선택한 대응을 지금 레시피의 relay 사전에 더해 **레시피 판 초안**으로 — 사용은 레시피 판에서. */
-  draftAliases: (slug: string, entries: AliasEntry[], note = '') =>
-    api.post<RecipeSaved>(`${slugPath(slug)}/unresolved/draft`, { entries, note }),
+  /**
+   * 선택한 대응을 지금 레시피의 relay 사전에 더하고(`entries`), 값이 갈리는 칸을 모으는 칸으로 바꿔
+   * (`aggregates`) **레시피 판 초안** 하나로 — 사용은 레시피 판에서.
+   */
+  draftAliases: (slug: string, entries: AliasEntry[], aggregates: AggregateEntry[] = [], note = '') =>
+    api.post<RecipeSaved>(`${slugPath(slug)}/unresolved/draft`, {
+      entries,
+      aggregates,
+      note,
+    } satisfies Schemas['DraftIn']),
   /** 대표 플랫폼에 별칭 등록을 요청할 목록(CSV) — 지금 레시피의 relay 사전 그대로. */
   aliasCsv: (slug: string) => downloadFile(`${slugPath(slug)}/aliases.csv`, `${slug}-별칭요청.csv`),
   /** 실행 추이 — 끝의 `limit` 줄(서버 상한 400). 읽기만 한다. */

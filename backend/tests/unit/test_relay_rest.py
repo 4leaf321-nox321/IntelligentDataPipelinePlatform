@@ -131,7 +131,7 @@ def test_4xx_는_다시_묻지_않고_5xx_는_다시_묻는다() -> None:
             return httpx.Response(503, text="잠시")
         return httpx.Response(200, json={"items": []})
 
-    assert _adapter(flaky).fetch(None).records == []
+    assert list(_adapter(flaky).fetch(None).records) == []
     assert len(calls) == 3
 
 
