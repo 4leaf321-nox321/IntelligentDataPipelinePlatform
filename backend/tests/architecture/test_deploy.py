@@ -704,3 +704,12 @@ def test_동기화_타이머는_켜지면_첫_차례가_있고_remove_는_타이
     remove = _piece((DEPLOY / "deploy.sh").read_text(encoding="utf-8"), "cmd_remove")
     assert 'systemctl clean --what=state "$unit"' in remove
     assert remove.index("systemctl clean") < remove.index('rm -f "/etc/systemd/system/$unit"')
+
+
+def test_번들의_화면은_서버와_같은_버전을_굽는다() -> None:
+    """서버는 릴리스 태그로 답하는데 화면이 `package.json` 의 판(0.1.0)을 구우면, 설치본마다
+    「새 판이 나왔습니다」 띠가 새로 고쳐도 사라지지 않았다(v0.2.x, 2026-11-08 리허설)."""
+    build = (DEPLOY / "build_bundle.sh").read_text(encoding="utf-8")
+    assert 'APP_VERSION="$VERSION" npm run build' in build
+    vite = (REPO / "frontend" / "vite.config.ts").read_text(encoding="utf-8")
+    assert "process.env.APP_VERSION ||" in vite

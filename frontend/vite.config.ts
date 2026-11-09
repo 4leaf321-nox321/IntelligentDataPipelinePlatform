@@ -69,7 +69,11 @@ export default defineConfig({
   // **이 빌드가 몇 번인지 굽는다.** 서버가 다른 버전이면 화면이 그것을 말할 수
   // 있어야 한다 — 개발과 운영이 가까운 포트를 쓰는 동안, 프론트가 옛 서버에 붙어
   // 있어도 아무 데도 티가 안 난다.
-  define: { __APP_VERSION__: JSON.stringify(`v${pkg.version}`) },
+  //
+  // **릴리스는 태그를 굽는다**(`APP_VERSION` — `deploy/build_bundle.sh` 가 넘긴다). 서버는 태그로 답하는데
+  // 화면이 `package.json` 의 판(올리지 않는다)을 구우면, 설치본마다 「새 판이 나왔습니다」 띠가 새로 고쳐도
+  // 사라지지 않았다(v0.2.x, 2026-11-08 리허설). 개발 빌드는 `package.json` 의 판 그대로다.
+  define: { __APP_VERSION__: JSON.stringify(process.env.APP_VERSION || `v${pkg.version}`) },
   resolve: {
     alias: { '@': path.resolve(root, 'src') },
   },

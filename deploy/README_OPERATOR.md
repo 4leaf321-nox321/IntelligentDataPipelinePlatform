@@ -426,8 +426,8 @@ trend.json`, 최근 400번 — 작업 기록은 `JOB_TTL_DAYS` 뒤 지워지지�
 - **상태**: `systemctl list-timers <slug>-sync.timer` / 로그 `journalctl -u <slug>-sync`(넣은 것이 「넣음: …」 한 줄로 찍힌다).
   설치 · `update` 뒤 1분 안에 첫 차례가 돌고 그 뒤로 5분마다다. **「다음(NEXT)」 이 `-` 로 비어 있고 「elapsed」 면 돌지
   않는 것이다** — v0.2.6 까지는 `remove` 뒤 같은 slug 로 다시 설치하면 그렇게 섰다(재부팅하면 풀린다). 그 판이면
-  `sudo systemctl restart <slug>-sync.timer` 로 다시 켠다 — 고친 판(다음 릴리스)은 설치 · `update` 가 다시 켜고 `remove` 가
-  타이머의 기록까지 지운다.
+  `sudo systemctl restart <slug>-sync.timer` 로 다시 켠다 — v0.2.7 부터는 설치 · `update` 가 다시 켜고 `remove` 가 타이머의
+  기록까지 지운다.
 - **끄기**: `sudo SYNC_ENABLED=0 ./deploy.sh update` (유닛은 `systemctl disable --now <slug>-sync.timer`)
 - **손으로 한 번**: `sudo systemctl start <slug>-sync` (차례가 된 것만) — 하나만 돌리려면 파이프라인 상세의 「실행」.
 - 결과는 화면 「작업」 과 파이프라인 상세의 「실행 이력」 에 남는다.
@@ -499,7 +499,9 @@ API 도 같은 라이브러리로 받는다(`auth.kind: ntlm`, 계정은 `auth.u
   쓰인다 — 다른 정의 · 대상에 쓰면 거절). 사용 중인 정의만 받는다(아니면 404). 한 번에 20MB · 정의의 `max_items`
   (기본 5만 건)까지(413), 실행이 멈춰 받은 묶음이 1,000개 쌓이면 429 로 더 받지 않는다 — 「멈춤」 알림을 먼저 푼다.
   받은 묶음은 그 파이프라인 작업 폴더의 `inbox/` 에 쌓이고, **실행이 미러에 반영한 뒤에만** 지운다(받기 점검이
-  멈추면 남는다). 이중화 · 포털 nginx 뒤라면 이 경로가 원천 시스템에서 닿는지 확인한다.
+  멈추면 남는다). **정의 판과 레시피 판을 둘 다 사용해야 받는다** — 레시피가 없으면 「정의 오류」 라 받아도 처리할 수
+  없어 404 다. 원천 담당에게 보내기 시작하라고 하기 전에 파이프라인 상세가 「실행 전」 · 「정상」 인지 본다. 이중화 ·
+  포털 nginx 뒤라면 이 경로가 원천 시스템에서 닿는지 확인한다.
 
 방화벽: 이 서버 → 원천(OData · REST 주소, 공유 폴더 445, SFTP 22) · 대상 허브(그 SP 인스턴스의 앱 포트). 보내 주는
 원천이 있으면 그 원천 → 이 서버(앱 포트 또는 nginx).
@@ -695,6 +697,7 @@ PostgreSQL 은 설치한 기본값(공유 버퍼 128MB · 작업 메모리 4MB �
 | MCP 가 `python3 -m venv 실패` | `sudo apt install python3-venv` 후 `sudo ./deploy.sh update` |
 | Claude 에서 MCP 가 421 `Invalid Host header` | 비-localhost 로 열었는데 `MCP_ALLOWED_HOSTS` 가 안 맞는다. 5b 참고 |
 | 이중화: postgres 가 안 뜨고 로그에 `pg-ha:` | 옛 주가 주로 뜨려 했다(guard). `sudo ./deploy.sh db-standby --from <지금 주>` |
+| 화면 맨 위에 「새 판(v0.2.x)이 나왔습니다」 띠가 새로 고쳐도 늘 뜬다 | v0.2.7 까지의 번들은 화면에 판 번호를 잘못 구웠다(서버와 판이 같아도 「새 판」 으로 본다) — 무해하다. v0.2.8 이상으로 `update` 하면 사라진다 |
 | 이중화: 화면이 `/<slug>/` 밑에서 API 404 | `.env` 에 `PUBLIC_PATH=/<slug>` 가 없거나 nginx 가 접두어를 안 뗐다. `sudo ./deploy.sh render` 로 설정을 본다 |
 | 이중화: 로그인이 유지되지 않는다(새로고침마다 로그인) | `.env` 에 `REFRESH_COOKIE_SECURE=true` 가 있는데 http 로 들어왔다 — 지우거나 false 로(앱이 https 일 때 스스로 붙인다). **고친 뒤 `sudo ./deploy.sh restart`.** 또는 `TRUST_PROXY` 가 꺼져 앱이 https 인 줄 모른다 |
 | 이중화: B 의 `install` 이 「DB 는 대기입니다」 로 멈춘다 | `/data/…/.env` 가 없다 — A 에서 `install` 을 먼저 |

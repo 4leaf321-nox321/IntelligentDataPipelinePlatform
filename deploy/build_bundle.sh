@@ -76,7 +76,8 @@ echo "==> $APP_NAME ($APP_SLUG) · 포트 $APP_PORT (MCP $MCP_PORT) · 버전 $V
 # 라우팅 버그처럼 보이지만 아니다. 그래서 SIF 를 만들기 **전에** 여기서 만든다.
 echo
 echo "==> [1/4] 프론트엔드 빌드"
-(cd frontend && npm ci && npm run build)
+# 화면에 **서버와 같은 버전**을 굽는다 — 다르면 화면이 「새 판이 나왔습니다」 띠를 늘 띄운다(2026-11-08 리허설).
+(cd frontend && npm ci && APP_VERSION="$VERSION" npm run build)
 [[ -f frontend/dist/index.html ]] || { echo "오류: frontend/dist/index.html 이 없습니다"; exit 1; }
 
 # 프론트는 API 절대주소를 굽지 않는다(항상 상대경로 /api). 굽는 방식이면 값이
