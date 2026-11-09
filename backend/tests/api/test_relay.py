@@ -90,7 +90,7 @@ def test_깨진_정의도_지도에_선다(client: TestClient, member: Signed, r
     slug = _slug()
     _definition(registry, slug, recipe="없는-레시피.json")
     nodes = client.get("/api/relay/map", headers=member.headers).json()["nodes"]
-    (pipeline,) = [one for one in nodes if one["kind"] == "pipeline"]
+    (pipeline,) = [one for one in nodes if one["kind"] == "pipeline" and one["label"] == slug]
     assert pipeline["status"] == "broken" and pipeline["detail"]["problems"]
 
 
@@ -133,7 +133,7 @@ def test_실행은_시스템_관리자만_작업으로_넣고_실패는_지도�
     assert "닿지 않습니다" in (job["error"] or "") or "실패" in (job["error"] or "")
 
     nodes = client.get("/api/relay/map", headers=admin.headers).json()["nodes"]
-    (pipeline,) = [one for one in nodes if one["kind"] == "pipeline"]
+    (pipeline,) = [one for one in nodes if one["kind"] == "pipeline" and one["label"] == slug]
     assert pipeline["status"] == "failed"
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
     assert detail["jobs"][0]["id"] == job_id and detail["jobs"][0]["status"] == "failed"
@@ -159,6 +159,6 @@ def test_틀린_일정은_정의_오류로_지도에_선다(
     slug = _slug()
     _definition(registry, slug, schedule={"daily_at": "26:00"})
     nodes = client.get("/api/relay/map", headers=member.headers).json()["nodes"]
-    (pipeline,) = [one for one in nodes if one["kind"] == "pipeline"]
+    (pipeline,) = [one for one in nodes if one["kind"] == "pipeline" and one["label"] == slug]
     assert pipeline["status"] == "broken"
     assert any("daily_at" in one for one in pipeline["detail"]["problems"])

@@ -60,7 +60,7 @@ def test_확인_후_진행은_멈춘_것이_있을_때_화면의_사람만(
     )
     assert "빈 칸 3건 이상이면 멈춤" in detail["intake_label"]
     nodes = client.get("/api/relay/map", headers=member.headers).json()["nodes"]
-    (pipeline,) = [one for one in nodes if one["kind"] == "pipeline"]
+    (pipeline,) = [one for one in nodes if one["kind"] == "pipeline" and one["label"] == slug]
     assert pipeline["status"] == "blocked" and pipeline["detail"]["held"] == HELD["reasons"]
 
     # 대량 삭제를 지나가게 하는 일이다 — 토큰(MCP)으로는 거절한다(적용과 같다).
