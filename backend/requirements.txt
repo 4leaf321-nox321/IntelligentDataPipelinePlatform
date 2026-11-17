@@ -28,6 +28,7 @@ PyNaCl==1.6.2
 pyspnego==0.12.4
 python-dotenv==1.2.2
 python-multipart==0.0.32
+PyYAML==6.0.2
 smbprotocol==1.17.0
 SQLAlchemy==2.0.52
 starlette==1.6.0

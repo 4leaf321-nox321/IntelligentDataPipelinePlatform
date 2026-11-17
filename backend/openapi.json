@@ -4833,6 +4833,273 @@
         }
       }
     },
+    "/api/relay/source-spec": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Source Spec",
+        "description": "원천의 **API 지침서**를 받아 정의를 고를 재료만 추린다 — OpenAPI(JSON · YAML) · OData\n`$metadata` · WSDL · 문서 화면. 저장하지 않는다. 주소는 원천과 같은 울타리 안만.",
+        "operationId": "source_spec_api_relay_source_spec_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceSpecIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Source Spec Api Relay Source Spec Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/scaffold": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Scaffold",
+        "description": "**한 번에 초안** — 탐색 → 정의 판 초안 → 대상 타입에 잇는 레시피 판 초안(없으면 SP 타입\n정의 초안) → 시험. 비밀이 비었으면 아무것도 저장하지 않고 사람에게 부탁할 이름을 준다.\n사용하지 않는다 — 사용은 사람이 화면에서.",
+        "operationId": "pipeline_scaffold_api_relay_pipelines__slug__scaffold_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScaffoldIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Pipeline Scaffold Api Relay Pipelines  Slug  Scaffold Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/secrets": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Secrets List",
+        "description": "정의가 쓰는 비밀마다 상태 — **값은 없다**. 토큰(MCP)으로도 읽는다(무엇이 비었나).",
+        "operationId": "secrets_list_api_relay_secrets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SecretOut"
+                  },
+                  "type": "array",
+                  "title": "Response Secrets List Api Relay Secrets Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/secrets/{name}": {
+      "put": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Secret Put",
+        "description": "비밀 입력 — **사람만**(화면). 값은 중계 폴더의 비밀 함에만 두고 다시 보이지 않는다.",
+        "operationId": "secret_put_api_relay_secrets__name__put",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Secret Put Api Relay Secrets  Name  Put"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Secret Delete",
+        "description": "화면에서 넣은 비밀 삭제 — **사람만**.",
+        "operationId": "secret_delete_api_relay_secrets__name__delete",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Secret Delete Api Relay Secrets  Name  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/secrets/requests": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Secret Request",
+        "description": "정의를 짓기 전에 필요한 비밀 **이름**을 목록에 올린다(값 없음) — AI 가 사람에게 입력을\n부탁할 수 있게.",
+        "operationId": "secret_request_api_relay_secrets_requests_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SecretRequestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Secret Request Api Relay Secrets Requests Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/relay/discover": {
       "post": {
         "tags": [
@@ -8995,6 +9262,248 @@
         "type": "object",
         "title": "RunIn"
       },
+      "ScaffoldIn": {
+        "properties": {
+          "adapter": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Adapter"
+          },
+          "source": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Source"
+          },
+          "type_slug": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Type Slug"
+          },
+          "type_label": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Type Label",
+            "default": ""
+          },
+          "key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 120,
+            "title": "Label",
+            "default": ""
+          },
+          "columns": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Columns"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "target_from": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Target From",
+            "default": ""
+          },
+          "system": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "System",
+            "default": ""
+          },
+          "schedule": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "adapter",
+          "source",
+          "type_slug"
+        ],
+        "title": "ScaffoldIn",
+        "description": "한 번에 초안 — 원천 주소 · 인증 · 원천 이름 · 대상 타입만 있으면 된다."
+      },
+      "SecretIn": {
+        "properties": {
+          "value": {
+            "type": "string",
+            "maxLength": 8192,
+            "minLength": 1,
+            "title": "Value"
+          }
+        },
+        "type": "object",
+        "required": [
+          "value"
+        ],
+        "title": "SecretIn"
+      },
+      "SecretOut": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          },
+          "uses": {
+            "items": {
+              "$ref": "#/components/schemas/SecretUse"
+            },
+            "type": "array",
+            "title": "Uses",
+            "default": []
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          },
+          "forbidden": {
+            "type": "boolean",
+            "title": "Forbidden",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "status"
+        ],
+        "title": "SecretOut",
+        "description": "정의가 쓰는 비밀 하나 — **값은 없다**."
+      },
+      "SecretRequestIn": {
+        "properties": {
+          "pipeline": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Pipeline"
+          },
+          "names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Names"
+          },
+          "role": {
+            "type": "string",
+            "maxLength": 20,
+            "title": "Role",
+            "default": "원천 인증"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pipeline",
+          "names"
+        ],
+        "title": "SecretRequestIn"
+      },
+      "SecretUse": {
+        "properties": {
+          "pipeline": {
+            "type": "string",
+            "title": "Pipeline"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          }
+        },
+        "type": "object",
+        "required": [
+          "pipeline",
+          "role",
+          "state"
+        ],
+        "title": "SecretUse"
+      },
       "ServerStatusOut": {
         "properties": {
           "app_name": {
@@ -9137,6 +9646,33 @@
           "workspace_slug"
         ],
         "title": "SignupRequest"
+      },
+      "SourceSpecIn": {
+        "properties": {
+          "url": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 8,
+            "title": "Url"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Auth"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url"
+        ],
+        "title": "SourceSpecIn"
       },
       "SplitFieldOut": {
         "properties": {

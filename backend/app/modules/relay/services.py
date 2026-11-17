@@ -64,13 +64,23 @@ STATUS_LABEL = {
 }
 
 
-def secrets_env() -> Mapping[str, str]:
-    """`token_env` 를 풀 자리 — 프로세스 환경 변수 › `RELAY_SECRETS_FILE` › `backend/.env`."""
+def server_secrets() -> dict[str, str]:
+    """운영자가 서버에 둔 비밀 — `backend/.env` 와 `RELAY_SECRETS_FILE`(뒤가 이긴다)."""
     merged: dict[str, str] = {}
     settings = get_settings()
     for path in (BACKEND_DIR / ".env", settings.relay_secrets_file):
         if path is not None and Path(path).is_file():
             merged.update({k: v for k, v in dotenv_values(path).items() if v is not None})
+    return merged
+
+
+def secrets_env() -> Mapping[str, str]:
+    """`token_env` 를 풀 자리 — 프로세스 환경 변수 › **화면에서 넣은 비밀**(`secrets.py`) ›
+    `RELAY_SECRETS_FILE` › `backend/.env`."""
+    from app.modules.relay import secrets
+
+    merged = server_secrets()
+    merged.update(secrets.stored())
     merged.update(os.environ)
     return merged
 

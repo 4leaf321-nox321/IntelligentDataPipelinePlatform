@@ -39,13 +39,14 @@ _JSON_RESPONSE = os.environ.get("MCP_JSON_RESPONSE", "") == "1"
 
 INSTRUCTIONS = (
     "datarelay — 레거시 시스템(PLM · MES)의 데이터를 Standard Platform 에 넣는 중계 플랫폼. "
-    "AI 는 레시피(sp-table/1)와 파이프라인 정의(relay-pipeline/1 — 원천 어댑터 · 대상)를 "
-    "작성하고 시험한다. 처음에 get_guide('start') 를 읽어라 — 새 원천을 붙이면 "
-    "get_guide('adapter'). 판의 사용 · 계획 적용은 사람이 화면에서 한다 — 깨끗한 시험 결과를 "
-    "보이고 사람에게 그 판을 사용해 달라고(화면의 「사용」) 말한다. 비밀은 정의에 적지 않고 "
-    "환경 변수 이름만 적는다. "
-    "고를 값은 대상 정의(target_schema)의 값으로만 낸다. "
-    "짐작으로 채우지 않는다."
+    "**설정 값은 AI 가 고른다** — 사람은 원천 주소 · 원천 이름 · 대상 타입을 말하고, "
+    "비밀(토큰 · 비밀번호)을 화면에서 넣고, 시험이 깨끗한 판을 「사용」 · 계획을 「적용」 할 "
+    "뿐이다. 처음에 get_guide('start') 를 읽어라. 새 원천은 get_guide('adapter') — API "
+    "지침서가 있으면 source_spec 으로 읽고, pipeline_scaffold 로 정의 · 레시피 초안과 "
+    "시험을 한 번에 만든 뒤 "
+    "결과의 next 를 따른다. 비밀이 비었으면(secrets_needed · secrets_status) 사람에게 화면 › "
+    "중계 › 비밀 에서 넣어 달라고 말한다 — 값은 대화로 받지 않는다. 정의에는 비밀의 이름만 "
+    "적는다. 고를 값은 대상 정의(target_schema)의 값으로만 낸다. 짐작으로 채우지 않는다."
 )
 
 mcp = FastMCP("datarelay", json_response=_JSON_RESPONSE, instructions=INSTRUCTIONS)
@@ -77,8 +78,18 @@ _SAFE_PATH = re.compile(r"(/[A-Za-z0-9_-]+)+")
 
 
 async def _call(
-    ctx: Context | None, method: str, path: str, *, body: Any = None, params: Any = None
+    ctx: Context | None,
+    method: str,
+    path: str,
+    *,
+    body: Any = None,
+    params: Any = None,
+    text: bool = False,
 ) -> Any:
+    """백엔드 API 한 번. `text` 면 JSON 이 아닌 글(CSV)을 그대로 — 경로 끝 `.csv` 만."""
+    suffix = ""
+    if text and path.endswith(".csv"):
+        path, suffix = path[: -len(".csv")], ".csv"
     if not _SAFE_PATH.fullmatch(path):
         raise RelayError(
             f"경로에 쓸 수 없는 글자가 있습니다: {path!r} — slug 는 영문 · 숫자 · - · _ 만 "
@@ -86,8 +97,10 @@ async def _call(
         )
     async with httpx.AsyncClient(base_url=API, timeout=120, transport=_TRANSPORT) as client:
         got = await client.request(
-            method, f"/api{path}", json=body, params=params, headers=_headers(ctx)
+            method, f"/api{path}{suffix}", json=body, params=params, headers=_headers(ctx)
         )
+    if text and got.status_code < 400:
+        return got.text[:20000]
     try:
         answer = got.json()
     except ValueError:
@@ -344,6 +357,145 @@ async def pipeline_unresolved(ctx: Context, slug: str) -> Any:
     `split_fields` 는 객체마다 갈리는 칸(모으는 칸 `join` · `collect` 로 바꿀 후보, 안내의
     `recipe`). 읽기만 한다."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/unresolved")
+
+
+@mcp.tool()
+async def pipeline_unresolved_draft(
+    ctx: Context,
+    slug: str,
+    entries: list[dict[str, str]] | None = None,
+    aggregates: list[dict[str, str]] | None = None,
+    note: str = "",
+) -> Any:
+    """미해결 작업함의 「레시피 초안으로 저장」 — 지금 레시피에 **relay 사전**(`entries` —
+    `[{"target": 대상 타입, "text": 원천 표기, "key": 대상 키}]`, key 는 pipeline_unresolved 의
+    후보 안에서만)을 더하고, 값이 갈리는 칸을 **모으는 칸**으로 바꿔(`aggregates` —
+    `[{"type_slug", "field", "mode": "join" | "collect", "separator": "; "}]`) 레시피 판 초안
+    하나로 저장한다. 레시피 JSON 을 직접 고치지 않아도 된다. 사용은 사람이 화면에서.
+    relay 사전은 임시 지름길이다 — 정본은 SP 의 별칭(alias_requests)."""
+    body = {"entries": entries or [], "aggregates": aggregates or [], "note": note}
+    return await _call(ctx, "POST", f"/relay/pipelines/{slug}/unresolved/draft", body=body)
+
+
+@mcp.tool()
+async def alias_requests(ctx: Context, slug: str) -> Any:
+    """별칭 요청 목록(CSV 글) — 지금 레시피의 relay 사전을 대표 플랫폼에 미확인 별칭으로
+    제안할 목록. 「대상이 이미 푸나」 가 예인 줄은 relay 사전에서 걷는다. 읽기만 한다."""
+    return await _call(ctx, "GET", f"/relay/pipelines/{slug}/aliases.csv", text=True)
+
+
+@mcp.tool()
+async def pipeline_trend(ctx: Context, slug: str, limit: int = 30) -> Any:
+    """실행 추이 — 실행마다 받은 행 · 미러 · 계획 건수 · 걸린 시간 · 멈춘 단계(최근 것부터
+    `limit` 줄). 원천이 갑자기 줄거나 실패가 이어지는지 볼 때. 읽기만 한다."""
+    return await _call(ctx, "GET", f"/relay/pipelines/{slug}/trend", params={"limit": limit})
+
+
+@mcp.tool()
+async def type_draft(
+    ctx: Context,
+    type_slug: str,
+    key_column: str,
+    columns: dict[str, list[str]],
+    label: str = "",
+    label_column: str = "",
+    system: str = "",
+) -> Any:
+    """**SP 타입 정의 초안** — 대상에 받을 타입이 없을 때 원천 표본(`columns` — 열 → 보기
+    값들, source_discover 의 paths · source_sample 로 만든다)으로 타입 정의와 그 레시피 첫 판을
+    짓는다. 저장 · 전송하지 않는다 — 타입은 SP 관리자가 대상에 넣는다(사람에게 넘긴다)."""
+    body = {
+        "type_slug": type_slug,
+        "label": label,
+        "key_column": key_column,
+        "label_column": label_column,
+        "columns": columns,
+        "system": system,
+    }
+    return await _call(ctx, "POST", "/relay/type-draft", body=body)
+
+
+@mcp.tool()
+async def source_spec(ctx: Context, url: str, auth: dict[str, Any] | None = None) -> Any:
+    """원천의 **API 지침서**를 읽는다 — OpenAPI · Swagger(JSON · YAML), OData `$metadata`,
+    WSDL, 문서 화면(HTML 이면 그 안의 지침서 주소 후보). 서버 주소 · 인증 방식(relay `auth`
+    모양으로) · 목록 조회마다 질의 · 목록 자리(rows_path) · 항목의 칸 · 쪽 넘김 · 증분 질의의
+    후보를 준다 — 이것으로 어댑터를 고르고 source_discover · pipeline_scaffold 로 확인한다.
+    인증은 원천과 같은 모양(비밀은 token_env 이름만). 주소는 원천과 같은 울타리 안만."""
+    body = {"url": url, "auth": auth}
+    return await _call(ctx, "POST", "/relay/source-spec", body=body)
+
+
+@mcp.tool()
+async def pipeline_scaffold(
+    ctx: Context,
+    slug: str,
+    adapter: dict[str, Any] | str,
+    source: str,
+    type_slug: str,
+    key: str | list[str] | None = None,
+    label: str = "",
+    target_from: str = "",
+    target: dict[str, Any] | None = None,
+    columns: dict[str, str] | None = None,
+    system: str = "",
+    type_label: str = "",
+    schedule: dict[str, Any] | None = None,
+    note: str = "",
+) -> Any:
+    """**한 번에 초안** — 원천의 주소 · 인증(`adapter`, 비밀은 token_env 이름만 — 모양은 비워도
+    된다) · 원천 이름(`source` — plm · mes) · 대상 타입(`type_slug`)만으로: 탐색 → 행 자리 ·
+    쪽 넘김 · 식별자 · 변경 시각 · 삭제 표시를 단서로 채운 **정의 판 초안** → 대상 타입의 칸에
+    이름으로 잇는 **레시피 판 초안**(대상에 타입이 없으면 SP 타입 정의 초안) → **시험**.
+    대상은 `target_from`(대상이 같은 파이프라인 slug) · `target` · 하나뿐인 대상 순.
+    status: needs_secrets(사람에게 secrets_needed 를 화면에서 넣어 달라고 — 아무것도 저장하지
+    않았다) · needs_key(candidates 중 식별자를 골라 key 로 다시) · discover_failed ·
+    drafted · type_missing. 결과의 chosen(고른 값과 까닭) · unmatched · references(참조 칸 —
+    match 로) · trial 을 읽고 recipe_draft_save · pipeline_draft_save 로 고친 뒤 `next` 를
+    따른다. 사용하지 않는다 — 사용은 사람이 화면에서."""
+    body: dict[str, Any] = {
+        "adapter": json.loads(adapter) if isinstance(adapter, str) else adapter,
+        "source": source,
+        "type_slug": type_slug,
+        "key": key,
+        "label": label,
+        "target_from": target_from,
+        "target": target,
+        "columns": columns,
+        "system": system,
+        "type_label": type_label,
+        "schedule": schedule,
+        "note": note,
+    }
+    return await _call(ctx, "POST", f"/relay/pipelines/{slug}/scaffold", body=body)
+
+
+@mcp.tool()
+async def secrets_status(ctx: Context) -> Any:
+    """정의가 쓰는 비밀마다 상태 — `screen`(화면에서 넣음) · `server`(서버 설정) ·
+    `missing`(비어 있음)과 쓰는 곳. **값은 없다.** missing 이면 사람에게 화면 › 중계 › 비밀
+    에서 넣어 달라고 말한다(값을 대화로 받지 않는다). `missing` 에 비어 있는 이름, `link` 에
+    사람에게 건넬 화면 자리."""
+    got = await _call(ctx, "GET", "/relay/secrets")
+    # 목록 그대로 내면 MCP 가 원소마다 따로 실어 「무엇이 비었나」 가 흩어진다 — 묶어서 낸다.
+    listed = got if isinstance(got, list) else []
+    missing = [one["name"] for one in listed if one.get("status") == "missing"]
+    return {
+        "secrets": listed,
+        "missing": missing,
+        "link": {name: f"/relay/secrets?name={name}" for name in missing},
+    }
+
+
+@mcp.tool()
+async def secrets_request(
+    ctx: Context, pipeline: str, names: list[str], role: str = "원천 인증"
+) -> Any:
+    """정의를 짓기 전에 필요한 비밀 **이름**을 비밀 목록에 올린다(값 없음) — 사람이 화면에서
+    바로 넣을 수 있게. role: 원천 인증 · 대상 토큰 · 인증서 키 암호 · 보내는 쪽 비밀. 이름은
+    대문자 · 숫자 · _ (예: MES_API_TOKEN). 플랫폼 자신의 설정 이름은 거절된다."""
+    body = {"pipeline": pipeline, "names": names, "role": role}
+    return await _call(ctx, "POST", "/relay/secrets/requests", body=body)
 
 
 @mcp.tool()

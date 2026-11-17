@@ -673,15 +673,26 @@ class RestAdapter:
 
     def discover(self) -> dict[str, Any]:
         """첫 쪽 몇 줄 → 칸의 자리 · 보기 값 · 열 이름 제안(MCP `source_discover`). 상세를
-        받는 원천이면 앞 두 줄은 상세까지 붙여 보인다."""
-        from relay_core.adapters.explore import suggest
+        받는 원천이면 앞 두 줄은 상세까지 붙여 보인다.
 
-        params, slots = self._sized(5)
-        body, _headers = self._first(params, slots)
-        items = self._items(body)
+        응답의 모양(`shape` — 목록 자리 · 쪽 넘김 · 전체 건수)도 함께 — 값을 모르고 부른 AI 가
+        정의를 고칠 단서다. 행 자리(`rows_path`)가 틀렸어도 멈추지 않고 가장 그럴듯한 목록으로
+        칸을 보인다."""
+        from relay_core.adapters.explore import shape, suggest
+
+        asked = 5
+        params, slots = self._sized(asked)
+        body, headers = self._first(params, slots)
+        found = shape(body, headers, self.source.rows_path, asked)
+        try:
+            items = self._items(body)
+        except SourceError:
+            best = (found["rows_path"]["candidates"] or [{}])[0].get("path")
+            guessed = value_at(body, best) if best else body
+            items = guessed if isinstance(guessed, list) else []
         if self.source.detail_path:
             items = [self._with_detail(one) for one in items[:2]] + items[2:]
-        return suggest(items)
+        return {**suggest(items), "shape": found}
 
     def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
         """`since` 가 있으면 그 뒤에 바뀐 것만, 없으면 전량. 마지막 쪽까지 못 가면 예외다.

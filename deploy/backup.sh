@@ -17,7 +17,7 @@
 #                                   (작업 파일 내용 job_files.data 는 뺀다 — 임시물)
 #   <BackupRoot>/filestore/          첨부 미러 1벌
 #   <BackupRoot>/relay/relay-<시각>.tar.gz   중계 폴더(-r, 기본 .env 옆) — 덤프와 같은 세대
-#   <BackupRoot>/env/.env            접속 정보·JWT 비밀키
+#   <BackupRoot>/env/.env            접속 정보·JWT 비밀키(옆에 화면에서 넣은 비밀 secrets*.json)
 #   <BackupRoot>/LAST_BACKUP.txt     무엇을 언제 받았는지
 #
 # 첨부는 **불변 파일**이라 세대가 필요 없다 — 미러 한 벌이면 된다. 덤프만 세대를 둔다.
@@ -182,6 +182,19 @@ fi
 # .env 에 JWT 비밀키가 있다. **이게 없으면 복구해도 전원이 다시 로그인한다.**
 install -m 600 "$ENV_FILE" "$BACKUP_ROOT/env/.env"
 
+# 화면 › 중계 › 비밀 에서 넣은 원천 · 대상의 토큰(`secrets.json`)과 그 입력 기록. **중계 묶음
+# (tar)에 넣지 않는다** — 묶음은 세대마다 쌓이고 권한이 600 이 아니다. .env 처럼 마지막 것
+# 하나를 600 으로 둔다. 서버에서 지운 것은 여기서도 지운다 — 남기면 복구가 지운 토큰을 되살린다.
+SECRET_FILES=0
+for name in secrets.json secrets.meta.json secrets.wanted.json; do
+    if [[ -f "$RELAY_DIR/$name" ]]; then
+        install -m 600 "$RELAY_DIR/$name" "$BACKUP_ROOT/env/$name"
+        SECRET_FILES=$((SECRET_FILES + 1))
+    else
+        rm -f "$BACKUP_ROOT/env/$name"
+    fi
+done
+
 # ── 세대 정리 ─────────────────────────────────────────────────────────────────
 # 안 지우면 백업이 디스크를 채운다. **파일 이름의 시각으로 판정한다** — mtime 은
 # 복사하면 바뀐다.
@@ -224,7 +237,7 @@ cat > "$BACKUP_ROOT/LAST_BACKUP.txt" <<TXT
 설치 경로    : $INSTALL_DIR  (.env $ENV_FILE · 첨부 $FILESTORE)
 데이터베이스 : $DB_NAME @ $DB_HOST:$DB_PORT  ($(basename "$DUMP"), ${MB}MB)
 첨부         : $FILES 개 (미러: $BACKUP_ROOT/filestore)
-중계         : $RELAY_FILES 개 (${RELAY_TAR:-없음} ← $RELAY_DIR)
+중계         : $RELAY_FILES 개 (${RELAY_TAR:-없음} ← $RELAY_DIR) · 비밀 파일 $SECRET_FILES 개(env/)
 보관         : 일 ${KEEP_DAILY}벌 + 일요일분 ${KEEP_WEEKLY}벌
 
 복구:
@@ -236,7 +249,7 @@ cat > "$BACKUP_ROOT/LAST_BACKUP.txt" <<TXT
       그것은 무해하다. 반대는 아니다.
 TXT
 
-info "백업 완료: $DUMP (DB ${MB}MB, 첨부 $FILES 개, 중계 $RELAY_FILES 개)"
+info "백업 완료: $DUMP (DB ${MB}MB, 첨부 $FILES 개, 중계 $RELAY_FILES 개, 비밀 파일 $SECRET_FILES 개)"
 echo
 echo "  **한 번은 실제로 복구해 보세요.** 받아만 두고 복구를 해 본 적이 없는"
 echo "  백업은 백업이 아닙니다 — restore.sh 가 확인용 DB 로 그것을 해 봅니다."

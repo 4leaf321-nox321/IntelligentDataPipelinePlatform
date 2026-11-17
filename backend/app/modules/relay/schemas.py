@@ -307,6 +307,62 @@ class DiscoverIn(BaseModel):
     """어댑터 설정 — 식별자(`key`) · 열(`columns`)은 아직 몰라도 된다."""
 
 
+class SourceSpecIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    """지침서 주소 — OpenAPI(JSON · YAML) · `$metadata` · `?wsdl` · 문서 화면."""
+    auth: dict[str, Any] | None = None
+    """원천과 같은 모양의 인증(비밀은 `token_env` 이름만)."""
+
+
+class ScaffoldIn(BaseModel):
+    """한 번에 초안 — 원천 주소 · 인증 · 원천 이름 · 대상 타입만 있으면 된다."""
+
+    adapter: dict[str, Any]
+    """어댑터의 주소 · 인증(비밀은 이름만). 모양(행 자리 · 쪽 넘김 …)은 비워도 탐색으로
+    채운다."""
+    source: str = Field(min_length=1, max_length=40)
+    type_slug: str = Field(min_length=1, max_length=80)
+    type_label: str = Field("", max_length=100)
+    key: str | list[str] | None = None
+    label: str = Field("", max_length=120)
+    columns: dict[str, str] | None = None
+    target: dict[str, Any] | None = None
+    target_from: str = Field("", max_length=80)
+    """대상이 같은 파이프라인의 slug — 그 대상(주소 · 토큰 이름)을 쓴다."""
+    system: str = Field("", max_length=80)
+    schedule: dict[str, Any] | None = None
+    note: str = Field("", max_length=200)
+
+
+class SecretUse(BaseModel):
+    pipeline: str
+    role: str
+    state: str
+
+
+class SecretOut(BaseModel):
+    """정의가 쓰는 비밀 하나 — **값은 없다**."""
+
+    name: str
+    status: str
+    """`screen`(화면에서 넣음) · `server`(서버 설정) · `missing`(비어 있음)."""
+    note: str = ""
+    uses: list[SecretUse] = []
+    updated_at: str | None = None
+    updated_by: str | None = None
+    forbidden: bool = False
+
+
+class SecretIn(BaseModel):
+    value: str = Field(min_length=1, max_length=8192)
+
+
+class SecretRequestIn(BaseModel):
+    pipeline: str = Field(min_length=1, max_length=80)
+    names: list[str] = Field(min_length=1, max_length=10)
+    role: str = Field("원천 인증", max_length=20)
+
+
 class DefinitionTestIn(BaseModel):
     recipe_version: int | None = None
     """이 레시피 판으로 바꿔 본다 — 비우면 켜진 레시피 판, 없으면 같은 slug 의 정의 파일 것."""

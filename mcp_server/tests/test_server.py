@@ -115,3 +115,59 @@ def test_정의_초안과_탐색은_본문을_그대로_넘긴다(monkeypatch: p
         or b'"location":"/d/*.csv"' in seen[0].content
     )
     assert b'"recipe_version":1' in seen[2].content.replace(b" ", b"")
+
+
+def test_값을_모르고도_쓰는_도구들은_제_길로_간다(monkeypatch: pytest.MonkeyPatch) -> None:
+    """한 번에 초안 · 지침서 · 비밀 상태와 요청 · 미해결 초안 · 별칭 목록(CSV 글) · 추이 ·
+    타입 정의 초안. 비밀을 **넣는** 도구는 없다 — 사람이 화면에서 넣는다."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith(".csv"):
+            return httpx.Response(200, text="타입,표기,키\nt_site,서울시험소,S-SEOUL\n")
+        if request.url.path.endswith("/secrets"):
+            return httpx.Response(
+                200,
+                json=[
+                    {"name": "MES_API_TOKEN", "status": "missing"},
+                    {"name": "HUB_TOKEN", "status": "screen"},
+                ],
+            )
+        return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(handler))
+    ctx = _ctx()
+    asyncio.run(server.source_spec(ctx, "https://mes/openapi.json"))
+    asyncio.run(
+        server.pipeline_scaffold(
+            ctx, "mes-lots", '{"kind": "rest", "base_url": "https://mes"}', "mes", "mes_lot"
+        )
+    )
+    status = asyncio.run(server.secrets_status(ctx))
+    asyncio.run(server.secrets_request(ctx, "mes-lots", ["MES_API_TOKEN"]))
+    asyncio.run(server.pipeline_unresolved_draft(ctx, "mes-lots", entries=[{"target": "t"}]))
+    csv = asyncio.run(server.alias_requests(ctx, "mes-lots"))
+    asyncio.run(server.pipeline_trend(ctx, "mes-lots", limit=5))
+    asyncio.run(server.type_draft(ctx, "mes_lot", "LOT_ID", {"LOT_ID": ["L1"]}))
+    assert [(one.method, one.url.path) for one in seen] == [
+        ("POST", "/api/relay/source-spec"),
+        ("POST", "/api/relay/pipelines/mes-lots/scaffold"),
+        ("GET", "/api/relay/secrets"),
+        ("POST", "/api/relay/secrets/requests"),
+        ("POST", "/api/relay/pipelines/mes-lots/unresolved/draft"),
+        ("GET", "/api/relay/pipelines/mes-lots/aliases.csv"),
+        ("GET", "/api/relay/pipelines/mes-lots/trend"),
+        ("POST", "/api/relay/type-draft"),
+    ]
+    assert csv.startswith("타입,표기,키")
+    # 목록을 그대로 내면 MCP 가 원소마다 따로 싣는다 — 「무엇이 비었나」 를 묶어서.
+    assert status["missing"] == ["MES_API_TOKEN"] and len(status["secrets"]) == 2
+    assert status["link"] == {"MES_API_TOKEN": "/relay/secrets?name=MES_API_TOKEN"}
+    assert b'"base_url":"https://mes"' in seen[1].content.replace(b" ", b"")
+    names = {tool.name for tool in server.mcp._tool_manager.list_tools()}
+    assert not {
+        name for name in names if "secret" in name and ("put" in name or "set" in name)
+    }
+    with pytest.raises(server.RelayError, match="쓸 수 없는 글자"):
+        asyncio.run(server.alias_requests(ctx, "../jobs"))

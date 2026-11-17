@@ -215,6 +215,15 @@ const RELAY_SOURCE: Record<string, { label: string; tone: Tone }> = {
   failed: { label: '못 받음', tone: 'bad' },
 }
 
+/** 중계 비밀 — 값은 보이지 않고 「어디에 있나」 만(`relay/secrets.listing`). */
+const RELAY_SECRET: Record<string, { label: string; tone: Tone }> = {
+  screen: { label: '입력됨', tone: 'good' },
+  // 서버 설정도 정상이다 — 운영자가 서버에서 둔 값이다(화면에서 바꾸면 화면 값이 먼저).
+  server: { label: '서버 설정', tone: 'good' },
+  // **비어 있음은 멎은 것이다** — 그 비밀을 쓰는 원천 · 대상에 닿지 못한다.
+  missing: { label: '비어 있음', tone: 'bad' },
+}
+
 /** 작업(`jobs`)의 상태 — 말은 `modules/jobs/api` 의 STATUS_LABEL 과 같다. */
 const JOB: Record<string, { label: string; tone: Tone }> = {
   queued: { label: '대기', tone: 'neutral' },
@@ -231,6 +240,7 @@ const TABLES = {
   relay_definition: RELAY_VERSION,
   relay_recipe: RELAY_VERSION,
   relay_reconcile: RELAY_RECONCILE,
+  relay_secret: RELAY_SECRET,
   relay_source: RELAY_SOURCE,
   relay_target: RELAY_TARGET,
   relay_trial: RELAY_TRIAL,

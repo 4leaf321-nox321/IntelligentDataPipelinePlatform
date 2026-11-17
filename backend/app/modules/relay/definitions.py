@@ -276,6 +276,30 @@ def discover(db: Session, spec: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def source_spec(db: Session, url: str, auth: dict[str, Any] | None) -> dict[str, Any]:
+    """원천의 **API 지침서**(OpenAPI · Swagger · OData `$metadata` · WSDL)를 받아 추린다 —
+    저장하지 않는다. 주소 · 비밀은 원천과 같은 울타리(`guard.check_source`)를 지난다."""
+    from app.modules.relay import services
+    from relay_core.adapters import spec as reader
+    from relay_core.adapters.rest import SourceError
+    from relay_core.definition import build_auth
+
+    given = dict(auth or {})
+    guard.check_no_secrets(given, "auth")
+    shaped = {"base_url": url, "path": "", "auth": given}
+    guard.check_env(shaped)
+    guard.check_source("rest", shaped, _fence(db))
+    try:
+        built = build_auth(given, services.secrets_env(), get_settings().relay_cert_path)
+    except DefinitionError as failure:
+        raise _invalid(str(failure)) from failure
+    try:
+        raw, kind = reader.fetch(url, built)
+    except SourceError as failure:
+        return {"ok": False, "url": url, "error": str(failure)}
+    return {"ok": True, "url": url, **reader.summarize(raw, kind, url)}
+
+
 # --- 초안 · 켜기 -----------------------------------------------------------------------------
 
 
@@ -433,7 +457,8 @@ def _target_check(target: dict[str, Any], env: Any, wanted: list[str]) -> dict[s
     token = env.get(name, "")
     if not token:
         out["token"] = (
-            f"환경 변수 {name} 가 비어 있습니다 — 이 서버에 대상 토큰을 설정해야 합니다."
+            f"비밀 {name} 가 비어 있습니다 — 대상 토큰을 화면 › 중계 › 비밀 에서 넣거나 서버 "
+            "설정(.env)에 둡니다."
         )
         return out
     status_code, schema = services.probe_http(server, token, "/api/ontology/schema")

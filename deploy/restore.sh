@@ -151,6 +151,19 @@ else
 fi
 
 # ── 중계 폴더 ─────────────────────────────────────────────────────────────────
+# 화면에서 넣은 비밀(`env/secrets*.json`, 백업이 600 으로 둔 마지막 것)도 중계 폴더로 — 없으면
+# 복구한 파이프라인이 원천 · 대상에 닿지 못한다(화면 › 중계 › 비밀 에 「비어 있음」).
+restore_secrets() {
+    local name restored=0
+    for name in secrets.json secrets.meta.json secrets.wanted.json; do
+        if [[ -f "$BACKUP_ROOT/env/$name" ]]; then
+            install -m 600 "$BACKUP_ROOT/env/$name" "$RELAY_DIR/$name"
+            restored=$((restored + 1))
+        fi
+    done
+    info "비밀 파일 $restored 개 복구(화면에서 넣은 원천 · 대상 비밀)."
+}
+
 RELAY_COUNT=0
 if [[ -n "$RELAY_TAR" ]]; then
     RELAY_COUNT=$(tar -tzf "$RELAY_TAR" | wc -l)
@@ -158,6 +171,7 @@ if [[ -n "$RELAY_TAR" ]]; then
         info "중계 폴더 복구: $RELAY_TAR -> $RELAY_DIR"
         mkdir -p "$RELAY_DIR"
         tar -xzf "$RELAY_TAR" -C "$RELAY_DIR"
+        restore_secrets
     else
         info "중계 묶음이 읽힙니다(파일 $RELAY_COUNT 개) — 되돌리려면 -R <중계 폴더>."
     fi

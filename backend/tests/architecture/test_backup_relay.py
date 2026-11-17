@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import stat
 import subprocess
 import tarfile
 from pathlib import Path
@@ -108,6 +109,46 @@ def test_백업은_정의와_작업_폴더의_이어_돌_몫을_받고_복구가
     state = json.loads((fresh / work / "state.json").read_text(encoding="utf-8"))
     assert (fresh / work / state["applied_run"] / "objects.json").is_file()
     assert (fresh / "pipelines" / "plm-model.json").is_file()
+
+
+@_no_bash
+def test_화면에서_넣은_비밀은_묶음_밖에_600_으로_받고_복구가_되돌린다(tmp_path: Path) -> None:
+    """화면 › 중계 › 비밀 의 값(`secrets.json`)은 세대마다 쌓이는 묶음(tar)에 넣지 않는다 —
+    .env 처럼 마지막 것 하나를 600 으로. 서버에서 지운 것은 백업에서도 지운다."""
+    install = tmp_path / "install"
+    install.mkdir()
+    (install / ".env").write_text(ENV, encoding="utf-8")
+    relay = _relay(install)
+    (relay / "secrets.json").write_text('{"MES_TOKEN": "t0k"}', encoding="utf-8")
+    (relay / "secrets.meta.json").write_text("{}", encoding="utf-8")
+    bin_dir = _tools(tmp_path)
+    backup = tmp_path / "backup"
+    run = (str(DEPLOY / "backup.sh"), "-i", str(install), "-o", str(backup))
+
+    done = _bash(bin_dir, *run)
+    assert done.returncode == 0, done.stderr
+    kept = backup / "env" / "secrets.json"
+    assert kept.read_text(encoding="utf-8") == '{"MES_TOKEN": "t0k"}'
+    assert stat.S_IMODE(kept.stat().st_mode) == 0o600
+    assert "비밀 파일 2 개" in done.stdout
+    (tarball,) = (backup / "relay").glob("relay-*.tar.gz")
+    with tarfile.open(tarball) as opened:
+        assert not [one for one in opened.getnames() if "secrets" in one]
+
+    fresh = tmp_path / "new" / "relay"
+    restore = (str(DEPLOY / "restore.sh"), "-b", str(backup), "-d", "check_db")
+    restored = _bash(bin_dir, *restore, "-R", str(fresh))
+    assert restored.returncode == 0, restored.stderr
+    back = fresh / "secrets.json"
+    assert back.read_text(encoding="utf-8") == '{"MES_TOKEN": "t0k"}'
+    assert stat.S_IMODE(back.stat().st_mode) == 0o600
+    assert "비밀 파일 2 개 복구" in restored.stdout
+
+    (relay / "secrets.json").unlink()  # 화면에서 다 지웠다
+    shutil.rmtree(backup / "relay")
+    again = _bash(bin_dir, *run)
+    assert again.returncode == 0, again.stderr
+    assert not kept.exists()  # 복구가 지운 토큰을 되살리지 않는다
 
 
 @_no_bash

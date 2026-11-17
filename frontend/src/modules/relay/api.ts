@@ -38,6 +38,9 @@ export type InboxReference = Schemas['ReferenceOut']
 export type InboxCandidate = Schemas['CandidateOut']
 export type InboxSplit = Schemas['SplitOut']
 export type SuggestOut = Schemas['SuggestOut']
+/** 비밀 — 이름 · 상태(입력됨 · 서버 설정 · 비어 있음) · 쓰는 곳. **값은 오지 않는다.** */
+export type SecretOut = Schemas['SecretOut']
+export type SecretUse = Schemas['SecretUse']
 export type AliasEntry = Schemas['EntryIn']
 /** 값이 갈리는 칸 — 객체마다 같은 칸이 갈리면 모으는 칸(join · collect)으로 바꿀 후보. */
 export type InboxSplitField = Schemas['SplitFieldOut']
@@ -613,4 +616,12 @@ export const relayApi = {
    */
   discardDefinition: (slug: string, version: number) =>
     api.post<DefinitionVersion>(`${definitionPath(slug, version)}/discard`),
+  /** 정의(초안 · AI 가 부탁한 이름 포함)가 쓰는 비밀 — 값 없이 상태만. */
+  secrets: () => api.get<SecretOut[]>('/relay/secrets'),
+  /** 넣기 · 바꾸기 — **화면의 사람만**(서버가 토큰을 거절한다). 값은 다시 보이지 않는다. */
+  putSecret: (name: string, value: string) =>
+    api.put<{ name: string; status: string }>(`/relay/secrets/${encodeURIComponent(name)}`, { value }),
+  /** 화면에서 넣은 값을 지운다 — 서버 설정(.env)의 값은 그대로다. */
+  deleteSecret: (name: string) =>
+    api.delete<{ name: string; status: string }>(`/relay/secrets/${encodeURIComponent(name)}`),
 }

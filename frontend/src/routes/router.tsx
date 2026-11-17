@@ -41,6 +41,7 @@ const PipelineDetailPage = lazy(() => import('@/modules/relay/PipelineDetailPage
 const NewConnectionPage = lazy(() => import('@/modules/relay/NewConnectionPage'))
 const PipelinesPage = lazy(() => import('@/modules/relay/PipelinesPage'))
 const RelayMapPage = lazy(() => import('@/modules/relay/RelayMapPage'))
+const SecretsPage = lazy(() => import('@/modules/relay/SecretsPage'))
 const SourcesPage = lazy(() => import('@/modules/relay/SourcesPage'))
 const TargetsPage = lazy(() => import('@/modules/relay/TargetsPage'))
 const ServerPage = lazy(() => import('@/modules/server/ServerPage'))
@@ -99,6 +100,7 @@ export const router = createBrowserRouter(
             { path: 'relay/pipelines/:slug', element: <PipelineDetailPage /> },
             { path: 'relay/sources', element: <SourcesPage /> },
             { path: 'relay/targets', element: <TargetsPage /> },
+            { path: 'relay/secrets', element: <SecretsPage /> },
 
             // **이 설치가 켠 확장의 화면.** 서버가 `<meta name="app-extensions">` 로 준 이름만
             // 붙는다(`src/extensions`). 안 켠 인스턴스에는 경로 자체가 없다.

@@ -92,7 +92,10 @@ def _secret(spec: dict[str, Any], where: str, env: Mapping[str, str]) -> str:
         return ""
     value = env.get(name, "")
     if not value:
-        raise DefinitionError(f"{where}: 환경 변수 {name} 가 비어 있습니다.")
+        raise DefinitionError(
+            f"{where}: 비밀 {name} 가 비어 있습니다 — 화면 › 중계 › 비밀 에서 값을 넣거나 "
+            "서버 설정(.env)에 둡니다."
+        )
     return value
 
 
@@ -148,6 +151,13 @@ def check_auth(spec: Any) -> dict[str, Any]:
     return spec
 
 
+def build_auth(
+    spec: dict[str, Any] | None, env: Mapping[str, str], cert_root: Path | None = None
+) -> Auth:
+    """정의의 `auth` 칸 → 실을 인증(비밀은 `env` 에서). 원천이 아닌 곳(API 지침서)에도 쓴다."""
+    return _auth(dict(spec or {}), env, cert_root)
+
+
 def _auth(spec: dict[str, Any], env: Mapping[str, str], cert_root: Path | None = None) -> Auth:
     check_auth(spec)
     cert = ""
@@ -165,7 +175,10 @@ def _auth(spec: dict[str, Any], env: Mapping[str, str], cert_root: Path | None =
     if spec.get("cert_password_env"):
         password = env.get(str(spec["cert_password_env"]), "")
         if not password:
-            raise DefinitionError(f"환경 변수 {spec['cert_password_env']} 가 비어 있습니다.")
+            raise DefinitionError(
+                f"비밀 {spec['cert_password_env']} 가 비어 있습니다 — 화면 › 중계 › 비밀 에서 "
+                "값을 넣거나 서버 설정(.env)에 둡니다."
+            )
     return Auth(
         kind=str(spec.get("kind") or "none"),
         token=_secret(spec, "adapter.auth", env),

@@ -19,6 +19,8 @@ from app.modules.accounts.models import User
 from app.modules.jobs import services as job_services
 from app.modules.relay import definitions, inbound, recipes, services, unresolved
 from app.modules.relay import jobs as relay_jobs  # noqa: F401 — import 가 곧 작업 종류 등록
+from app.modules.relay import scaffold as scaffolding
+from app.modules.relay import secrets as relay_secrets
 from app.modules.relay.models import RelayDefinition, RelayRecipe
 from app.modules.relay.schemas import (
     DefinitionIn,
@@ -33,6 +35,11 @@ from app.modules.relay.schemas import (
     RecipeOut,
     RecipeSaved,
     RelayMap,
+    ScaffoldIn,
+    SecretIn,
+    SecretOut,
+    SecretRequestIn,
+    SourceSpecIn,
     SuggestIn,
     SuggestOut,
     TraceOut,
@@ -456,6 +463,74 @@ def type_draft(body: TypeDraftIn, _: User = Depends(require_system_admin)) -> di
         )
     except ValueError as failure:
         raise AppError(code("RELAY", 29), str(failure), status=422) from failure
+
+
+@router.post("/source-spec")
+def source_spec(
+    body: SourceSpecIn,
+    _: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """원천의 **API 지침서**를 받아 정의를 고를 재료만 추린다 — OpenAPI(JSON · YAML) · OData
+    `$metadata` · WSDL · 문서 화면. 저장하지 않는다. 주소는 원천과 같은 울타리 안만."""
+    return definitions.source_spec(db, body.url, body.auth)
+
+
+@router.post("/pipelines/{slug}/scaffold")
+def pipeline_scaffold(
+    slug: str,
+    body: ScaffoldIn,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """**한 번에 초안** — 탐색 → 정의 판 초안 → 대상 타입에 잇는 레시피 판 초안(없으면 SP 타입
+    정의 초안) → 시험. 비밀이 비었으면 아무것도 저장하지 않고 사람에게 부탁할 이름을 준다.
+    사용하지 않는다 — 사용은 사람이 화면에서."""
+    return scaffolding.run(db, user, request, slug, body.model_dump())
+
+
+@router.get("/secrets", response_model=list[SecretOut])
+def secrets_list(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> list[SecretOut]:
+    """정의가 쓰는 비밀마다 상태 — **값은 없다**. 토큰(MCP)으로도 읽는다(무엇이 비었나)."""
+    return [SecretOut(**one) for one in relay_secrets.listing(db)]
+
+
+@router.put("/secrets/{name}")
+def secret_put(
+    name: str,
+    body: SecretIn,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """비밀 입력 — **사람만**(화면). 값은 중계 폴더의 비밀 함에만 두고 다시 보이지 않는다."""
+    return relay_secrets.put(db, user, request, name, body.value)
+
+
+@router.delete("/secrets/{name}")
+def secret_delete(
+    name: str,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """화면에서 넣은 비밀 삭제 — **사람만**."""
+    return relay_secrets.delete(db, user, request, name)
+
+
+@router.post("/secrets/requests")
+def secret_request(
+    body: SecretRequestIn,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """정의를 짓기 전에 필요한 비밀 **이름**을 목록에 올린다(값 없음) — AI 가 사람에게 입력을
+    부탁할 수 있게."""
+    names = relay_secrets.request(db, user, body.pipeline, body.names, body.role)
+    return {"requested": names}
 
 
 @router.post("/discover")

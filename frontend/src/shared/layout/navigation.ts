@@ -18,6 +18,7 @@ import {
   ChartColumn,
   Database,
   Home,
+  KeyRound,
   ListChecks,
   Megaphone,
   Network,
@@ -138,6 +139,17 @@ export const NAV_GROUPS: NavGroup[] = [
         summary:
           '받는 Standard Platform(자주검증 Datahub · 제조 데이터허브 …) — 판 · 정의 판 · ' +
           '토큰 만료 · 마지막 연결.',
+      },
+      {
+        // **사람이 넣는 것은 이것뿐이다.** 정의(AI 가 짓는다)에는 비밀의 이름만 있고, 값은
+        // 여기서 넣는다 — 대화(MCP)로 받지 않는다.
+        label: '비밀',
+        icon: KeyRound,
+        to: '/relay/secrets',
+        audience: 'system_admin',
+        summary:
+          '원천 · 대상의 토큰 · 비밀번호 — 정의가 쓰는 이름마다 입력됨 · 서버 설정 · 비어 있음. ' +
+          '넣은 값은 다시 보이지 않습니다.',
       },
     ],
   },
