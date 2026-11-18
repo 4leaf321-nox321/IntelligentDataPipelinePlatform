@@ -32,8 +32,8 @@ import type {
 import {
   AUTH_CERT,
   AUTH_EXTRA,
-  AUTH_KINDS,
   AUTH_LABEL,
+  authKindsFor,
   SPECIAL,
   adapterOf,
   definitionOf,
@@ -72,6 +72,7 @@ const MAIN: Record<string, string[]> = {
   odata: ['service_url', 'entity_set', 'version', 'modified_field', 'deleted', 'expand', 'explode'],
   xml: ['url', 'rows_xpath', 'namespaces', 'since_param', 'deleted'],
   file: ['location', 'format', 'sheet', 'rows_path', 'deleted', 'explode'],
+  kafka: ['bootstrap', 'topic', 'group_id', 'format', 'rows_path', 'start', 'deleted', 'tls'],
 }
 
 function Step({ n, title, children }: { n: number; title: string; children: ReactNode }) {
@@ -294,9 +295,12 @@ export default function NewConnectionPage() {
             className={SELECT}
             value={kind}
             onChange={(event) => {
-              setKind(event.target.value)
+              const next = event.target.value
+              setKind(next)
               setFound(null)
               setPicks([])
+              // 고른 인증이 그 종류에 없으면(Kafka 에 Bearer 따위) 없음으로 — 서버가 거절할 것을 남기지 않는다.
+              if (!authKindsFor(next).includes(auth.kind)) setAuth({ ...auth, kind: 'none' })
             }}
           >
             {(kinds.data?.kinds ?? []).map((one) => (
@@ -333,7 +337,7 @@ export default function NewConnectionPage() {
             value={auth.kind}
             onChange={(event) => setAuth({ ...auth, kind: event.target.value as AuthValues['kind'] })}
           >
-            {AUTH_KINDS.map((one) => (
+            {authKindsFor(kind).map((one) => (
               <option key={one} value={one}>
                 {AUTH_LABEL[one]}
               </option>
@@ -341,7 +345,10 @@ export default function NewConnectionPage() {
           </select>
         </Labeled>
         {auth.kind !== 'none' && (
-          <Labeled label="비밀의 환경 변수 이름" hint="값은 서버의 .env 에 둡니다 — 여기에는 이름만(예: MES_API_TOKEN).">
+          <Labeled
+            label="비밀의 환경 변수 이름"
+            hint="값은 화면 › 중계 › 비밀 에서 넣습니다 — 여기에는 이름만(예: MES_API_TOKEN)."
+          >
             <Input
               aria-label="비밀의 환경 변수 이름"
               className="font-mono text-xs"

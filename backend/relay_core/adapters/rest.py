@@ -60,13 +60,14 @@ USE_CLIENT = httpx.USE_CLIENT_DEFAULT
 _TOKENS: dict[tuple[str, str, str, str], tuple[str, float]] = {}
 #: 토큰 주소에 묻는 길 — 시험은 가짜를 끼운다.
 TOKEN_POST: Callable[..., httpx.Response] = httpx.post
-AUTH_KINDS = ("none", "bearer", "header", "basic", "query", "oauth2", "ntlm")
+AUTH_KINDS = ("none", "bearer", "header", "basic", "query", "oauth2", "ntlm", "sasl")
 
 
 @dataclass(frozen=True)
 class Auth:
     kind: str = "none"
-    """none · bearer · header · basic · query · oauth2 · ntlm(IIS 의 Windows 인증)."""
+    """none · bearer · header · basic · query · oauth2 · ntlm(IIS 의 Windows 인증) ·
+    sasl(Kafka)."""
     token: str = field(default="", repr=False)
     """비밀 — 정의에는 `token_env`(환경 변수의 이름)로 적는다. oauth2 면 client secret."""
     header: str = "Authorization"
@@ -84,6 +85,9 @@ class Auth:
     파일 이름만 적고, 정의를 읽을 때 폴더를 붙인다 — `definition._auth`). 다른 인증과 함께."""
     cert_password: str = field(default="", repr=False)
     """그 키의 비밀번호 — 정의에는 `cert_password_env` 로."""
+    mechanism: str = ""
+    """sasl(Kafka): PLAIN · SCRAM-SHA-256 · SCRAM-SHA-512 — 계정은 user, 비밀번호는
+    token_env."""
 
     def headers(self) -> dict[str, str]:
         if self.kind == "bearer":

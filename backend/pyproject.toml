@@ -76,6 +76,16 @@ ignore_missing_imports = true
 module = ["scipy.*"]
 ignore_missing_imports = true
 
+# pyarrow 는 타입 표시가 없다 — 부르는 자리가 `relay_core/adapters/parquet.py` 하나다.
+[[tool.mypy.overrides]]
+module = ["pyarrow.*"]
+ignore_missing_imports = true
+
+# confluent-kafka · fastavro — 부르는 자리가 `relay_core/adapters/kafka.py` 하나다.
+[[tool.mypy.overrides]]
+module = ["confluent_kafka.*", "fastavro.*"]
+ignore_missing_imports = true
+
 [[tool.mypy.overrides]]
 # lxml 은 타입 꼬리표를 안 싣는다 — XML 원천(`relay_core/adapters/xml.py`)이 쓴다. yaml 은
 # API 지침서(OpenAPI YAML) 읽기(`relay_core/adapters/spec.py`)가 쓴다.

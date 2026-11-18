@@ -219,6 +219,11 @@ def describe_body(
         out.endpoint = where
         soap = checked.get("envelope") or checked.get("soap_action")
         out.endpoint_label = ("SOAP " if soap else "XML ") + where.rsplit("/", 1)[-1]
+    elif out.adapter_kind == "kafka":
+        brokers = [one.strip() for one in str(checked.get("bootstrap") or "").split(",")]
+        where = f"kafka://{brokers[0]}" if brokers and brokers[0] else ""
+        out.endpoint = f"{where}/{checked.get('topic', '')}"
+        out.endpoint_label = f"Kafka {checked.get('topic', '')}"
     elif out.adapter_kind == "push":
         where = ""
         out.endpoint = f"/api/relay/inbound/{out.slug}"

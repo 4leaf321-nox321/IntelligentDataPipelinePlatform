@@ -30,6 +30,13 @@ from typing import Any
 
 from relay_core.adapters.base import SourceAdapter
 from relay_core.adapters.file import FileAdapter, FileSource
+from relay_core.adapters.kafka import (
+    MECHANISMS,
+    KafkaAdapter,
+    KafkaSource,
+    SchemaRegistry,
+    check_kafka,
+)
 from relay_core.adapters.odata import ODataAdapter, ODataSource
 from relay_core.adapters.push import PushAdapter, PushSource
 from relay_core.adapters.rest import (
@@ -110,6 +117,7 @@ AUTH_KEYS = {
     "scope",
     "cert",
     "cert_password_env",
+    "mechanism",
 }
 #: 비밀의 **이름**을 담는 칸 — 값은 서버의 `.env` 에(`env_names` · 울타리가 이 이름들을 본다).
 ENV_KEYS = ("token_env", "cert_password_env")
@@ -142,6 +150,17 @@ def check_auth(spec: Any) -> dict[str, Any]:
         raise DefinitionError("query 에는 auth.param(키를 실을 질의 이름)이 필요합니다.")
     if kind == "ntlm" and not str(spec.get("user") or "").strip():
         raise DefinitionError("ntlm 에는 auth.user(계정 — CORP\\svc_relay)가 필요합니다.")
+    if kind == "sasl":
+        if str(spec.get("mechanism") or "") not in MECHANISMS:
+            raise DefinitionError(
+                f"sasl 에는 auth.mechanism({' · '.join(MECHANISMS)})이 필요합니다."
+            )
+        if not str(spec.get("user") or "").strip() or not spec.get("token_env"):
+            raise DefinitionError(
+                "sasl 에는 auth.user(계정)와 auth.token_env(비밀번호의 이름)가 필요합니다."
+            )
+    elif spec.get("mechanism"):
+        raise DefinitionError("auth.mechanism 은 sasl(Kafka)에만 적습니다.")
     cert = str(spec.get("cert") or "")
     if cert and (not _CERT_NAME.fullmatch(cert) or ".." in cert):
         raise DefinitionError(
@@ -189,6 +208,7 @@ def _auth(spec: dict[str, Any], env: Mapping[str, str], cert_root: Path | None =
         scope=str(spec.get("scope") or ""),
         cert=cert,
         cert_password=password,
+        mechanism=str(spec.get("mechanism") or ""),
     )
 
 
@@ -199,7 +219,12 @@ ADAPTERS: dict[str, tuple[type[Any], type[Any], tuple[str, ...]]] = {
     "file": (FileSource, FileAdapter, ("location", "key")),
     "xml": (XmlSource, XmlAdapter, ("url", "rows_xpath", "key", "columns")),
     "push": (PushSource, PushAdapter, ("key", "columns")),
+    "kafka": (KafkaSource, KafkaAdapter, ("bootstrap", "topic", "group_id", "key", "columns")),
 }
+
+#: 어댑터 종류마다 쓸 수 있는 인증 — HTTP 의 머리글 인증을 Kafka 에 적거나 그 반대면 조용히
+#: 안 실린다(적은 사람은 실렸다고 믿는다).
+KAFKA_AUTH = ("none", "sasl", "oauth2")
 
 
 def column_default(kind: str) -> Any:
@@ -231,6 +256,8 @@ DISCOVER_DEFAULTS: dict[str, Any] = {
     "columns": {},
     "rows_xpath": "/*/*",
     "entity_set": "",
+    "topic": "",
+    "group_id": "",
 }
 
 
@@ -266,6 +293,32 @@ def check_adapter(
         ):
             raise DefinitionError(f"adapter.{name} 은 {low} 이상 {high} 이하여야 합니다.")
     check_auth(body.get("auth"))
+    auth_kind = str((body.get("auth") or {}).get("kind") or "none")
+    if kind == "kafka":
+        if auth_kind not in KAFKA_AUTH:
+            raise DefinitionError(
+                f"Kafka 의 auth.kind 는 {' · '.join(KAFKA_AUTH)} 입니다(클라이언트 인증서는 "
+                f"auth.cert 를 함께): {auth_kind!r}"
+            )
+        problems = check_kafka(body)
+        if problems:
+            raise DefinitionError(problems[0])
+        registry = body.get("schema_registry")
+        if registry is not None:
+            if not isinstance(registry, dict) or not str(registry.get("url") or "").startswith(
+                ("http://", "https://")
+            ):
+                raise DefinitionError(
+                    'adapter.schema_registry 는 {"url": "http(s)://…", "auth": {…}} 입니다.'
+                )
+            unknown = sorted(set(registry) - {"url", "auth"})
+            if unknown:
+                raise DefinitionError(
+                    f"adapter.schema_registry: 모르는 칸입니다: {', '.join(unknown)}"
+                )
+            check_auth(registry.get("auth"))
+    elif auth_kind == "sasl":
+        raise DefinitionError("auth.kind sasl 은 Kafka 원천에만 씁니다.")
     _check_shape(kind, body, partial=partial)
     if kind == "xml":
         try:
@@ -346,6 +399,14 @@ def build_adapter(
         body["auth"] = _auth(dict(body.pop("auth", None) or {}), env, cert_root)
     if kind == "file":
         return FileAdapter(shape(**body), roots=file_roots)
+    if kind == "kafka":
+        registry = body.pop("schema_registry", None)
+        if registry:
+            body["schema_registry"] = SchemaRegistry(
+                url=str(registry["url"]),
+                auth=_auth(dict(registry.get("auth") or {}), env, cert_root),
+            )
+        return KafkaAdapter(shape(**body))
     if kind == "push":
         if body["auth"].kind != "bearer" or not body["auth"].token:
             raise DefinitionError(

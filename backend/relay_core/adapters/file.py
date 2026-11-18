@@ -1,5 +1,5 @@
-"""파일 원천 — CSV · Excel(xlsx) · JSON. 서버의 폴더, **사내 공유 폴더(SMB)**, URL 로 받는
-파일.
+"""파일 원천 — CSV · Excel(xlsx) · JSON · Parquet. 서버의 폴더, **사내 공유 폴더(SMB)**, URL
+로 받는 파일.
 
     {"kind": "file", "location": "/data/relay/drop/mes/lots-*.csv", "key": "LOT_ID"}
     {"kind": "file", "location": "smb://mesfs01/export/daily/lots-*.csv", "key": "LOT_ID",
@@ -21,6 +21,8 @@
 - `columns: "*"` 면 머리글 그대로 열이 된다. 이름을 바꾸려면 `{"열": "머리글"}`(JSON 은 점
   자리).
 - 인코딩 `auto` 는 BOM 붙은 UTF-8 → UTF-8 → CP949 차례(사내 엑셀 CSV 가 흔히 CP949 다).
+- Parquet(`*.parquet` · `*.pq`)은 묶음으로 흘려 읽어 받은 행이 크면 디스크로 넘긴다(`Records`).
+  값의 꼴은 `adapters.parquet` — 십진수는 글 그대로, 시각은 ISO, 구조체는 점 자리로.
 - 워터마크는 내용의 sha256 — 같은 파일이면 같은 값이다(상태 화면에서 「어느 파일을 읽었나」).
 """
 
@@ -45,6 +47,7 @@ from urllib.parse import unquote, urlsplit
 
 import httpx
 
+from relay_core.adapters import parquet
 from relay_core.adapters.base import Fetched
 from relay_core.adapters.explore import suggest
 from relay_core.adapters.rest import (
@@ -55,7 +58,7 @@ from relay_core.adapters.rest import (
     records_of,
     value_at,
 )
-from relay_core.records import SourceRecord
+from relay_core.records import Records, SourceRecord
 
 
 @dataclass(frozen=True)
@@ -67,7 +70,7 @@ class FileSource:
     """식별자의 열(자리) — 여러 칸이면 목록(값을 `|` 로 잇는다)."""
     columns: Mapping[str, str] | str = "*"
     format: str = "auto"
-    """csv · xlsx · json · auto(확장자로)."""
+    """csv · xlsx · json · parquet · auto(확장자로)."""
     encoding: str = "auto"
     delimiter: str = ","
     sheet: str = ""
@@ -379,8 +382,10 @@ class FileAdapter:
             return "xlsx"
         if suffix == "json":
             return "json"
+        if suffix in ("parquet", "pq"):
+            return "parquet"
         raise SourceError(
-            f"형식을 모릅니다({name}) — format 을 csv · xlsx · json 으로 적으세요."
+            f"형식을 모릅니다({name}) — format 을 csv · xlsx · json · parquet 으로 적으세요."
         )
 
     def _decode(self, raw: bytes) -> str:
@@ -398,10 +403,19 @@ class FileAdapter:
             f"인코딩을 못 읽었습니다({', '.join(tries)}) — encoding 을 적으세요."
         )
 
-    def rows(self) -> tuple[str, str, list[dict[str, Any]]]:
-        """(파일 이름, sha256, 행들) — 행은 머리글 → 값(JSON 은 항목 그대로)."""
+    def rows(self, limit: int | None = None) -> tuple[str, str, list[dict[str, Any]]]:
+        """(파일 이름, sha256, 행들) — 행은 머리글 → 값(JSON 은 항목 그대로). `limit` 은
+        Parquet 만 앞에서 멈춘다(나머지 형식은 파일을 통째로 편다)."""
         name, raw = self._resolve()
         digest = hashlib.sha256(raw).hexdigest()
+        if self._format(name) == "parquet":
+            return name, digest, list(parquet.rows(raw, limit=limit))
+        return self._parsed(name, digest, raw)
+
+    def _parsed(
+        self, name: str, digest: str, raw: bytes
+    ) -> tuple[str, str, list[dict[str, Any]]]:
+        """읽은 파일 → 행들(CSV · xlsx · JSON — 통째로)."""
         kind = self._format(name)
         skip = max(self.source.header_row - 1, 0)
         if kind == "csv":
@@ -475,7 +489,10 @@ class FileAdapter:
         """늘 전량이다 — `since` 는 보지 않는다(파일에는 「그 뒤로 바뀐 것」 이 없다). `limit`
         이면 앞 그만큼만(시험용 — `complete=False`)."""
         check_shape(self.source.key, self.source.explode)
-        _name, digest, rows = self.rows()
+        name, raw = self._resolve()
+        if self._format(name) == "parquet":
+            return self._fetch_parquet(raw, limit)
+        _name, digest, rows = self._parsed(name, hashlib.sha256(raw).hexdigest(), raw)
         columns = self._columns(rows[0]) if rows else {}
         if limit and len(rows) > limit:
             records = [one for row in rows[:limit] for one in self._records(row, columns)]
@@ -485,11 +502,44 @@ class FileAdapter:
             records=records, watermark=f"sha256:{digest[:16]}", complete=True, full=True
         )
 
+    def _fetch_parquet(self, raw: bytes, limit: int | None) -> Fetched:
+        """흘려 읽어 `Records` 에 — 넘치면 디스크로(실행의 작업 폴더)."""
+        digest = hashlib.sha256(raw).hexdigest()
+        records = Records()
+        columns: Mapping[str, str] | None = None
+        for seen, row in enumerate(parquet.rows(raw, limit=limit + 1 if limit else None)):
+            if limit and seen >= limit:
+                return Fetched(records=records, complete=False)
+            if columns is None:
+                columns = self._columns(row)
+            records.extend(self._records(row, columns))
+        return Fetched(
+            records=records, watermark=f"sha256:{digest[:16]}", complete=True, full=True
+        )
+
     def probe(self) -> str:
-        name, digest, rows = self.rows()
+        name, raw = self._resolve()
+        if self._format(name) == "parquet":
+            digest = hashlib.sha256(raw).hexdigest()
+            heads = parquet.columns(raw)[:8]
+            return (
+                f"{name} · {parquet.count(raw)}행 · sha256 {digest[:12]} · 열 "
+                f"{', '.join(heads)}"
+            )
+        name, digest, rows = self._parsed(name, hashlib.sha256(raw).hexdigest(), raw)
         heads = list(rows[0])[:8] if rows and isinstance(rows[0], dict) else []
         return f"{name} · {len(rows)}행 · sha256 {digest[:12]} · 열 {', '.join(heads)}"
 
     def discover(self) -> dict[str, Any]:
-        name, digest, rows = self.rows()
+        name, raw = self._resolve()
+        if self._format(name) == "parquet":
+            digest = hashlib.sha256(raw).hexdigest()
+            sample = list(parquet.rows(raw, limit=200))
+            return {
+                "file": name,
+                "sha256": digest[:16],
+                "rows": parquet.count(raw),
+                **suggest(sample),
+            }
+        name, digest, rows = self._parsed(name, hashlib.sha256(raw).hexdigest(), raw)
         return {"file": name, "sha256": digest[:16], "rows": len(rows), **suggest(rows)}

@@ -85,6 +85,21 @@ backend/.venv/bin/python devtools/e2e/run.py --no-build   # 빌드한 frontend/d
 처음부터 다시: `curl -X POST http://127.0.0.1:8088/_mock/reset` · `rm -rf .work/relay` · 시험 DB 를
 지우려면 `down.sh` 뒤 `dropdb jvhubtest` 와 `rm -rf .work/sandbox_sp`.
 
+## 진짜 Kafka — `kafka/`
+
+relay 의 Kafka 원천을 **진짜 브로커**로 본다(가짜 브로커 시험 `tests/unit/test_relay_kafka.py` 가 못 보는 것 —
+그룹 담당 브로커가 준비 중일 때의 `NOT_COORDINATOR`, 인증 실패가 오류 알림으로만 오는 것은 여기서 찾았다).
+
+```bash
+devtools/kafka/fetch.sh     # Kafka 4.3.2 · Java 21(Temurin)을 .work/kafka 에 — 체크섬이 맞을 때만 푼다(한 번)
+devtools/kafka/up.sh        # KRaft 한 대 — 127.0.0.1:9192 평문 · 9193 SASL(PLAIN · SCRAM-SHA-512) · 9194 컨트롤러
+backend/.venv/bin/python devtools/kafka/check.py    # 토픽을 새로 만들어 단계마다 한 줄
+devtools/kafka/down.sh      # up.sh 가 적은 PID 만 내린다
+```
+
+SASL 계정은 `svc_plain`(PLAIN) · `svc_scram`(SCRAM-SHA-512), 비밀번호는 up.sh 가 처음에 만들어
+`.work/kafka/test-secrets.json`(600)에만 둔다. 저장소 밖(`.work/`)이라 커밋되지 않는다.
+
 ## 2026-11-05 에 돌려 본 결과
 
 | 단계 | relay | 시험 인스턴스 |

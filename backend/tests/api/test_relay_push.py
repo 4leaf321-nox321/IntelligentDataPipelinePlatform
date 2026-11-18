@@ -107,3 +107,31 @@ def test_실행은_받을_함을_미러에_넣은_뒤에만_지운다(
     off = dataclasses.replace(pipeline, intake=None)
     assert runner.run(off, work, fake).status == "planned"  # type: ignore[arg-type]
     assert list((root / slug / "inbox").glob("*.json")) == [] and work.mirror_size() == 6
+
+
+def test_Parquet_본문도_받아_JSON_꼴로_쌓는다(
+    client: TestClient, registry: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import io
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    slug = _push(registry, monkeypatch)
+    url = f"/api/relay/inbound/{slug}"
+    good = {"X-Relay-Token": "push-s3cret-value", "Content-Type": "application/octet-stream"}
+
+    def body(n: int) -> bytes:
+        buf = io.BytesIO()
+        rows = _lots(*range(n))
+        pq.write_table(pa.Table.from_pylist(rows), buf)
+        return buf.getvalue()
+
+    assert client.post(url, content=body(60), headers=good).status_code == 413  # max_items 50
+    broken = body(2)[:-10] + b"PAR1"
+    assert client.post(url, content=broken, headers=good).status_code == 422
+    got = client.post(url, content=body(3), headers=good)
+    assert got.status_code == 202, got.text
+    assert got.json()["accepted"] == 3
+    (one,) = list((get_settings().relay_work_dir / slug / "inbox").glob("*.json"))
+    assert json.loads(one.read_text(encoding="utf-8"))[2]["LotId"] == "L2"

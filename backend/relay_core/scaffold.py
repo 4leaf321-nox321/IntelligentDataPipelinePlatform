@@ -6,9 +6,13 @@
   이름이 칸 이름으로 끝나는 것(`TASK_STATUS` ↔ `status`), 칸 이름이 열 이름으로 끝나는 것
   (`model_revision` ↔ `REVISION`)은 4자 이상 · 하나뿐 · 아직 안 쓴 열일 때만.
 - 날짜 칸(`date`)은 날짜로 바꾼다(`"date": true`).
-- **참조 칸(`object_ref`)은 잇지 않는다** — 상대 타입의 식별자로 맞춰야 해서(`match`) 이름
-  만으로 고를 수 없다. 남은 칸 · 참조 칸 · 안 쓴 열을 함께 돌려준다 — AI 가 읽고 레시피를
-  고친다.
+- **참조 칸(`object_ref`)** 은 칸 이름에 식별자 꼴의 끝이 붙은 열(`task` ↔ `TASK_CODE` ·
+  `TASK_ID` · `task.code`)이 **하나뿐일 때만** 대상의 그 타입(`ref_type_slug`)의 식별자와
+  맞추는 규칙(`match`)으로 잇는다 — 꼭 받는 칸이면 못 맞춘 것을 미해결로(`on_missing:
+  unresolved` — 대상이 거절하기 전에 멈춘다). 아니면 남기고 후보 열을 함께 돌려준다.
+- 대상이 **꼭 받는 칸**(`required`)이 끝내 비면 `required_missing` 으로 — 그대로 사용하면
+  실행이 대상에서 멈춘다(2026-11-18 Kafka 점검에서 「과제: 값이 필요합니다」).
+- 남은 칸 · 참조 칸 · 안 쓴 열을 함께 돌려준다 — AI 가 읽고 레시피를 고친다.
 - 식별자가 여러 칸이면 그 값을 잇는 계산 칸(`RELAY_KEY = {A}|{B}`)을 정의에 더하고 그 열을
   레시피의 식별자로 쓴다(미러의 식별자와 같은 모양 — 화면의 「새 연결」 과 같다).
 
@@ -25,6 +29,8 @@ from typing import Any
 KEY_COLUMN = "RELAY_KEY"
 _REF = {"object_ref", "ref", "reference", "relation"}
 _LABEL_WORDS = ("NAME", "TITLE", "LABEL", "NM")
+#: 식별자 꼴의 끝 — 참조 칸의 열을 고를 때(`task` + `code`).
+_ID_ENDS = ("code", "id", "key", "no", "cd")
 
 
 def _norm(text: str) -> str:
@@ -66,21 +72,56 @@ def first_recipe(
     key_col: str,
     label_col: str,
 ) -> dict[str, Any]:
-    """`{"recipe", "matched", "unmatched", "references", "unused"}` — 레시피의 첫 판과
-    그 근거."""
+    """`{"recipe", "matched", "unmatched", "references", "required_missing", "unused"}` —
+    레시피의 첫 판과 그 근거."""
     names: dict[str, set[str]] = {}
     for column, path in columns.items():
         names[column] = {_norm(column), _norm(path), _norm(path.rsplit(".", 1)[-1])}
     fields: dict[str, Any] = {}
-    matched: list[dict[str, str]] = []
+    matched: list[dict[str, Any]] = []
     unmatched: list[dict[str, Any]] = []
     references: list[dict[str, Any]] = []
     used: set[str] = {key_col, label_col}
     for key, prop in props.items():
         kind = str(prop.get("data_type") or "")
-        brief = {"property": key, "label": prop.get("label") or "", "data_type": kind}
+        brief: dict[str, Any] = {
+            "property": key,
+            "label": prop.get("label") or "",
+            "data_type": kind,
+        }
+        if prop.get("required"):
+            brief["required"] = True
+        if prop.get("enum_options"):
+            brief["enum_options"] = list(prop["enum_options"])
         if kind in _REF:
-            references.append(brief)
+            ref = str(prop.get("ref_type_slug") or "")
+            want = _norm(key)
+            exact = [
+                c
+                for c in columns
+                if c not in used
+                and want
+                and ({_norm(c), _norm(columns[c])} & {want + end for end in _ID_ENDS})
+            ]
+            if ref and len(exact) == 1:
+                fields[key] = {
+                    "column": exact[0],
+                    "match": {
+                        "keys": ref,
+                        "on_missing": "unresolved" if prop.get("required") else "blank",
+                    },
+                }
+                matched.append(
+                    {
+                        "property": key,
+                        "column": exact[0],
+                        "why": f"참조 — {ref} 의 식별자와 맞춤(match)",
+                    }
+                )
+                used.add(exact[0])
+            else:
+                near = [c for c in columns if want and want in _norm(c)]
+                references.append({**brief, "ref_type_slug": ref, "candidates": near[:8]})
             continue
         want = _norm(key)
         label = _norm(str(prop.get("label") or ""))
@@ -104,7 +145,11 @@ def first_recipe(
         fields[key] = (
             {"column": column, "date": True} if kind == "date" else {"column": column}
         )
-        matched.append({"property": key, "column": column, "why": why})
+        hit: dict[str, Any] = {"property": key, "column": column, "why": why}
+        if brief.get("enum_options"):
+            # 고를 값 칸 — 원천 값이 대상의 값 목록에 없으면 `map` 으로 옮긴다(시험이 말한다).
+            hit["enum_options"] = brief["enum_options"]
+        matched.append(hit)
         used.add(column)
     recipe = {
         "format": "sp-table/1",
@@ -123,5 +168,6 @@ def first_recipe(
         "matched": matched,
         "unmatched": unmatched,
         "references": references,
+        "required_missing": [one for one in (*unmatched, *references) if one.get("required")],
         "unused": [column for column in columns if column not in used],
     }

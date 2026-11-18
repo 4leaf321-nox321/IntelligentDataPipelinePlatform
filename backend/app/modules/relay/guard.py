@@ -28,7 +28,7 @@ from relay_core.definition import SECRET_FIELDS, env_names
 from relay_core.describe import Described
 
 #: 서버가 바깥으로 닿는 자리의 앞머리 — 파일 원천은 공유 폴더(`smb://`)도 된다.
-REMOTE = ("http://", "https://", "smb://", "sftp://")
+REMOTE = ("http://", "https://", "smb://", "sftp://", "kafka://")
 
 #: 비밀처럼 보이는 값 — 주소 안의 비밀번호(`://u:p@` · `://:p@`), 머리글 그대로
 #: (`Bearer …`), 주소의 질의에 실은 키(`?access_token=…` · `&api_key=…`).
@@ -49,14 +49,30 @@ _SECRET_KEY = re.compile(
 
 
 def source_url(kind: str, spec: dict[str, Any]) -> str:
-    """어댑터가 닿는 주소 — 로컬 파일 · DB 면 빈 글."""
+    """어댑터가 닿는 주소 — 로컬 파일 · DB 면 빈 글. Kafka 는 첫 브로커(전부는
+    `kafka_urls`)."""
     where = {"rest": "base_url", "odata": "service_url", "xml": "url"}.get(kind)
     if where:
         return str(spec.get(where) or "")
     if kind == "file":
         location = str(spec.get("location") or "")
         return location if location.startswith(REMOTE) else ""
+    if kind == "kafka":
+        found = kafka_urls(spec)
+        return found[0] if found else ""
     return ""
+
+
+def kafka_urls(spec: dict[str, Any]) -> list[str]:
+    """Kafka 가 닿는 곳 전부 — 브로커마다(`kafka://host:port`)와 스키마 레지스트리. 비밀이 다
+    실려 간다(레지스트리의 비밀은 레지스트리로)."""
+    from relay_core.adapters.kafka import endpoints
+
+    found = endpoints(str(spec.get("bootstrap") or ""))
+    registry = spec.get("schema_registry")
+    if isinstance(registry, dict) and registry.get("url"):
+        found.append(str(registry["url"]))
+    return found
 
 
 def host_of(url: str) -> str:
@@ -90,6 +106,9 @@ def _uses(one: Described) -> list[tuple[str, str, str]]:
     adapter = dict(one.body.get("adapter") or {})
     if one.endpoint.startswith(REMOTE):
         out += [(name, SOURCE, host_of(one.endpoint)) for name in env_names(adapter)]
+    if one.adapter_kind == "kafka":
+        for url in kafka_urls(adapter):
+            out += [(name, SOURCE, host_of(url)) for name in env_names(adapter)]
     issuer = token_url(adapter)
     if issuer.startswith(REMOTE):
         out += [(name, SOURCE, host_of(issuer)) for name in env_names(adapter)]
@@ -105,8 +124,10 @@ def fence(found: Iterable[Described]) -> Fence:
     for one in found:
         if one.draft:
             continue
-        issuer = token_url(dict(one.body.get("adapter") or {}))
-        for url in (one.endpoint, one.target_server, issuer):
+        adapter = dict(one.body.get("adapter") or {})
+        issuer = token_url(adapter)
+        more = kafka_urls(adapter) if one.adapter_kind == "kafka" else []
+        for url in (one.endpoint, one.target_server, issuer, *more):
             if url.startswith(REMOTE):
                 hosts.add(host_of(url))
         for name, role, host in _uses(one):
@@ -181,7 +202,16 @@ def check_file(location: str) -> None:
 
 
 def check_source(kind: str, spec: dict[str, Any], fenced: Fence) -> None:
-    url = source_url(kind, spec)
+    if kind == "kafka":
+        # 브로커마다 · 레지스트리 — 하나라도 울타리 밖이면 거절한다(비밀이 거기로도 간다).
+        for one in kafka_urls(spec):
+            scheme = ("kafka",) if one.startswith("kafka://") else ("http", "https")
+            check_url(one, fenced.hosts, "adapter", scheme)
+            for name in env_names(spec):
+                check_secret(name, SOURCE, one, fenced)
+        url = ""
+    else:
+        url = source_url(kind, spec)
     if url:
         schemes = ("http", "https", "smb", "sftp") if kind == "file" else ("http", "https")
         check_url(url, fenced.hosts, "adapter", schemes)

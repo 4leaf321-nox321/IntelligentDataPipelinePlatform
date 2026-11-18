@@ -55,3 +55,11 @@ scipy==1.18.1
 python-pptx==1.0.2
 lxml==6.1.3
 XlsxWriter==3.3.0
+# 중계의 Parquet 원천(파일 · 보내 주는 원천) — `relay_core/adapters/parquet.py` 한 곳에서만 부른다.
+# 묶음(row group)으로 흘려 읽는다. 바퀴 하나가 55MB 라 이미지가 그만큼 커진다.
+pyarrow==26.0.1
+# 중계의 Kafka 원천 — `relay_core/adapters/kafka.py` 한 곳에서만 부른다. confluent-kafka 의 바퀴는
+# librdkafka 를 품는다(TLS · SASL PLAIN · SCRAM · OAUTHBEARER — Kerberos(GSSAPI)는 없다, 2026-11-18
+# 확인). fastavro 는 스키마 레지스트리의 Avro 메시지를 읽는다.
+confluent-kafka==2.16.1
+fastavro==1.13.1

@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from relay_core.scaffold import first_recipe, key_column, label_column
@@ -59,3 +61,32 @@ def test_여러_칸_식별자는_계산_칸을_더한다() -> None:
         key_column(COLUMNS, ["nope"])
     assert label_column(COLUMNS, ["model_name"]) == "MODEL_NAME"
     assert label_column({"X": "x", "LOT_NM": "nm"}) == "LOT_NM"
+
+
+def test_참조_칸은_이름과_식별자_끝이_맞는_열_하나면_match_로_꼭_받는_칸은_알린다() -> None:
+    columns = {"MODEL_ID": "model_id", "TASK_CODE": "task.code", "TASK_NAME": "task.name"}
+    props: dict[str, dict[str, Any]] = {
+        "task": {
+            "label": "과제",
+            "data_type": "object_ref",
+            "ref_type_slug": "plm_task",
+            "required": True,
+        },
+        "project": {
+            "label": "프로젝트",
+            "data_type": "object_ref",
+            "ref_type_slug": "plm_project",
+            "required": True,
+        },
+        "region": {"label": "지역", "data_type": "enum", "enum_options": ["KR", "US"]},
+    }
+    got = first_recipe("plm_model", columns, props, "MODEL_ID", "")
+    fields = got["recipe"]["types"][0]["fields"]
+    assert fields["task"] == {
+        "column": "TASK_CODE",
+        "match": {"keys": "plm_task", "on_missing": "unresolved"},
+    }
+    (gap,) = got["required_missing"]
+    assert gap["property"] == "project" and gap["ref_type_slug"] == "plm_project"
+    assert [one["property"] for one in got["unmatched"]] == ["region"]
+    assert got["unmatched"][0]["enum_options"] == ["KR", "US"]

@@ -95,7 +95,8 @@ cd backend
 `<DATA_DIR>/relay/pipelines`), 비밀은 정의에 적지 않고 `token_env` 의 환경 변수로.
 
 **MCP(8082)** — `mcp_server/`(별도 venv). AI(Claude Desktop)가 사용자의 PAT 로 붙어 **원천을 탐색하고**
-(어댑터 — REST · OData · 파일(서버 폴더 · 공유 폴더 `smb://` · URL) · XML/SOAP — 원천은 API · 파일로만 받고 DB 에 바로 붙지 않는다), 파이프라인 정의와 레시피를 **짓고 시험**한다. API 지침서(OpenAPI · `$metadata` · WSDL)를
+(어댑터 — REST · OData · 파일(CSV · Excel · JSON · Parquet — 서버 폴더 · 공유 폴더 `smb://` · SFTP · URL) · XML/SOAP · Kafka
+토픽(구독) · 보내 주는 원천(JSON · Parquet) — 원천은 API · 파일 · 토픽으로만 받고 DB 에 바로 붙지 않는다), 파이프라인 정의와 레시피를 **짓고 시험**한다. API 지침서(OpenAPI · `$metadata` · WSDL)를
 읽고(`source_spec`) 주소 · 원천 이름 · 대상 타입만으로 정의 · 레시피 초안과 시험을 한 번에 만든다(`pipeline_scaffold`).
 사람은 비밀(토큰 · 비밀번호)을 화면 「중계 › 비밀」 에서 넣고, 사용 · 적용을 화면에서 한다. 붙이는 법은 화면 「내 정보 › AI 도구 연결」.
 

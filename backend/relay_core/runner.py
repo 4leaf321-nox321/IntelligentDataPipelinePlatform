@@ -286,6 +286,7 @@ def _run(
         f"받음 {received}건(추가 {took.added} · 변경 {took.changed} · "
         f"그대로 {took.unchanged} · 삭제 {took.removed}) · 미러 {size}건. "
     )
+    note += "".join(f"{one} " for one in fetched.notes)
     del fetched
     checked = intake.inspect(pipeline.intake, staged.tally, state.blank_watch)
     if checked.held and not (accept is not None and accept.covers(checked)):

@@ -70,7 +70,7 @@ def test_종류는_코드의_설명을_보이고_비밀_칸은_없다(client: Te
     assert got.status_code == 200, got.text
     body = got.json()
     kinds = {one["kind"]: one for one in body["kinds"]}
-    assert set(kinds) == {"rest", "odata", "file", "xml", "push"}
+    assert set(kinds) == {"rest", "odata", "file", "xml", "push", "kafka"}
     assert kinds["odata"]["required"] == ["service_url", "entity_set", "key", "columns"]
     names = {f["name"] for one in kinds.values() for f in one["fields"]}
     assert not names & {"dsn", "token", "password", "secret"}

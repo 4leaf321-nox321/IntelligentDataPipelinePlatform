@@ -11,8 +11,17 @@ import type { AdapterField, DiscoverOut } from '@/modules/relay/api'
 /** 입력 칸이 따로 있는 것 — 일반 칸 목록에서 뺀다. */
 export const SPECIAL = new Set(['key', 'columns', 'auth'])
 
-export const AUTH_KINDS = ['none', 'bearer', 'header', 'basic', 'query', 'oauth2', 'ntlm'] as const
+export const AUTH_KINDS = ['none', 'bearer', 'header', 'basic', 'query', 'oauth2', 'ntlm', 'sasl'] as const
 export type AuthKind = (typeof AUTH_KINDS)[number]
+
+/**
+ * 어댑터 종류마다 고를 수 있는 인증 — Kafka 는 평문 · SASL · OAuth2(OAUTHBEARER)만, 나머지(HTTP ·
+ * 파일)는 SASL 을 뺀 것. 서버도 같은 것을 거절한다(`relay_core.definition.KAFKA_AUTH`).
+ */
+export function authKindsFor(adapterKind: string): readonly AuthKind[] {
+  if (adapterKind === 'kafka') return ['none', 'sasl', 'oauth2']
+  return AUTH_KINDS.filter((one) => one !== 'sasl')
+}
 
 export const AUTH_LABEL: Record<AuthKind, string> = {
   none: '없음',
@@ -22,6 +31,7 @@ export const AUTH_LABEL: Record<AuthKind, string> = {
   query: '질의 문자열의 키',
   oauth2: 'OAuth2 client credentials',
   ntlm: 'Windows 통합 인증(NTLM)',
+  sasl: 'SASL 계정 · 비밀번호(Kafka)',
 }
 
 /** 인증 방식마다 더 적을 칸. */
@@ -37,6 +47,10 @@ export const AUTH_EXTRA: Record<AuthKind, { name: string; label: string }[]> = {
     { name: 'scope', label: '범위(scope)' },
   ],
   ntlm: [{ name: 'user', label: '계정(CORP\\svc_relay)' }],
+  sasl: [
+    { name: 'mechanism', label: '방식(PLAIN · SCRAM-SHA-256 · SCRAM-SHA-512)' },
+    { name: 'user', label: '계정' },
+  ],
 }
 
 /**

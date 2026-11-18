@@ -21,6 +21,7 @@ from typing import Any
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.modules.accounts.models import User
 from app.modules.relay import definitions, recipes, secrets, services
 from app.shared.errors import AppError, code
@@ -94,6 +95,10 @@ def run(
     adapter = dict(spec.get("adapter") or {})
     kind = str(adapter.get("kind") or "rest")
     allowed = _fields_of(kind)
+    if kind == "kafka" and not adapter.get("group_id"):
+        # 소비 그룹은 파이프라인마다 — 다른 시스템의 그룹을 쓰면 그쪽 메시지를 가져간다. 앞에
+        # 이 설치의 이름을 붙여 브로커 쪽에서 누가 읽는지 보이게.
+        adapter["group_id"] = f"{get_settings().app_slug}-{slug}"
     target = _target(db, spec.get("target"), str(spec.get("target_from") or ""))
     type_slug = str(spec["type_slug"])
 
@@ -223,6 +228,15 @@ def run(
         next_steps.append(
             f"대상에 {type_slug} 타입이 없습니다 — ontology(SP 타입 정의 초안)를 SP 관리자"
             "에게 넘겨 등록을 부탁한다. 등록 뒤 레시피를 다시 시험한다."
+        )
+    if mapping.get("required_missing"):
+        gaps = ", ".join(
+            f"{one['property']}({one['label']})" for one in mapping["required_missing"]
+        )
+        next_steps.append(
+            f"대상이 꼭 받는 칸 {gaps} 이 비었습니다 — 이대로 사용하면 실행이 대상에서 "
+            "멈춘다. references 의 candidates(원천 열)로 match 를 적거나, 원천에 그 값이 "
+            "없으면 사람에게 알린다."
         )
     if mapping.get("unmatched") or mapping.get("references"):
         next_steps.append(

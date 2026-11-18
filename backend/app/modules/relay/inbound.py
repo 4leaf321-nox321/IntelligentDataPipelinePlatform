@@ -7,7 +7,8 @@
    같은 404**(무엇이 있는지 알려 주지 않는다).
 3. 비밀 — 머리글 `X-Relay-Token` 을 그 정의의 `auth.token_env` 값과 상수 시간으로 견준다.
    `Authorization` 을 안 쓰는 까닭: 그 머리글은 사람 · 토큰(PAT)의 자리다.
-4. 모양 · 건수 — JSON 목록(또는 `rows_path` 자리의 목록), `max_items` 이하.
+4. 모양 · 건수 — JSON 목록(또는 `rows_path` 자리의 목록), 또는 **Parquet 파일 하나**(앞뒤의
+   `PAR1` 로 알아본다 — 값은 JSON 꼴로 바꿔 쌓는다, `adapters.parquet`), `max_items` 이하.
 5. 받을 함이 넘치지 않았나(`MAX_WAITING`) — 실행이 멈춰 쌓이기만 하면 디스크가 찬다.
 6. 임시 파일에 다 쓰고 바꿔 끼운다 — 반쪽 묶음을 실행이 읽지 않게.
 
@@ -26,6 +27,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.modules.relay import services
 from app.shared.errors import AppError, NotFound, code
+from relay_core.adapters import parquet
 from relay_core.adapters.push import SUFFIX, items_of
 from relay_core.adapters.rest import SourceError
 from relay_core.state import stamp
@@ -62,18 +64,23 @@ def receive(db: Session, slug: str, token: str, raw: bytes) -> dict[str, Any]:
     # 비밀이 비었으면 아무도 못 보낸다 — 빈 머리글과 같다고 받지 않는다.
     if not secret or not token or not hmac.compare_digest(token.encode(), secret.encode()):
         raise AppError(code("RELAY", 33), f"{HEADER} 가 맞지 않습니다.", status=401)
+    most = int(adapter.get("max_items") or 50_000)
     try:
-        body = json.loads(raw)
-        items = items_of(body, str(adapter.get("rows_path") or ""))
+        if parquet.looks_like(raw):
+            # 하나 더 읽어 넘친 것을 안다 — 다 펴지 않는다.
+            items: list[Any] = list(parquet.rows(raw, limit=most + 1))
+        else:
+            items = items_of(json.loads(raw), str(adapter.get("rows_path") or ""))
     except (ValueError, SourceError) as failure:
         raise AppError(
             code("RELAY", 34), f"보낸 본문을 읽지 못했습니다: {failure}", status=422
         ) from None
-    most = int(adapter.get("max_items") or 50_000)
     if len(items) > most:
         raise AppError(
             code("RELAY", 32),
-            f"한 번에 {most:,}개까지 받습니다(보낸 것 {len(items):,}개).",
+            f"한 번에 {most:,}개까지 받습니다(보낸 것 {len(items):,}개"
+            + (" 이상" if parquet.looks_like(raw) else "")
+            + ").",
             status=413,
         )
     inbox = get_settings().relay_work_dir / slug / "inbox"

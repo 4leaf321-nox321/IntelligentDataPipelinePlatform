@@ -6,7 +6,15 @@
 import { describe, expect, it } from 'vitest'
 
 import type { AdapterField } from '@/modules/relay/api'
-import { adapterOf, definitionOf, keyColumnOf, picksOf, recipeOf, valueOf } from '@/modules/relay/connect'
+import {
+  adapterOf,
+  authKindsFor,
+  definitionOf,
+  keyColumnOf,
+  picksOf,
+  recipeOf,
+  valueOf,
+} from '@/modules/relay/connect'
 import type { AdapterForm, DefinitionForm } from '@/modules/relay/connect'
 
 const field = (name: string, type = 'str'): AdapterField => ({
@@ -152,5 +160,11 @@ describe('새 연결의 입력', () => {
     )
     expect(certOnly.auth).toEqual({ kind: 'none', cert: 'mes-client.pem', cert_password_env: 'MES_CERT_PW' })
     expect(adapterOf(form({ auth: { kind: 'none', token_env: '' } }), true)).not.toHaveProperty('auth')
+  })
+
+  it('인증은 어댑터 종류에 맞는 것만 — Kafka 는 없음 · SASL · OAuth2, 나머지는 SASL 을 뺀다', () => {
+    expect(authKindsFor('kafka')).toEqual(['none', 'sasl', 'oauth2'])
+    expect(authKindsFor('rest')).not.toContain('sasl')
+    expect(authKindsFor('file')).toContain('basic')
   })
 })

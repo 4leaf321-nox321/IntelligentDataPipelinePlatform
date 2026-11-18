@@ -17,7 +17,7 @@ import { Loader2, Plus, Trash2 } from 'lucide-react'
 
 import { relayApi } from '@/modules/relay/api'
 import type { AdapterField, DefinitionSaved, DefinitionVersion } from '@/modules/relay/api'
-import { AUTH_CERT, AUTH_EXTRA, AUTH_KINDS, AUTH_LABEL, valueOf } from '@/modules/relay/connect'
+import { AUTH_CERT, AUTH_EXTRA, AUTH_KINDS, AUTH_LABEL, authKindsFor, valueOf } from '@/modules/relay/connect'
 import {
   adapterFields,
   at,
@@ -267,7 +267,7 @@ function DefinitionFields({
               put(['adapter', 'auth'], withAuthKind(auth, event.target.value as (typeof AUTH_KINDS)[number]))
             }
           >
-            {AUTH_KINDS.map((one) => (
+            {authKindsFor(String(adapter.kind ?? '')).map((one) => (
               <option key={one} value={one}>
                 {AUTH_LABEL[one]}
               </option>

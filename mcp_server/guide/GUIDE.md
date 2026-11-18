@@ -108,9 +108,12 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    | `drafted` | 정의 판 · 레시피 판 초안과 시험까지 됐다 |
 
    결과의 `definition.chosen` 은 서버가 단서로 고른 칸(값 · 까닭), `recipe.matched` · `unmatched` · `references` ·
-   `unused` 는 칸 대응의 근거다. **`unmatched` · `references` 를 `unused` 열과 견주어** 레시피를 고친다
-   (`recipe_draft_save` — 참조 칸은 `match`, 고를 값은 `map`), 정의를 고칠 것은 `pipeline_draft_save` → 다시 시험.
-   `next` 를 따른다. 사용은 사람이.
+   `unused` 는 칸 대응의 근거다. 참조 칸은 칸 이름 + 식별자 끝의 열이 하나뿐이면(`task` ↔ `TASK_CODE`) 이미 대상
+   타입의 식별자와 맞추는 `match` 로 채웠다(꼭 받는 칸은 `on_missing: unresolved`). **`recipe.required_missing`
+   (대상이 꼭 받는데 빈 칸)이 있으면 먼저 채운다** — 그대로 사용하면 실행이 대상에서 「값이 필요합니다」 로 멈춘다
+   (`references` 의 `candidates` · `ref_type_slug` 를 보고 `match` 를). 그다음 **`unmatched` · `references` 를 `unused`
+   열과 견주어** 레시피를 고친다(`recipe_draft_save` — 고를 값은 `enum_options` 를 보고 `map`), 정의를 고칠 것은
+   `pipeline_draft_save` → 다시 시험. `next` 를 따른다. 사용은 사람이.
 
    대상은 `target_from`(대상이 같은 기존 파이프라인) · `target` · 하나뿐인 대상 순으로 정한다. **식별자가 여러 칸이면**
    정의에 계산 칸 `RELAY_KEY`(`{"template": "{A}|{B}"}`)를 더하고 레시피의 식별자로 그 열을 쓴다 — 화면의 「새 연결」
@@ -128,10 +131,12 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    | OData(v4 · v2) | `odata` | `service_url` · `entity_set` · `expand` · `modified_field`(증분) · `deleted` |
    | JSON REST(쪽 넘김) | `rest` | `base_url` · `path` · `rows_path` · `paging` · `since_param` |
    | CSV · Excel(xlsx) · JSON 파일 | `file` | `location` — 서버 폴더(`/data/relay/drop/…`) · 공유 폴더(`smb://서버/공유/폴더/lots-*.csv`, 계정은 `auth: {"kind": "basic", "user": "CORP\\svc", "token_env": …}`) · SFTP(`sftp://서버/폴더/lots-*.csv` — 아래) · URL. `*` 면 가장 늦게 바뀐 것 · `sheet` · `header_row` · `encoding` |
+   | Parquet 파일 | `file` | `location` 이 `*.parquet` · `*.pq`(또는 `"format": "parquet"`). 구조체 칸은 점 자리(`"WEIGHT": "spec.weight"`), 목록은 `explode`. 십진수는 글 그대로 · 시각은 ISO 로 온다 |
+   | Kafka 토픽(원천이 변경을 메시지로 낸다) | `kafka` | `bootstrap`(브로커들 `host:port,…`) · `topic` · `group_id`(`datarelay-<slug>` — 파이프라인마다 따로, 남의 그룹을 쓰지 않는다) · `format`(`json` · `avro` · `text`) · `rows_path`(메시지 안의 목록) · `deleted` · `start`(처음 읽을 때 `earliest` · `latest`) · `tls` · `auth`(아래) · `schema_registry` |
    | XML · SOAP | `xml` | `url` · `rows_xpath` · `namespaces` · `envelope`(SOAP, `{since}` 자리) · `soap_action` |
-   | 원천이 **보내 준다**(webhook · 일괄 전송 — 가져갈 API 가 없다) | `push` | `key` · `columns` · `deleted` · `auth: {"kind": "bearer", "token_env": …}`. 원천이 `POST /api/relay/inbound/<slug>` 에 머리글 `X-Relay-Token` 으로 JSON 목록을 보낸다 — **사용 중인 정의만** 받으므로 처음에는 탐색할 것이 없다. 원천 담당에게 받은 보낼 모양(예시 JSON)으로 `columns` 를 적는다. 지운 것은 삭제 표시로 보내야 한다 |
+   | 원천이 **보내 준다**(webhook · 일괄 전송 — 가져갈 API 가 없다) | `push` | `key` · `columns` · `deleted` · `auth: {"kind": "bearer", "token_env": …}`. 원천이 `POST /api/relay/inbound/<slug>` 에 머리글 `X-Relay-Token` 으로 JSON 목록(또는 **Parquet 파일 하나** — 본문 그대로)을 보낸다 — **사용 중인 정의만** 받으므로 처음에는 탐색할 것이 없다. 원천 담당에게 받은 보낼 모양(예시 JSON)으로 `columns` 를 적는다. 지운 것은 삭제 표시로 보내야 한다 |
 
-   **원천 시스템의 DB 에 바로 붙는 종류는 없다** — 원천은 API · 파일 · 공유 폴더로만 받는다. API 가 없다면
+   **원천 시스템의 DB 에 바로 붙는 종류는 없다** — 원천은 API · 파일 · 공유 폴더 · Kafka 토픽(구독만)으로 받는다. API 가 없다면
    원천 시스템 담당에게 API(또는 내보낸 파일)를 부탁하라고 사람에게 전한다.
 
    흔한 모양(2026-11-07 부터):
@@ -150,6 +155,9 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    | Windows 통합 인증(IIS) | `"auth": {"kind": "ntlm", "user": "CORP\\svc_relay", "token_env": <비밀번호의 이름>}` |
    | 클라이언트 인증서(mTLS) | 어느 방식에든 `"cert": "mes-client.pem"`(+ 키 암호가 있으면 `"cert_password_env"`) — 운영자가 서버의 인증서 폴더(`RELAY_CERT_DIR`)에 둔 PEM 의 **파일 이름**만. 인증만 인증서면 `"kind": "none"` 에 `cert` |
    | 상세가 느림(항목마다 한 번씩) | `"detail_workers": 4`(1–16) — 상세를 동시에 부른다(행의 차례는 그대로). 원천이 감당할 만큼만 · `min_interval` 은 그래도 지킨다 |
+   | Kafka 인증 | `"auth": {"kind": "sasl", "mechanism": "SCRAM-SHA-512", "user": "svc_relay", "token_env": …}, "tls": true` — `mechanism` 은 PLAIN · SCRAM-SHA-256 · SCRAM-SHA-512. OAuth2 는 `"kind": "oauth2"`(OAUTHBEARER — `token_url` · `user` · `token_env` · `scope`). 인증서만이면 `"kind": "none"` 에 `cert`(TLS 가 저절로 켜진다). Kerberos(GSSAPI)는 안 된다 |
+   | Kafka Avro | `"format": "avro"`, `"schema_registry": {"url": "https://registry:8081", "auth": {"kind": "basic", "user": …, "token_env": …}}` — 레지스트리의 Confluent 꼴(앞 1바이트 0 · 스키마 번호)만 |
+   | Kafka — 메시지 키가 식별자 · 지우기는 비석 | `"key": "_kafka.key"` — 값이 빈 메시지(tombstone)를 그 키를 지운 것으로 본다. 항목마다 `_kafka.key` · `_kafka.partition` · `_kafka.offset` · `_kafka.timestamp` 가 붙는다(열로도 읽는다) |
    | SFTP | `"location": "sftp://서버/폴더/lots-*.csv"`, `"host_key": "SHA256:…"`, 계정은 `auth.user` · `auth.token_env`. **지문을 모르면 적지 말고** 시험한다 — 서버가 보인 지문을 `problems` 가 말한다. 그 지문은 **사람이 서버 담당과 확인한 뒤** 적게 한다(AI 가 그대로 옮겨 적지 않는다) |
 
    레시피에 없는 값 바꾸기는 정의의 **계산 칸**(`computed`, 맨 위 칸)으로 — 여러 열 잇기
@@ -157,6 +165,13 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    "TS", "format": "%Y%m%d%H%M%S", "timezone": "Asia/Seoul"}` → UTC ISO, `"output": "date"` 면 날짜) · 정규식 바꾸기
    (`{"replace": "P", "pattern": "^P-", "with": ""}`) · 앞의 빈 값이 아닌 것(`{"first": ["A", "B"]}`). 레시피는 그 새 열을
    읽는다. 못 바꾸는 값은 비운다.
+
+   **Kafka 는 실행마다 끝이 있다** — 시작할 때 파티션마다 끝 위치를 재고 소비 그룹이 확정한 위치부터 거기까지만
+   읽는다(`max_messages`, 기본 20만 — 나머지는 다음 실행). **읽은 위치는 미러에 넣은 뒤에만 확정한다** — 받기 점검이
+   멈추면 다음 실행이 같은 메시지를 다시 읽는다. 시험(`pipeline_test`)은 앞 몇 건만 읽고 확정하지 않는다. 탐색은
+   파티션마다 맨 뒤 몇 건을 읽고(확정하지 않음) `partitions`(맨 앞 · 끝 · 확정한 위치 · 남은 수) · `waiting` 을 준다 —
+   `topic` 없이 부르면 `topics`(토픽 목록)부터. 실행 기록에 「보존 기간이 지나 … 건너뛰었습니다」 가 나오면 그동안의
+   변경을 놓친 것이다 — 사람에게 그대로 전하고 원천 담당의 다시 보내기를 권한다. 일정은 `{"every_minutes": N}` 이 맞다.
 
 2. `source_discover(adapter)` — 주소 · 인증만 적고 불러 본다(`key` · `columns` 는 아직 몰라도 된다). 돌려준
    `found.paths`(칸의 자리 · 보기 값)와 `found.columns`(열 이름 제안)를 본다. OData 는 `entity_set` 없이 부르면

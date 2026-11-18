@@ -25,6 +25,8 @@ class Fetched:
     것으로 보기)도 하지 않는다 — 덜 받은 채 대조하면 아직 안 받은 것이 지워진다."""
     full: bool = False
     """전량을 받았나(`since` 없이). 그때만 「이번에 안 온 것」 을 지운 것으로 본다."""
+    notes: list[str] = field(default_factory=list)
+    """실행 기록에 붙일 말 — 원천이 알려야 할 것(Kafka 가 보존 기간으로 건너뛴 메시지 따위)."""
     done: Callable[[], None] | None = None
     """미러에 **반영한 뒤** 부른다 — 보내 주는 원천(push)이 받을 함의 묶음을 지운다. 받기
     점검이 멈추면 안 부른다(다음 실행이 같은 것을 다시 받는다)."""
