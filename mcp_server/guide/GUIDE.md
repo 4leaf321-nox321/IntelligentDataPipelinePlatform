@@ -107,6 +107,16 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    | `type_missing` | 대상에 그 타입이 없다 — `ontology`(SP 타입 정의 초안)를 사람에게 보여 SP 관리자에게 넘기게 한다(`get_guide('types')`) |
    | `drafted` | 정의 판 · 레시피 판 초안과 시험까지 됐다 |
 
+   **한 행을 여러 타입 · 선으로 나눈다**(기본 — `split: false` 면 그 타입 하나). 대상의 정의를 따라간다: 주 타입의
+   참조 칸이 가리키는 타입(`ref_type_slug`)이 **같은 원천이 주인**(`managed_by`)이면 그 칸 이름의 열 묶음(원천 자리
+   `task.*` 또는 열 이름 `TASK_*`)에서 식별자(`…_CODE` · `…_ID`) · 이름(`…_NAME`)을 찾아 그 타입의 객체도 만들고
+   `{"key_of": …}` 로 잇는다 — 묶음 안에서 다시(과제 → 프로젝트 · 시험 주체). **주인이 다르면(전사 기준정보)** 만들지
+   않고 `match` 로 참조만, **다른 파이프라인이 채우는 타입**이면 `skipped` 에 적고 참조만(한 타입은 한 길로만). 대상의
+   관계 종류는 도착 타입 이름이 든 식별자 꼴의 열이 하나뿐이면 선으로(`plm_derived_from` ↔ `BASE_MODEL_ID`), 아니면
+   `relation_candidates`. `recipe.types` 가 타입마다 어디서(`via`) · 식별자 · 이름 · 이은 칸을, 시험의 `recipe.rows`
+   가 타입마다 객체 수를 준다 — 같은 식별자가 하나로 합쳐졌는지, 값이 갈린 칸(미해결)이 없는지 본다. 위 타입의
+   값이 행마다 갈리면 그 칸은 그 타입의 칸이 아니다 — 아래 타입(행)으로 옮긴다.
+
    결과의 `definition.chosen` 은 서버가 단서로 고른 칸(값 · 까닭), `recipe.matched` · `unmatched` · `references` ·
    `unused` 는 칸 대응의 근거다. 참조 칸은 칸 이름 + 식별자 끝의 열이 하나뿐이면(`task` ↔ `TASK_CODE`) 이미 대상
    타입의 식별자와 맞추는 `match` 로 채웠다(꼭 받는 칸은 `on_missing: unresolved`). **`recipe.required_missing`

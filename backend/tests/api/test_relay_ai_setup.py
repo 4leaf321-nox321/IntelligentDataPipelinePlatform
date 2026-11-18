@@ -219,3 +219,100 @@ def test_지침서는_원천과_같은_울타리(
         "/api/relay/source-spec", json={"url": "http://127.0.0.1:9/openapi.json"}, headers=mcp
     )
     assert nowhere.status_code == 200 and nowhere.json()["ok"] is False
+
+
+SPLIT_SCHEMA = {
+    "types": [
+        {
+            "slug": "mes_lot",
+            "managed_by": "mes",
+            "properties": [
+                {"key": "qty", "label": "수량", "data_type": "number"},
+                {
+                    "key": "order",
+                    "label": "작업지시",
+                    "data_type": "object_ref",
+                    "ref_type_slug": "mes_order",
+                    "required": True,
+                },
+            ],
+        },
+        {
+            "slug": "mes_order",
+            "managed_by": "mes",
+            "properties": [
+                {
+                    "key": "line",
+                    "label": "라인",
+                    "data_type": "object_ref",
+                    "ref_type_slug": "mes_line",
+                },
+            ],
+        },
+        {"slug": "mes_line", "managed_by": "mes", "properties": []},
+    ],
+    "relation_types": [
+        {
+            "slug": "mes_split_from",
+            "label": "분할",
+            "src_type_slugs": ["mes_lot"],
+            "dst_type_slugs": ["mes_lot"],
+            "managed_by": "mes",
+        }
+    ],
+}
+
+
+def test_한_번에_초안은_한_행을_정의를_따라_여러_타입과_선으로_나눈다(
+    client: TestClient,
+    admin: Signed,
+    drop: Path,  # noqa: F811
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.modules.relay import services
+
+    def probe(server: str, token: str, path: str) -> Any:
+        if path == "/api/health":
+            return 200, {"status": "ok", "slug": "mfghub", "version": "v0.4.80"}
+        if path == "/api/ontology/schema":
+            return 200, SPLIT_SCHEMA
+        return 404, None
+
+    monkeypatch.setattr(services, "probe_http", probe)
+    monkeypatch.setenv("MFG_HUB_TOKEN", "x")
+    (drop / "lots.csv").write_text(
+        "LOT_ID,QTY,PARENT_LOT_ID,ORDER_NO,ORDER_NAME,LINE_CODE,LINE_NAME\n"
+        "L1,3,,W1,지시 1,A,라인 A\n"
+        "L2,4,L1,W1,지시 1,A,라인 A\n"
+        "L3,5,,W2,지시 2,B,라인 B\n",
+        encoding="utf-8",
+    )
+    spec = _spec(drop, adapter={"kind": "file", "location": str(drop / "lots.csv")})
+    spec["type_slug"] = "mes_lot"
+    spec["key"] = "LOT_ID"
+    got = client.post(
+        f"/api/relay/pipelines/{_slug()}/scaffold", json=spec, headers=_pat(client, admin)
+    ).json()
+    assert got["status"] == "drafted", got
+    recipe = got["recipe"]
+    made = {one["type_slug"]: (one["key"], one["label"]) for one in recipe["types"]}
+    assert made == {
+        "mes_lot": ("LOT_ID", "LOT_ID"),
+        "mes_order": ("ORDER_NO", "ORDER_NAME"),
+        "mes_line": ("LINE_CODE", "LINE_NAME"),
+    }
+    assert [(r["relation"], r["dst_column"]) for r in recipe["relations"]] == [
+        ("mes_split_from", "PARENT_LOT_ID")
+    ]
+    assert recipe["required_missing"] == []
+    rows = got["trial"]["recipe"]["rows"]
+    assert rows == {"mes_line": 2, "mes_order": 2, "mes_lot": 3}  # 같은 식별자는 하나로
+    assert any("타입 3개로 나눴다" in one for one in got["next"])
+
+    alone = client.post(
+        f"/api/relay/pipelines/{_slug()}/scaffold",
+        json={**spec, "split": False},
+        headers=_pat(client, admin),
+    ).json()
+    assert [one["type_slug"] for one in alone["recipe"].get("types", [])] in ([], ["mes_lot"])
+    assert "relations" not in alone["recipe"] or not alone["recipe"]["relations"]

@@ -7,8 +7,11 @@
 2. 탐색 — 칸 · 열 이름 제안과 단서(`hints` · `shape`)로 행 자리 · 쪽 넘김 · 식별자 · 변경
    시각 · 삭제 표시를 채운다. 준 값은 그대로 둔다. 식별자를 고를 수 없으면 후보를 돌려준다.
 3. 정의 판 초안 — 식별자가 여러 칸이면 계산 칸(`RELAY_KEY`)을 더한다.
-4. 대상 타입 — 있으면 칸 이름으로 잇는 레시피 첫 판(`relay_core.scaffold`), 없으면 SP 타입
-   정의 초안(`relay_core.typedraft` — SP 관리자에게 넘긴다)과 그 레시피.
+4. 대상 타입 — 있으면 칸 이름으로 잇는 레시피 첫 판(`relay_core.scaffold`). 대상의 정의를 따라
+   **한 행을 여러 타입 · 선으로 나눈다**(`split_recipe` — 같은 원천이 주인인 참조 타입은 열
+   묶음에서 객체로, 다른 파이프라인이 채우는 타입 · 주인이 다른 타입은 참조만). `split: false`
+   면 그 타입 하나. 없으면 SP 타입 정의 초안(`relay_core.typedraft` — SP 관리자에게 넘긴다)과
+   그 레시피.
 5. 레시피 판 초안 · 시험 — 대상에는 아무것도 보내지 않는다.
 
 **사용하지 않는다** — 판의 사용 · 계획의 적용은 사람이 화면에서 한다(ADR 0001 §2).
@@ -62,6 +65,18 @@ def _target(db: Session, given: dict[str, Any] | None, target_from: str) -> dict
         f"적으세요. 알려진 대상: {', '.join(sorted(choices))}",
         status=422,
     )
+
+
+def _taken(db: Session, slug: str, server: str) -> dict[str, str]:
+    """같은 대상에서 다른 파이프라인이 채우는 타입 → 그 파이프라인 — 한 타입은 한 길로만
+    채운다(ADR 0001). 거기는 객체를 만들지 않고 참조만 한다."""
+    out: dict[str, str] = {}
+    for one in services.catalog(db):
+        if one.slug == slug or one.draft or one.target_server != server:
+            continue
+        for type_slug in one.types:
+            out.setdefault(type_slug, one.slug)
+    return out
 
 
 def _trial_brief(trial: dict[str, Any]) -> dict[str, Any]:
@@ -196,15 +211,27 @@ def run(
 
     # 4. 대상 타입 → 레시피 첫 판(없으면 SP 타입 정의 초안).
     described = services.by_slug(slug, db)
-    schema, schema_note = services.target_schema(described, services.secrets_env(), db)
+    model, schema_note = services.target_model(described, services.secrets_env(), db)
+    schema = {one: info["properties"] for one, info in model["types"].items()}
     label_col = str(spec.get("label") or "") or engine.label_column(
         columns, hints.get("label") or []
     )
     ontology = None
     if type_slug in schema:
-        made = engine.first_recipe(
-            type_slug, columns, schema[type_slug], key_spec["column"], label_col
-        )
+        if spec.get("split", True):
+            made = engine.split_recipe(
+                type_slug,
+                columns,
+                model,
+                body["source"],
+                key_spec["column"],
+                label_col,
+                taken=_taken(db, slug, described.target_server),
+            )
+        else:
+            made = engine.first_recipe(
+                type_slug, columns, schema[type_slug], key_spec["column"], label_col
+            )
         recipe, mapping = made["recipe"], {k: v for k, v in made.items() if k != "recipe"}
         status = "drafted"
     else:
@@ -228,6 +255,19 @@ def run(
         next_steps.append(
             f"대상에 {type_slug} 타입이 없습니다 — ontology(SP 타입 정의 초안)를 SP 관리자"
             "에게 넘겨 등록을 부탁한다. 등록 뒤 레시피를 다시 시험한다."
+        )
+    split = [one for one in mapping.get("types") or [] if one.get("via") != "주 타입"]
+    if split:
+        made_types = ", ".join(f"{one['type_slug']}({one['key']})" for one in split)
+        next_steps.append(
+            f"한 행을 타입 {len(split) + 1}개로 나눴다 — 더 만든 것: {made_types}. 시험의 "
+            "recipe.rows 에서 타입마다 객체 수가 맞는지(같은 식별자는 하나로 합쳐진다), "
+            "값이 갈린 칸(미해결)이 없는지 본다. 나누지 않으려면 split: false 로 다시 부른다."
+        )
+    if mapping.get("relation_candidates"):
+        next_steps.append(
+            "relation_candidates(대상의 관계 종류 중 열을 하나로 고르지 못한 것)는 맞는 열이 "
+            "있으면 recipe 의 relations 에 적는다 — 없으면 두고 넘어간다."
         )
     if mapping.get("required_missing"):
         gaps = ", ".join(

@@ -405,8 +405,18 @@ def build_map(db: Session) -> RelayMap:
 def target_schema(
     found: Described, env: Mapping[str, str], db: Session | None = None
 ) -> tuple[dict[str, dict[str, Any]], str]:
-    """대상 SP 의 정의 — `{타입: {칸: 정의}}`. 못 읽으면 빈 것과 까닭. 초안이면 울타리
-    (`guard.check_target`)를 먼저 지난다 — 사람이 아직 안 본 주소 · 토큰이다."""
+    """대상 SP 의 정의 — `{타입: {칸: 정의}}`. 못 읽으면 빈 것과 까닭."""
+    model, note = target_model(found, env, db)
+    return {slug: one["properties"] for slug, one in model["types"].items()}, note
+
+
+def target_model(
+    found: Described, env: Mapping[str, str], db: Session | None = None
+) -> tuple[dict[str, Any], str]:
+    """대상 SP 의 정의 전부 — `{"types": {slug: {"label", "managed_by", "properties"}},
+    "relations": [관계 종류]}`. 못 읽으면 빈 것과 까닭. 초안이면 울타리(`guard.check_target`)를
+    먼저 지난다 — 사람이 아직 안 본 주소 · 토큰이다."""
+    empty: dict[str, Any] = {"types": {}, "relations": []}
     if found.draft:
         try:
             guard.check_target(
@@ -414,21 +424,26 @@ def target_schema(
                 guard.fence(catalog(db)),
             )
         except AppError as failure:
-            return {}, f"초안의 대상에는 묻지 않았습니다 — {failure.message}"
+            return empty, f"초안의 대상에는 묻지 않았습니다 — {failure.message}"
     token = env.get(found.target_token_env, "")
     if not token:
         return (
-            {},
+            empty,
             f"대상 토큰({found.target_token_env})을 읽지 못해 대상의 정의와 견주지 "
             "못했습니다.",
         )
     status_code, schema = probe_http(found.target_server, token, "/api/ontology/schema")
     if status_code != 200 or not isinstance(schema, dict):
-        return {}, f"대상의 정의를 못 읽었습니다({status_code or '닿지 않음'})."
-    out: dict[str, dict[str, Any]] = {}
+        return empty, f"대상의 정의를 못 읽었습니다({status_code or '닿지 않음'})."
+    types: dict[str, Any] = {}
     for one in schema.get("types") or []:
-        out[str(one.get("slug"))] = {str(p.get("key")): p for p in one.get("properties") or []}
-    return out, ""
+        types[str(one.get("slug"))] = {
+            "label": str(one.get("label") or ""),
+            "managed_by": str(one.get("managed_by") or ""),
+            "properties": {str(p.get("key")): p for p in one.get("properties") or []},
+        }
+    relations = [one for one in schema.get("relation_types") or [] if isinstance(one, dict)]
+    return {"types": types, "relations": relations}, ""
 
 
 def detail(db: Session, slug: str) -> PipelineDetail:

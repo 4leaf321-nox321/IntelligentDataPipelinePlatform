@@ -442,6 +442,7 @@ async def pipeline_scaffold(
     type_label: str = "",
     schedule: dict[str, Any] | None = None,
     note: str = "",
+    split: bool = True,
 ) -> Any:
     """**한 번에 초안** — 원천의 주소 · 인증(`adapter`, 비밀은 token_env 이름만 — 모양은 비워도
     된다) · 원천 이름(`source` — plm · mes) · 대상 타입(`type_slug`)만으로: 탐색 → 행 자리 ·
@@ -450,9 +451,14 @@ async def pipeline_scaffold(
     대상은 `target_from`(대상이 같은 파이프라인 slug) · `target` · 하나뿐인 대상 순.
     status: needs_secrets(사람에게 secrets_needed 를 화면에서 넣어 달라고 — 아무것도 저장하지
     않았다) · needs_key(candidates 중 식별자를 골라 key 로 다시) · discover_failed ·
-    drafted · type_missing. 결과의 chosen(고른 값과 까닭) · unmatched · references(참조 칸 —
-    match 로) · trial 을 읽고 recipe_draft_save · pipeline_draft_save 로 고친 뒤 `next` 를
-    따른다. 사용하지 않는다 — 사용은 사람이 화면에서."""
+    drafted · type_missing. **한 행을 여러 타입으로 나눈다**(`split`, 기본) — 대상의 정의를
+    따라, 같은 원천이 주인인 참조 타입(과제 · 프로젝트 …)은 열 묶음(`task.*` · `TASK_*`)에서
+    객체로 만들어 key_of 로 잇고, 관계 종류는 맞는 열이 하나면 선으로. recipe.types(타입마다
+    묶음 · 식별자 · 이름) · relations · relation_candidates · skipped(다른 파이프라인이 채워
+    참조만)를 본다. 결과의 chosen(고른 값과 까닭) · required_missing(꼭 받는데 빈 칸 —
+    먼저) · unmatched · references(참조 칸 — match 로) · trial 을 읽고 recipe_draft_save ·
+    pipeline_draft_save 로 고친 뒤 `next` 를 따른다. 사용하지 않는다 — 사용은 사람이
+    화면에서."""
     body: dict[str, Any] = {
         "adapter": json.loads(adapter) if isinstance(adapter, str) else adapter,
         "source": source,
@@ -466,6 +472,7 @@ async def pipeline_scaffold(
         "type_label": type_label,
         "schedule": schedule,
         "note": note,
+        "split": split,
     }
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/scaffold", body=body)
 

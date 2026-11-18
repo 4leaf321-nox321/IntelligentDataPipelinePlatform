@@ -9365,6 +9365,11 @@
             "maxLength": 200,
             "title": "Note",
             "default": ""
+          },
+          "split": {
+            "type": "boolean",
+            "title": "Split",
+            "default": true
           }
         },
         "type": "object",

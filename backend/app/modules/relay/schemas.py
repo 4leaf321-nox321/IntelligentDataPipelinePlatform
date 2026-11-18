@@ -332,6 +332,9 @@ class ScaffoldIn(BaseModel):
     system: str = Field("", max_length=80)
     schedule: dict[str, Any] | None = None
     note: str = Field("", max_length=200)
+    split: bool = True
+    """대상의 정의를 따라 한 행을 여러 타입 · 선으로 나눈다(같은 원천이 주인인 참조 타입) —
+    false 면 `type_slug` 하나만."""
 
 
 class SecretUse(BaseModel):
