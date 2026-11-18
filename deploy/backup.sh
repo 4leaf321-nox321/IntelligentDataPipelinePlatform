@@ -186,7 +186,7 @@ install -m 600 "$ENV_FILE" "$BACKUP_ROOT/env/.env"
 # (tar)에 넣지 않는다** — 묶음은 세대마다 쌓이고 권한이 600 이 아니다. .env 처럼 마지막 것
 # 하나를 600 으로 둔다. 서버에서 지운 것은 여기서도 지운다 — 남기면 복구가 지운 토큰을 되살린다.
 SECRET_FILES=0
-for name in secrets.json secrets.meta.json secrets.wanted.json; do
+for name in secrets.json secrets.meta.json secrets.wanted.json allowed-hosts.json; do
     if [[ -f "$RELAY_DIR/$name" ]]; then
         install -m 600 "$RELAY_DIR/$name" "$BACKUP_ROOT/env/$name"
         SECRET_FILES=$((SECRET_FILES + 1))

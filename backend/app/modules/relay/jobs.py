@@ -9,7 +9,9 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Any
+from urllib.parse import quote
 
 from app.config import get_settings
 from app.modules.jobs import kinds
@@ -46,7 +48,22 @@ def _load(work: kinds.Work) -> tuple[Described, Pipeline, Workdir]:
         cert_root=get_settings().relay_cert_path,
         inbox=get_settings().relay_work_dir / slug / "inbox",
     )
+    pipeline = replace(pipeline, origin=origin_base(pipeline.slug))
     return found, pipeline, Workdir(get_settings().relay_work_dir, pipeline.slug)
+
+
+def origin_base(slug: str) -> dict[str, str]:
+    """묶음에 실을 원천 기록의 바탕 — 이 설치의 이름과 화면 주소(SP ADR 0087). 엔진이
+    실행 번호를 더한다(`runner.origin_for`). `trace` 는 파이프라인 상세의 「거꾸로 보기」 를
+    그 객체로 연다 — SP 가 `{type}` · `{key}` 를 채운다."""
+    settings = get_settings()
+    out = {"system": settings.app_slug}
+    public = settings.public_url.strip().rstrip("/")
+    if public:
+        page = f"{public}/relay/pipelines/{quote(slug, safe='')}"
+        out["url"] = page
+        out["trace"] = f"{page}?trace_type={{type}}&trace_key={{key}}"
+    return out
 
 
 def _tidy(folder: Workdir) -> int:

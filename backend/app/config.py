@@ -77,6 +77,12 @@ class Settings(BaseSettings):
     앱은 여전히 `/api` · `/assets` 로 받지만, 화면이 부를 주소 · 리프레시 쿠키의 path ·
     문서(`/api/docs`)의 주소는 접두어를 알아야 한다 — `index.html` 에 심어 준다(main.py).
     앞뒤 슬래시는 정리한다: `plm/` → `/plm`."""
+    public_url: str = ""
+    """바깥에서 **이 설치의 화면을 여는 주소**(`https://relay.example/datarelay` —
+    접두어까지, 끝의 `/` 없이). 대상 SP 의 객체 이력이 이 설치의 실행 · 「거꾸로 보기」 로
+    링크할 때 쓴다(묶음의 `origin` — SP ADR 0087). 작업 워커는 요청이 없어 브라우저가 보는
+    주소를 모른다 — 그래서 적는다. 비우면 링크 없이 이 설치 · 파이프라인 · 실행 번호만
+    싣는다."""
     mcp_public_url: str = ""
     """화면이 사람에게 보여 줄 **MCP 주소** — 비우면 화면이 짐작한다.
 
@@ -227,9 +233,15 @@ class Settings(BaseSettings):
     다 지움으로 보인다). 0 이면 끝까지."""
     relay_source_hosts: str = ""
     """AI(MCP)의 **탐색 · 정의 초안 시험**이 부를 수 있는 주소(`host` 또는 `host:port`, 쉼표로
-    여럿) — 원천과 대상 둘 다. **켜진 정의가 쓰는 주소는 적지 않아도 된다**(사람이 켠 것).
-    비우면 운영은 켜진 정의의 주소만, 그 밖은 `127.0.0.1` · `localhost` 도. 비밀(`token_env`)이
-    엉뚱한 곳으로 나가지 않게 하는 울타리다."""
+    여럿) — 원천과 대상 둘 다(예전부터의 뜻 — 대상만이면 `RELAY_TARGET_HOSTS`). **켜진 정의가
+    쓰는 주소는 적지 않아도 된다**(사람이 켠 것). 비우면 운영은 켜진 정의의 주소만, 그 밖은
+    `127.0.0.1` · `localhost` 도. 비밀(`token_env`)이 엉뚱한 곳으로 나가지 않게 하는 울타리다.
+    재시작 없이 더하려면 화면 › 중계 › 허용 주소(`relay/allow.py`)."""
+    relay_target_hosts: str = ""
+    """**대상 SP 로만** 쓸 수 있는 주소(`host` · `host:port`, 쉼표) — 정의 초안의 시험 · 한
+    번에 초안이 대상의 정의를 읽고 대조한다. 여기 적은 주소는 원천 주소로는 안 된다(원천의
+    비밀이 대상 쪽으로 나가지 않게). 켜진 정의의 대상은 적지 않아도 된다. 재시작 없이는 화면 ›
+    중계 › 허용 주소의 「대상 SP」."""
 
     relay_reconcile_days: int = 7
     """**대상과의 대조**(`relay_core.reconcile`)를 며칠마다 하나 — 타이머가 적용한 것이 있는
@@ -281,6 +293,12 @@ class Settings(BaseSettings):
         if self.app_env == "production":
             return ((self.relay_pipelines_dir.parent / "drop").resolve(),)
         return ((REPO_DIR / "devtools").resolve(),)
+
+    @property
+    def relay_target_host_list(self) -> tuple[str, ...]:
+        return tuple(
+            one.strip().lower() for one in self.relay_target_hosts.split(",") if one.strip()
+        )
 
     @property
     def relay_source_host_list(self) -> tuple[str, ...]:

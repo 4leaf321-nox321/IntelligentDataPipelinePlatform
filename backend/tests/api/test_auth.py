@@ -120,6 +120,8 @@ def test_처리_못한_오류에도_요청id_가_실린다() -> None:
     assert error["code"].endswith("COMMON-0500")
     assert error["request_id"] not in ("", "-")
     assert response.headers["X-Request-ID"] == error["request_id"]
+    # 글에도 그 ID — 본문의 칸을 안 보이는 도구(MCP · 명령 창)에서도 신고할 수 있게.
+    assert error["request_id"] in error["message"]
     # 로그의 그 줄에도 같은 ID — 신고받은 ID 로 스택 트레이스를 찾는다.
     assert logged == [error["request_id"]]
 

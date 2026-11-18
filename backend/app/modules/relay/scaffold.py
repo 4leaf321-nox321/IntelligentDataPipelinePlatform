@@ -67,6 +67,25 @@ def _target(db: Session, given: dict[str, Any] | None, target_from: str) -> dict
     )
 
 
+def _from_columns(columns: dict[str, str]) -> dict[str, Any]:
+    """칸 목록만 있을 때의 탐색 결과 — 이름으로만 단서를 고른다(값이 없어 「모두 다름」 은 못
+    본다)."""
+    from relay_core.adapters.explore import field_hints
+
+    paths = [{"path": path, "sample": ""} for path in columns.values()]
+    hints = field_hints([dict.fromkeys(columns.values(), "x")])
+    # 값이 하나뿐이라 「모두 다름」 이 아니다 — 이름이 식별자 꼴인 자리만 후보로.
+    ends = ("id", "code", "key", "no", "cd")
+    hints["key"] = [
+        path for path in columns.values() if path.lower().rsplit(".", 1)[-1].endswith(ends)
+    ]
+    return {
+        "ok": True,
+        "probe": f"칸 목록 {len(columns)}개 — 원천에서 받지 않았습니다",
+        "found": {"columns": columns, "paths": paths, "hints": hints},
+    }
+
+
 def _taken(db: Session, slug: str, server: str) -> dict[str, str]:
     """같은 대상에서 다른 파이프라인이 채우는 타입 → 그 파이프라인 — 한 타입은 한 길로만
     채운다(ADR 0001). 거기는 객체를 만들지 않고 참조만 한다."""
@@ -137,10 +156,23 @@ def run(
             ],
         }
 
-    # 2. 탐색 — 단서로 모양을 채운다(준 값은 그대로).
-    found = definitions.discover(db, adapter)
+    # 2. 탐색 — 단서로 모양을 채운다(준 값은 그대로). 견본 행이 있으면 원천에 닿지 않고
+    #    그것으로, 보내 주는 원천(push)은 받을 함(없으면 시험 수신함) · 견본 행 · 칸 목록
+    #    (`columns`)으로.
+    sample_rows = spec.get("sample_rows")
+    if sample_rows is None and kind == "push" and spec.get("columns"):
+        found = _from_columns(dict(spec["columns"]))
+    else:
+        found = definitions.discover(db, adapter, slug=slug, sample_rows=sample_rows)
     if not found.get("ok"):
-        return {"status": "discover_failed", "error": found.get("error"), "discover": found}
+        out = {"status": "discover_failed", "error": found.get("error"), "discover": found}
+        if kind == "push":
+            out["next"] = [
+                "보내 주는 원천은 받은 것이 없어 탐색할 수 없다 — 원천 담당에게 받은 보낼 "
+                "모양(예시 JSON)을 sample_rows 로, 또는 칸 목록을 columns({열: 자리})로 주고 "
+                "다시 부른다. 원천이 시험으로 보내게 하려면 받는 자리에 ?trial=1.",
+            ]
+        return out
     seen = found.get("found") or {}
     hints = seen.get("hints") or {}
     shape = seen.get("shape") or {}
@@ -171,6 +203,10 @@ def run(
         if paging.get("next_path") and "next_path" not in adapter:
             chosen["next_path"] = (paging["next_path"], "다음 쪽 값의 자리")
     columns = dict(spec.get("columns") or seen.get("columns") or {})
+    if sample_rows is not None and not columns:
+        raise AppError(
+            code("RELAY", 38), "견본 행에서 열을 고르지 못했습니다(객체가 없음).", status=422
+        )
     key = spec.get("key") or adapter.get("key") or (hints.get("key") or [None])[0]
     if not key:
         return {
@@ -248,13 +284,17 @@ def run(
         status = "type_missing"
     rrow, recipe_problems = recipes.save_draft(db, user, request, described, recipe, note)
 
-    # 5. 시험 — 보내지 않는다.
-    trial = definitions.trial(db, slug, row.version, recipe_version=rrow.version)
+    # 5. 시험 — 보내지 않는다(견본 행이면 그것으로).
+    trial = definitions.trial(
+        db, slug, row.version, recipe_version=rrow.version, sample_rows=sample_rows
+    )
     next_steps = []
     if status == "type_missing":
         next_steps.append(
-            f"대상에 {type_slug} 타입이 없습니다 — ontology(SP 타입 정의 초안)를 SP 관리자"
-            "에게 넘겨 등록을 부탁한다. 등록 뒤 레시피를 다시 시험한다."
+            f"대상에 {type_slug} 타입이 없습니다 — ontology(SP 타입 정의 초안)를 읽고 고칠 "
+            f"것을 고친 뒤 type_plan(slug, ontology) 로 대상에 타입 계획을 올린다(원천 "
+            f"{body['source']} 로 잠긴다). 사람에게 대상 SP 화면 › 작업 에서 「적용」 을 "
+            "부탁하고, 적용 뒤 레시피를 다시 시험한다."
         )
     split = [one for one in mapping.get("types") or [] if one.get("via") != "주 타입"]
     if split:

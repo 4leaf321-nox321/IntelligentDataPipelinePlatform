@@ -146,10 +146,12 @@ class FakeSubmitter:
 
     def __init__(self) -> None:
         self.previews: list[Path] = []
+        self.origins: list[dict[str, str] | None] = []
         self.applied_jobs: set[str] = set()
 
-    def preview(self, run: Path) -> Plan:
+    def preview(self, run: Path, *, origin: dict[str, str] | None = None) -> Plan:
         self.previews.append(run)
+        self.origins.append(origin)
         job = f"job-{len(self.previews)}"
         return Plan(
             job_id=job,

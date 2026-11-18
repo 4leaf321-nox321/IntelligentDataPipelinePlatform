@@ -155,7 +155,7 @@ fi
 # 복구한 파이프라인이 원천 · 대상에 닿지 못한다(화면 › 중계 › 비밀 에 「비어 있음」).
 restore_secrets() {
     local name restored=0
-    for name in secrets.json secrets.meta.json secrets.wanted.json; do
+    for name in secrets.json secrets.meta.json secrets.wanted.json allowed-hosts.json; do
         if [[ -f "$BACKUP_ROOT/env/$name" ]]; then
             install -m 600 "$BACKUP_ROOT/env/$name" "$RELAY_DIR/$name"
             restored=$((restored + 1))

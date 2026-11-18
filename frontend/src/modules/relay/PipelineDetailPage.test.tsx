@@ -188,10 +188,10 @@ const TRIAL: RecipeTrial = {
   report: '타입 plm_task: 9행',
 }
 
-async function mount() {
+async function mount(entry = '/relay/pipelines/plm-tasks') {
   const { default: PipelineDetailPage } = await import('@/modules/relay/PipelineDetailPage')
   render(
-    <MemoryRouter initialEntries={['/relay/pipelines/plm-tasks']}>
+    <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/relay/pipelines" element={<p>파이프라인 목록</p>} />
         <Route path="/relay/pipelines/:slug" element={<PipelineDetailPage />} />
@@ -1130,6 +1130,13 @@ describe('파이프라인 상세 · 값의 출처', () => {
     expect(box.getByText(/기준 실행의 원천 표 · 2행 · 변환기: 2행에서 모음/)).toBeInTheDocument()
     expect(box.getByText('M-0001')).toBeInTheDocument()
     expect(box.queryByText(/지금 기준을 적용하기 전의 대조입니다/)).not.toBeInTheDocument()
+  })
+
+  it('주소의 trace_type · trace_key 로 바로 그 값의 출처를 조회한다 — SP 이력의 「원천에서 추적」', async () => {
+    await mount('/relay/pipelines/plm-tasks?trace_type=plm_task&trace_key=T200')
+    await waitFor(() => expect(relayApi.trace).toHaveBeenCalledWith('plm-tasks', 'plm_task', 'T200'))
+    expect(within(area()).getByLabelText('식별자')).toHaveValue('T200')
+    expect(await screen.findByTestId('value-trace-result')).toBeInTheDocument()
   })
 
   it('지금 기준보다 앞선 대조는 그렇다고 말한다', async () => {

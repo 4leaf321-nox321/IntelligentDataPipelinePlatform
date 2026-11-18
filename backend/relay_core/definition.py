@@ -87,6 +87,11 @@ class Pipeline:
     """받기 점검(`relay_core.intake`) — 정의의 `intake`. None 이면 점검하지 않는다."""
     computed: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
     """계산 칸(`relay_core.compute`) — 변환할 때 미러 전체에 얹는다."""
+    origin: Mapping[str, str] = field(default_factory=dict)
+    """대상 SP 에 실을 **원천 기록의 바탕** — `{system, url, trace}`(SP ADR 0087). 엔진은
+    웹 · 설정을 모르므로 부르는 쪽(작업 워커 — `app/modules/relay/jobs.py`)이 이 설치의
+    이름 · 화면 주소로 채운다. 엔진이 파이프라인 이름 · 실행 번호를 더해 묶음의 `origin`
+    으로 보낸다(`runner.origin_for`). 비면 싣지 않는다(CLI)."""
 
 
 def _secret(spec: dict[str, Any], where: str, env: Mapping[str, str]) -> str:

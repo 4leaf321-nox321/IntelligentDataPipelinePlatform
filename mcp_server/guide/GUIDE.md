@@ -30,6 +30,8 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
 | 미해결로 멈춘 실행 — relay 사전 · 모으는 칸 초안 | `pipeline_unresolved` · `pipeline_unresolved_draft` · `alias_requests` |
 | 대상에 타입이 없다 | `type_draft`(`get_guide('types')`) |
 | 받는 양이 갑자기 줄었나 · 실패가 잇따르나 | `pipeline_trend` |
+| 대상에 타입이 없다 — 대상에 타입 계획 올리기 | `type_plan`(적용은 사람이 대상 SP 화면에서) |
+| 403 「호출할 수 있는 주소가 아닙니다」(RELAY-0010) | `allowed_hosts` 를 보고 사람에게 화면 › 중계 › 허용 주소 에 더해 달라고(원천 · 대상 SP 따로 — 재시작 없음) |
 
 레시피를 작성할 때의 차례:
 
@@ -144,7 +146,7 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
    | Parquet 파일 | `file` | `location` 이 `*.parquet` · `*.pq`(또는 `"format": "parquet"`). 구조체 칸은 점 자리(`"WEIGHT": "spec.weight"`), 목록은 `explode`. 십진수는 글 그대로 · 시각은 ISO 로 온다 |
    | Kafka 토픽(원천이 변경을 메시지로 낸다) | `kafka` | `bootstrap`(브로커들 `host:port,…`) · `topic` · `group_id`(`datarelay-<slug>` — 파이프라인마다 따로, 남의 그룹을 쓰지 않는다) · `format`(`json` · `avro` · `text`) · `rows_path`(메시지 안의 목록) · `deleted` · `start`(처음 읽을 때 `earliest` · `latest`) · `tls` · `auth`(아래) · `schema_registry` |
    | XML · SOAP | `xml` | `url` · `rows_xpath` · `namespaces` · `envelope`(SOAP, `{since}` 자리) · `soap_action` |
-   | 원천이 **보내 준다**(webhook · 일괄 전송 — 가져갈 API 가 없다) | `push` | `key` · `columns` · `deleted` · `auth: {"kind": "bearer", "token_env": …}`. 원천이 `POST /api/relay/inbound/<slug>` 에 머리글 `X-Relay-Token` 으로 JSON 목록(또는 **Parquet 파일 하나** — 본문 그대로)을 보낸다 — **사용 중인 정의만** 받으므로 처음에는 탐색할 것이 없다. 원천 담당에게 받은 보낼 모양(예시 JSON)으로 `columns` 를 적는다. 지운 것은 삭제 표시로 보내야 한다 |
+   | 원천이 **보내 준다**(webhook · 일괄 전송 — 가져갈 API 가 없다) | `push` | `key` · `columns` · `deleted` · `auth: {"kind": "bearer", "token_env": …}`. 원천이 `POST /api/relay/inbound/<slug>` 에 머리글 `X-Relay-Token` 으로 JSON 목록(또는 **Parquet 파일 하나** — 본문 그대로)을 보낸다 — **사용 중인 정의만** 받는다. 사용하기 전에는: 원천 담당에게 받은 보낼 모양(예시 JSON)을 **`sample_rows`** 로 주어 `pipeline_scaffold` · `pipeline_test` · `recipe_test` 를 끝까지 돌리거나(칸 목록만 있으면 `columns`), 원천이 받는 자리에 **`?trial=1`** 로 한 번 보내게 한다(가장 늦은 초안 판의 비밀로 받아 **시험 수신함**에 — 실행은 읽지 않고 시험 · 탐색만 읽는다). 지운 것은 삭제 표시로 보내야 한다 |
 
    **원천 시스템의 DB 에 바로 붙는 종류는 없다** — 원천은 API · 파일 · 공유 폴더 · Kafka 토픽(구독만)으로 받는다. API 가 없다면
    원천 시스템 담당에게 API(또는 내보낸 파일)를 부탁하라고 사람에게 전한다.
@@ -252,18 +254,20 @@ AI 의 자리는 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipe
 
 ## types
 
-**대상 SP 에 레시피가 만들 타입이 없을 때**(`pipeline_test` 의 `target.types_missing`). datarelay 는 타입을 만들지
-않는다 — 타입은 **대상 SP 의 정의**이고 그 SP 의 MCP(또는 화면)로 들인다.
+**대상 SP 에 레시피가 만들 타입이 없을 때**(`pipeline_test` 의 `target.types_missing`). 타입은 **대상 SP 의 정의**다 —
+datarelay 는 그 정의를 **대상에 계획으로 올리기**까지 하고(`type_plan`), 적용은 사람이 대상 SP 화면에서 한다.
 
 0. 정의 초안을 짓는다 — `pipeline_scaffold` 의 `status: type_missing` 이면 `ontology` 에 이미 있다. 따로는
    `type_draft(type_slug, key_column, columns={열: [보기 값…]}, label?, label_column?, system?)` — 원천 표본으로
    칸 · 자료형(날짜 · 수 · 참 거짓)을 고른 SP 타입 정의 초안과 그 레시피 첫 판. 저장 · 전송하지 않는다.
 1. 무엇이 있는지 먼저 본다 — 대상 SP MCP 의 `ontology_schema`. 비슷한 타입이 있으면 새로 만들지 않고 그것을
    쓴다. 기준정보(조직 · 공통 코드 …)는 **대표 플랫폼이 뿌린다** — 만들지 않고 참조만 한다.
-2. 정의를 지어 **`source` 를 단 묶음으로** 미리 본다 — 대상 SP MCP 의 `bundle_import({"source": "mes",
-   "ontology": {...}})`. 계획만 나온다. `source` 를 달아야 그 타입이 `managed_by=mes` 로 **잠긴다**(SP 화면에서
-   사람이 못 고친다 — 정본은 원천). `ontology_import` 로 넣으면 잠기지 않는다.
-3. 계획을 사람에게 보이고 **적용은 사람이**(대상 SP 의 「작업」 화면). 그다음 `pipeline_test` 를 다시 부른다.
+2. 정의를 고쳐 **`type_plan(slug, ontology)`** — 그 파이프라인의 대상(주소 · 토큰)에 **원천 이름(`source`)을 단
+   묶음**의 미리 보기 계획으로 올린다(대상 SP 의 MCP 를 따로 붙이지 않는다). `source` 가 붙어 그 타입이 그 원천의 것으로
+   **잠긴다**(SP 화면에서 사람이 못 고친다 — 정본은 원천). 대상 토큰에 `ontology:write` 범위가 없으면 거절된다 — 그 말을
+   사람에게 전한다(SP 관리자가 범위를 더하거나 정의를 넘겨받는다).
+3. 결과의 `link`(대상 SP 화면 「작업」 의 그 계획)를 사람에게 건네 **적용을 부탁한다**. 적용되면 `pipeline_test` 를
+   다시 불러 `types_missing` 이 비었나 본다.
 
 ## recipe
 

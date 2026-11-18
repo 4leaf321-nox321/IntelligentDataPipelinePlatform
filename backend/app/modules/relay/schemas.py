@@ -335,6 +335,38 @@ class ScaffoldIn(BaseModel):
     split: bool = True
     """대상의 정의를 따라 한 행을 여러 타입 · 선으로 나눈다(같은 원천이 주인인 참조 타입) —
     false 면 `type_slug` 하나만."""
+    sample_rows: list[dict[str, Any]] | None = Field(default=None, max_length=1000)
+    """견본 행 — 원천을 탐색하지 않고 이것으로 칸 · 열 · 단서를 고르고 시험한다. 보내 주는
+    원천(push)은 받은 것이 없으니 이것(또는 `columns`)으로 초안을 짓는다."""
+
+
+class TypePlanIn(BaseModel):
+    ontology: dict[str, Any]
+    """SP 타입 정의 초안 — `type_draft` · 한 번에 초안(`type_missing`)의 `ontology` 그대로."""
+    note: str = Field("", max_length=200)
+
+
+class AllowedList(BaseModel):
+    settings: list[str] = []
+    """서버 설정(`.env`)의 것 — 화면에서 못 바꾼다."""
+    screen: list[str] = []
+    """화면에서 더한 것 — 재시작 없이 바꾼다."""
+    definitions: list[str] = []
+    """사용 중인 정의가 쓰는 것 — 저절로 허용된다."""
+
+
+class AllowedHostsOut(BaseModel):
+    """허용 주소 — 원천 · 대상 SP 를 따로. 대상 주소는 원천 주소로 못 쓴다."""
+
+    source: AllowedList
+    target: AllowedList
+    updated_at: str | None = None
+    updated_by: str | None = None
+
+
+class AllowedHostsIn(BaseModel):
+    source: list[str] = Field(default_factory=list, max_length=200)
+    target: list[str] = Field(default_factory=list, max_length=200)
 
 
 class SecretUse(BaseModel):
@@ -371,6 +403,14 @@ class DefinitionTestIn(BaseModel):
     """이 레시피 판으로 바꿔 본다 — 비우면 켜진 레시피 판, 없으면 같은 slug 의 정의 파일 것."""
     limit: int = Field(default=10, ge=0, le=50)
     """돌려줄 표본 줄 수."""
+    sample_rows: list[dict[str, Any]] | None = Field(default=None, max_length=1000)
+    """견본 행 — 원천에서 받지 않고 이것으로 시험한다(원천이 보내거나 돌려주는 항목의 모양).
+    보내 주는 원천을 사용하기 전에 끝까지 시험할 때."""
+
+
+class RecipeTestIn(BaseModel):
+    sample_rows: list[dict[str, Any]] | None = Field(default=None, max_length=1000)
+    """견본 행 — 미러 대신 이것을 정의의 식별자 · 열로 펴서 바꿔 본다."""
 
 
 # --- 거꾸로 보기 — 값의 출처(`relay_core.trace`) -----------------------------------------

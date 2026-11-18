@@ -41,6 +41,9 @@ export type SuggestOut = Schemas['SuggestOut']
 /** 비밀 — 이름 · 상태(입력됨 · 서버 설정 · 비어 있음) · 쓰는 곳. **값은 오지 않는다.** */
 export type SecretOut = Schemas['SecretOut']
 export type SecretUse = Schemas['SecretUse']
+/** 허용 주소 — 원천 · 대상 SP 마다 서버 설정 · 화면에서 더한 것 · 사용 중인 정의의 것. */
+export type AllowedHostsOut = Schemas['AllowedHostsOut']
+export type AllowedList = Schemas['AllowedList']
 export type AliasEntry = Schemas['EntryIn']
 /** 값이 갈리는 칸 — 객체마다 같은 칸이 갈리면 모으는 칸(join · collect)으로 바꿀 후보. */
 export type InboxSplitField = Schemas['SplitFieldOut']
@@ -621,6 +624,11 @@ export const relayApi = {
   /** 넣기 · 바꾸기 — **화면의 사람만**(서버가 토큰을 거절한다). 값은 다시 보이지 않는다. */
   putSecret: (name: string, value: string) =>
     api.put<{ name: string; status: string }>(`/relay/secrets/${encodeURIComponent(name)}`, { value }),
+  /** AI 의 탐색 · 시험이 닿아도 되는 주소. */
+  allowedHosts: () => api.get<AllowedHostsOut>('/relay/allowed-hosts'),
+  /** 화면에서 더한 주소를 통째로 바꾼다 — **사람만**(토큰 거절), 재시작 없이. */
+  putAllowedHosts: (source: string[], target: string[]) =>
+    api.put<AllowedHostsOut>('/relay/allowed-hosts', { source, target }),
   /** 화면에서 넣은 값을 지운다 — 서버 설정(.env)의 값은 그대로다. */
   deleteSecret: (name: string) =>
     api.delete<{ name: string; status: string }>(`/relay/secrets/${encodeURIComponent(name)}`),

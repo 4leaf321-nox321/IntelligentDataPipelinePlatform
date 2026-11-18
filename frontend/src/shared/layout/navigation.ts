@@ -25,6 +25,7 @@ import {
   ScrollText,
   Server,
   ServerCog,
+  ShieldCheck,
   UserCog,
   Users,
   Workflow,
@@ -143,6 +144,15 @@ export const NAV_GROUPS: NavGroup[] = [
       {
         // **사람이 넣는 것은 이것뿐이다.** 정의(AI 가 짓는다)에는 비밀의 이름만 있고, 값은
         // 여기서 넣는다 — 대화(MCP)로 받지 않는다.
+        label: '허용 주소',
+        icon: ShieldCheck,
+        to: '/relay/allowed-hosts',
+        audience: 'system_admin',
+        summary:
+          'AI 의 탐색 · 시험이 닿아도 되는 원천 · 대상 SP 주소 — 서버 설정 · 화면에서 더한 것 · ' +
+          '사용 중인 정의의 것. 재시작 없이 더하고 뺍니다.',
+      },
+      {
         label: '비밀',
         icon: KeyRound,
         to: '/relay/secrets',

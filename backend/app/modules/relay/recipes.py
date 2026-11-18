@@ -32,6 +32,7 @@ from relay_core.compute import check as check_computed
 from relay_core.convert import Source, convert
 from relay_core.describe import Described, lineage
 from relay_core.diff import delta
+from relay_core.mirror import Mirror
 from relay_core.runner import counts_of
 from relay_core.state import MirrorFile, Workdir
 
@@ -235,6 +236,14 @@ def materialize(db: Session, slug: str) -> Path | None:
     return path
 
 
+#: 받은 행이 없을 때의 안내 — 보내 주는 원천(push)은 사용하기 전에는 늘 이렇다.
+EMPTY_NOTE = (
+    "받은 행이 없어 레시피로 바꿔 보지 않았습니다 — 견본 행(sample_rows)을 주고 다시 "
+    "시험하거나, 보내 주는 원천이면 원천 담당에게 시험으로 한 번 보내 달라고 한 뒤(받는 "
+    "자리에 ?trial=1) 다시 시험하세요."
+)
+
+
 def dry_run(
     mirror: Source,
     body: dict[str, Any],
@@ -251,6 +260,9 @@ def dry_run(
     refs = file_refs(body)
     if refs:
         return {"clean": False, "error": f"서버의 파일을 가리키는 칸: {', '.join(refs[:5])}"}
+    if len(mirror) == 0:
+        # 바꿔 볼 행이 없다 — 변환기는 빈 표를 오류로 던진다(500 이 됐다, 2026-11-18).
+        return {"clean": None, "rows": {}, "unresolved_count": 0, "note": EMPTY_NOTE}
     server, token = target
     state = work.load_state()
     with tempfile.TemporaryDirectory(dir=work.root) as scratch:
@@ -299,11 +311,28 @@ def dry_run(
         return out
 
 
-def trial(db: Session, found: Described, version: int) -> dict[str, Any]:
-    """미러에 그 판을 돌려 본다 — **대상에 아무것도 안 보낸다.**"""
+def trial(
+    db: Session, found: Described, version: int, sample_rows: list[Any] | None = None
+) -> dict[str, Any]:
+    """미러에 그 판을 돌려 본다 — **대상에 아무것도 안 보낸다.** `sample_rows` 면 미러 대신
+    그 견본 행으로(정의의 식별자 · 열로 편다 — 받은 것이 아직 없을 때)."""
+    from relay_core.adapters.base import Fetched
+
     row = get(db, found.slug, version)
     work = Workdir(get_settings().relay_work_dir, found.slug)
-    mirror = MirrorFile(work, work.mirror_size())  # 파일에서 흘려 쓴다 — 메모리에 들지 않는다
+    mirror: Source = MirrorFile(work, work.mirror_size())  # 파일에서 흘려 쓴다
+    if sample_rows is not None:
+        from app.modules.relay.definitions import sample_records
+
+        sampled = Mirror()
+        sampled.apply(
+            Fetched(
+                records=sample_records(dict(found.body.get("adapter") or {}), sample_rows),
+                complete=True,
+                full=False,
+            )
+        )
+        mirror = sampled
     if len(mirror) == 0:
         hint = (
             "정의가 아직 초안이라 받은 것이 없습니다 — 정의 시험(pipeline_test)에 "
@@ -329,10 +358,14 @@ def trial(db: Session, found: Described, version: int) -> dict[str, Any]:
             row.body,
             work,
             found.source,
+            # 견본 행은 원천의 전부가 아니다 — 견주면 나머지가 다 지움으로 보인다.
+            compare=sample_rows is None,
             target=(found.target_server, token),
             computed=dict(found.body.get("computed") or {}),
         )
     )
+    if sample_rows is not None:
+        out["sample_rows"] = True
     return out
 
 

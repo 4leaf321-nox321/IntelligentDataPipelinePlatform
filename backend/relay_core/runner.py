@@ -123,10 +123,30 @@ def fold(work: Workdir, state: State) -> None:
 MB = 1024 * 1024
 
 
-def propose(submit: Submitter, send: Path, target: Target) -> tuple[Plan, parts.Split]:
+def origin_for(pipeline: Pipeline, send: Path | str) -> dict[str, str] | None:
+    """묶음에 실을 **원천 기록** — 이 설치 · 파이프라인 · 실행 번호(보내는 폴더의 이름 —
+    `sends/<때>`, 보정 계획이면 `sends/<때>-resync`)와 화면 주소(SP ADR 0087).
+
+    대상 SP 가 묶음 판과 그 판이 넣은 객체의 이력에 남기고, 이력이 `trace` 로 이 설치의
+    「거꾸로 보기」 에 링크한다 — 예전에는 SP 이력에 「시스템 관리자 · 일괄 가져오기」 만
+    남아 어느 원천의 어느 실행에서 왔는지 여기서만 볼 수 있었다. 나눠 보낸 조각도 같은 실행
+    번호를 싣는다."""
+    base = dict(pipeline.origin or {})
+    if not base.get("system"):
+        return None
+    return {**base, "pipeline": pipeline.slug, "run": Path(str(send)).name}
+
+
+def propose(
+    submit: Submitter,
+    send: Path,
+    target: Target,
+    *,
+    origin: dict[str, str] | None = None,
+) -> tuple[Plan, parts.Split]:
     """보낼 묶음을 대상에 올린다 — 조각 상한을 넘으면 나눠 **첫 조각만** 미리 본다."""
     cut = parts.split(send, target.part_mb * MB)
-    plan = submit.preview(cut.parts[0] if cut.parts else send)
+    plan = submit.preview(cut.parts[0] if cut.parts else send, origin=origin)
     return plan, cut
 
 
@@ -399,7 +419,9 @@ def _run(
         )
 
     sheet["stage"] = "미리 보기"
-    plan, cut = propose(submit, found.run, pipeline.target)
+    plan, cut = propose(
+        submit, found.run, pipeline.target, origin=origin_for(pipeline, found.run)
+    )
     state.pending = pending_of(
         plan,
         cut,
@@ -454,7 +476,10 @@ def apply(
             progress(number, total)
         if not pending.job_id or not pending.ok:
             # 이 조각은 아직 미리 보지 않았다(또는 오류였다) — 앞 조각이 들어간 지금 본다.
-            plan = submit.preview(work.path(pending.parts[pending.part]))
+            plan = submit.preview(
+                work.path(pending.parts[pending.part]),
+                origin=origin_for(pipeline, pending.send),
+            )
             pending.job_id, pending.ok, pending.at = plan.job_id, plan.ok, _now()
             pending.summary = f"조각 {number}/{total}: {plan.summary}"
             if not plan.ok:

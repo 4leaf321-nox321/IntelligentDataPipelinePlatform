@@ -20,7 +20,7 @@
  */
 
 import { lazy, Suspense, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 
 import { relayApi } from '@/modules/relay/api'
 import type { PipelineDetail } from '@/modules/relay/api'
@@ -84,7 +84,14 @@ export default function PipelineDetailPage() {
   const admin = isSystemAdmin(user)
   const detail = useResource(() => relayApi.pipeline(slug), [slug])
   const data = detail.stale ? null : detail.data
-  const [traceRequest, setTraceRequest] = useState<TraceRequest | null>(null)
+  // **주소의 `trace_type` · `trace_key` 로 「거꾸로 보기」 를 바로 연다** — 대상 SP 의 객체 이력이 그
+  // 객체 하나의 출처를 보려고 이리로 링크한다(묶음의 origin.trace, SP ADR 0087).
+  const [params] = useSearchParams()
+  const [traceRequest, setTraceRequest] = useState<TraceRequest | null>(() => {
+    const typeSlug = params.get('trace_type')
+    const key = params.get('trace_key')
+    return typeSlug && key ? { typeSlug, key, nonce: 0 } : null
+  })
   // 작업함이 레시피 판 초안을 저장하면 판 목록을 새로 읽는다(다시 매단다).
   const [versionsKey, setVersionsKey] = useState(0)
 

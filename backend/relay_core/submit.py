@@ -54,7 +54,10 @@ class Submitter:
     def __init__(self, target: Target) -> None:
         self.target = target
 
-    def preview(self, run: Path) -> Plan:
+    def preview(self, run: Path, *, origin: dict[str, str] | None = None) -> Plan:
+        """`origin` — 원천 기록(`runner.origin_for`). 대상 SP 가 묶음 판과 객체의 이력에 남긴다
+        (SP ADR 0087). **지문에는 안 넣는다** — 실행마다 번호가 달라, 넣으면 같은 계획을 또
+        올리지 않는 비교(`digest`)가 늘 「다르다」 가 된다. 옛 SP 는 모르는 칸이라 무시한다."""
         loaded = sp.pipeline.load(run)
         errors = list(sp.pipeline.validate(loaded).errors)
         if graves_only(loaded):
@@ -65,10 +68,11 @@ class Submitter:
             )
         body = sp.pipeline.payload(loaded)
         digest = str(sp.pipeline.digest(body))
+        sent = {**body, "apply": False}
+        if origin:
+            sent["origin"] = dict(origin)
         try:
-            result = sp.pipeline._post_bundle(
-                self.target.server, self.target.token, {**body, "apply": False}
-            )
+            result = sp.pipeline._post_bundle(self.target.server, self.target.token, sent)
         except sp.pipeline.Stop as stop:
             raise SubmitError(str(stop)) from None
         sp.pipeline._write(

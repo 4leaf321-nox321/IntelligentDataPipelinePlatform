@@ -143,7 +143,7 @@ def test_대상에_타입이_없으면_SP_타입_정의_초안을_짓는다(
     assert got["status"] == "type_missing"
     assert got["ontology"]["types"][0]["slug"] == "mes_lot"
     assert got["trial"]["target"]["types_missing"] == ["mes_lot"]
-    assert any("SP 관리자" in one for one in got["next"])
+    assert any("type_plan" in one for one in got["next"])  # 대상에 타입 계획을 올린다
 
 
 def test_비밀은_정의가_쓰는_이름만_사람만_값은_안_보이고_화면이_먼저(

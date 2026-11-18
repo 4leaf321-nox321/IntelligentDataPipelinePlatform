@@ -17,12 +17,15 @@ from app.config import get_settings
 from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.jobs import services as job_services
-from app.modules.relay import definitions, inbound, recipes, services, unresolved
+from app.modules.relay import allow as relay_allow
+from app.modules.relay import definitions, inbound, recipes, services, typeplan, unresolved
 from app.modules.relay import jobs as relay_jobs  # noqa: F401 — import 가 곧 작업 종류 등록
 from app.modules.relay import scaffold as scaffolding
 from app.modules.relay import secrets as relay_secrets
 from app.modules.relay.models import RelayDefinition, RelayRecipe
 from app.modules.relay.schemas import (
+    AllowedHostsIn,
+    AllowedHostsOut,
     DefinitionIn,
     DefinitionOut,
     DefinitionSaved,
@@ -34,6 +37,7 @@ from app.modules.relay.schemas import (
     RecipeIn,
     RecipeOut,
     RecipeSaved,
+    RecipeTestIn,
     RelayMap,
     ScaffoldIn,
     SecretIn,
@@ -45,6 +49,7 @@ from app.modules.relay.schemas import (
     TraceOut,
     TrendOut,
     TypeDraftIn,
+    TypePlanIn,
 )
 from app.shared.auth import current_user, require_system_admin
 from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
@@ -355,12 +360,16 @@ def recipe_draft(
 def recipe_test(
     slug: str,
     version: int,
+    body: RecipeTestIn | None = None,
     _: User = Depends(require_system_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     """미러에 그 판을 돌려 본다 — **대상에 아무것도 안 보낸다.** 「켜면 무엇이 바뀌나」 를
-    보인다."""
-    return recipes.trial(db, services.by_slug(slug, db), version)
+    보인다. 견본 행(`sample_rows`)을 주면 미러 대신 그것으로."""
+    chosen = body or RecipeTestIn()
+    return recipes.trial(
+        db, services.by_slug(slug, db), version, sample_rows=chosen.sample_rows
+    )
 
 
 @router.post("/pipelines/{slug}/recipes/{version}/activate", response_model=RecipeOut)
@@ -440,7 +449,8 @@ async def inbound_push(
     받을 함에 쌓기만 하고, 미러에 넣는 것은 다음 실행이다(`relay/inbound.py`)."""
     inbound.check_size(request.headers.get("content-length"))
     raw = await request.body()
-    return inbound.receive(db, slug, request.headers.get(inbound.HEADER, ""), raw)
+    trial = request.query_params.get("trial", "").lower() in ("1", "true", "yes")
+    return inbound.receive(db, slug, request.headers.get(inbound.HEADER, ""), raw, trial=trial)
 
 
 @router.post("/type-draft")
@@ -488,6 +498,41 @@ def pipeline_scaffold(
     정의 초안) → 시험. 비밀이 비었으면 아무것도 저장하지 않고 사람에게 부탁할 이름을 준다.
     사용하지 않는다 — 사용은 사람이 화면에서."""
     return scaffolding.run(db, user, request, slug, body.model_dump())
+
+
+@router.post("/pipelines/{slug}/type-plan")
+def type_plan(
+    slug: str,
+    body: TypePlanIn,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """**대상에 타입 계획을 올린다** — SP 타입 정의 초안을 그 파이프라인의 원천 이름
+    (`source`)과 함께 대상 SP 의 미리 보기 계획으로. 적용은 사람이 대상 SP 화면 「작업」 에서.
+    토큰도 된다
+    (데이터 계획처럼 미리 보기일 뿐이다)."""
+    return typeplan.submit(db, user, request, slug, body.ontology, body.note)
+
+
+@router.get("/allowed-hosts", response_model=AllowedHostsOut)
+def allowed_hosts(
+    _: User = Depends(require_system_admin), db: Session = Depends(get_db)
+) -> dict[str, Any]:
+    """AI 의 탐색 · 시험이 닿아도 되는 주소 — 원천 · 대상 SP 마다 서버 설정 · 화면에서 더한
+    것 · 사용 중인 정의의 것. 토큰(MCP)으로도 읽는다(어디가 막혔나)."""
+    return relay_allow.status(db)
+
+
+@router.put("/allowed-hosts", response_model=AllowedHostsOut)
+def allowed_hosts_put(
+    body: AllowedHostsIn,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """화면에서 더한 주소를 통째로 바꾼다 — **사람만**(토큰 거절), 재시작 없이."""
+    return relay_allow.put(db, user, request, body.source, body.target)
 
 
 @router.get("/secrets", response_model=list[SecretOut])
@@ -624,7 +669,12 @@ def definition_test(
     **대상에 아무것도 안 보낸다.**"""
     chosen = body or DefinitionTestIn()
     return definitions.trial(
-        db, slug, version, recipe_version=chosen.recipe_version, limit=chosen.limit
+        db,
+        slug,
+        version,
+        recipe_version=chosen.recipe_version,
+        limit=chosen.limit,
+        sample_rows=chosen.sample_rows,
     )
 
 

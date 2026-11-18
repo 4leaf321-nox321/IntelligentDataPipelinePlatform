@@ -44,7 +44,7 @@ from relay_core.definition import Pipeline, Target
 from relay_core.diff import _batches as diff_batches
 from relay_core.diff import _head as diff_head
 from relay_core.diff import write_batches
-from relay_core.runner import Outcome, fold, pending_of, propose, settle_pending
+from relay_core.runner import Outcome, fold, origin_for, pending_of, propose, settle_pending
 from relay_core.state import Workdir, stamp
 from relay_core.submit import SubmitError, Submitter
 
@@ -918,7 +918,8 @@ def resync(
         (folder / sp.pipeline.ONTOLOGY).write_bytes((run / sp.pipeline.ONTOLOGY).read_bytes())
 
     try:
-        plan, cut = propose(submit, folder, pipeline.target)
+        origin = origin_for(pipeline, folder)
+        plan, cut = propose(submit, folder, pipeline.target, origin=origin)
     except SubmitError as failure:
         return Outcome(
             "blocked", f"{report.summary()} 보정 계획을 생성하지 못했습니다: {failure}"

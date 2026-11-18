@@ -4563,7 +4563,7 @@
           "relay"
         ],
         "summary": "Recipe Test",
-        "description": "미러에 그 판을 돌려 본다 — **대상에 아무것도 안 보낸다.** 「켜면 무엇이 바뀌나」 를\n보인다.",
+        "description": "미러에 그 판을 돌려 본다 — **대상에 아무것도 안 보낸다.** 「켜면 무엇이 바뀌나」 를\n보인다. 견본 행(`sample_rows`)을 주면 미러 대신 그것으로.",
         "operationId": "recipe_test_api_relay_pipelines__slug__recipes__version__test_post",
         "parameters": [
           {
@@ -4585,6 +4585,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RecipeTestIn"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4915,6 +4932,123 @@
                   "type": "object",
                   "additionalProperties": true,
                   "title": "Response Pipeline Scaffold Api Relay Pipelines  Slug  Scaffold Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/type-plan": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Type Plan",
+        "description": "**대상에 타입 계획을 올린다** — SP 타입 정의 초안을 그 파이프라인의 원천 이름\n(`source`)과 함께 대상 SP 의 미리 보기 계획으로. 적용은 사람이 대상 SP 화면 「작업」 에서.\n토큰도 된다\n(데이터 계획처럼 미리 보기일 뿐이다).",
+        "operationId": "type_plan_api_relay_pipelines__slug__type_plan_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TypePlanIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Type Plan Api Relay Pipelines  Slug  Type Plan Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/allowed-hosts": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Allowed Hosts",
+        "description": "AI 의 탐색 · 시험이 닿아도 되는 주소 — 원천 · 대상 SP 마다 서버 설정 · 화면에서 더한\n것 · 사용 중인 정의의 것. 토큰(MCP)으로도 읽는다(어디가 막혔나).",
+        "operationId": "allowed_hosts_api_relay_allowed_hosts_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllowedHostsOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Allowed Hosts Put",
+        "description": "화면에서 더한 주소를 통째로 바꾼다 — **사람만**(토큰 거절), 재시작 없이.",
+        "operationId": "allowed_hosts_put_api_relay_allowed_hosts_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AllowedHostsIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllowedHostsOut"
                 }
               }
             }
@@ -5840,6 +5974,97 @@
         ],
         "title": "AggregateIn"
       },
+      "AllowedHostsIn": {
+        "properties": {
+          "source": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Source"
+          },
+          "target": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 200,
+            "title": "Target"
+          }
+        },
+        "type": "object",
+        "title": "AllowedHostsIn"
+      },
+      "AllowedHostsOut": {
+        "properties": {
+          "source": {
+            "$ref": "#/components/schemas/AllowedList"
+          },
+          "target": {
+            "$ref": "#/components/schemas/AllowedList"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "updated_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "target"
+        ],
+        "title": "AllowedHostsOut",
+        "description": "허용 주소 — 원천 · 대상 SP 를 따로. 대상 주소는 원천 주소로 못 쓴다."
+      },
+      "AllowedList": {
+        "properties": {
+          "settings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Settings",
+            "default": []
+          },
+          "screen": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Screen",
+            "default": []
+          },
+          "definitions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Definitions",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "AllowedList"
+      },
       "ApproveRequest": {
         "properties": {
           "workspace_slug": {
@@ -6563,6 +6788,22 @@
             "minimum": 0.0,
             "title": "Limit",
             "default": 10
+          },
+          "sample_rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "maxItems": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Rows"
           }
         },
         "type": "object",
@@ -8847,6 +9088,28 @@
         ],
         "title": "RecipeSaved"
       },
+      "RecipeTestIn": {
+        "properties": {
+          "sample_rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "maxItems": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Rows"
+          }
+        },
+        "type": "object",
+        "title": "RecipeTestIn"
+      },
       "ReconcileIn": {
         "properties": {
           "plan": {
@@ -9370,6 +9633,22 @@
             "type": "boolean",
             "title": "Split",
             "default": true
+          },
+          "sample_rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array",
+                "maxItems": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sample Rows"
           }
         },
         "type": "object",
@@ -10433,6 +10712,26 @@
           "columns"
         ],
         "title": "TypeDraftIn"
+      },
+      "TypePlanIn": {
+        "properties": {
+          "ontology": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Ontology"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "ontology"
+        ],
+        "title": "TypePlanIn"
       },
       "UnreadCountOut": {
         "properties": {

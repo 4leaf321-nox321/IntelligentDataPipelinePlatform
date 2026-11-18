@@ -91,6 +91,9 @@ class Fence:
     """설정(`RELAY_SOURCE_HOSTS`)의 주소 + 사용 중인 정의(초안 아닌 것)가 쓰는 주소."""
     bound: Mapping[str, frozenset[tuple[str, str]]] = field(default_factory=dict)
     """사용 중인 정의가 쓰는 비밀의 이름 → 그 비밀이 실려 가는 (역할, host)."""
+    targets: frozenset[str] = frozenset()
+    """**대상 SP 로** 닿아도 되는 주소 — `hosts` 에 더해 `RELAY_TARGET_HOSTS` · 화면에서 더한
+    대상 주소(`relay/allow.py`). 이것만 있는 주소는 원천 주소로는 안 된다."""
 
 
 def token_url(spec: dict[str, Any]) -> str:
@@ -118,8 +121,15 @@ def _uses(one: Described) -> list[tuple[str, str, str]]:
 
 
 def fence(found: Iterable[Described]) -> Fence:
-    """설정의 주소 + **켜진 정의(파일 · 켜진 판)** 가 쓰는 주소와 비밀 — 초안은 넣지 않는다."""
-    hosts = set(get_settings().relay_source_host_list)
+    """설정의 주소 + **화면에서 더한 주소**(`relay/allow.py` — 재시작 없이) + **켜진 정의(파일
+    · 켜진 판)** 가 쓰는 주소와 비밀 — 초안은 넣지 않는다. 대상 SP 만의 주소는 따로
+    (`targets`)."""
+    from app.modules.relay import allow
+
+    settings = get_settings()
+    screen = allow.stored()
+    hosts = set(settings.relay_source_host_list) | set(screen["source"])
+    targets = set(settings.relay_target_host_list) | set(screen["target"])
     bound: dict[str, set[tuple[str, str]]] = {}
     for one in found:
         if one.draft:
@@ -132,7 +142,11 @@ def fence(found: Iterable[Described]) -> Fence:
                 hosts.add(host_of(url))
         for name, role, host in _uses(one):
             bound.setdefault(name, set()).add((role, host))
-    return Fence(frozenset(hosts), {k: frozenset(v) for k, v in bound.items()})
+    return Fence(
+        frozenset(hosts),
+        {k: frozenset(v) for k, v in bound.items()},
+        frozenset(targets | hosts),
+    )
 
 
 def check_secret(name: str, role: str, url: str, fenced: Fence) -> None:
@@ -161,6 +175,8 @@ def check_url(
     allowed: Iterable[str],
     where: str,
     schemes: tuple[str, ...] = ("http", "https"),
+    *,
+    target: bool = False,
 ) -> None:
     parts = urlsplit(url)
     if parts.scheme not in schemes or not parts.netloc:
@@ -171,11 +187,16 @@ def check_url(
         )
     netloc = host_of(url)
     if not _host_ok(netloc, allowed):
+        place = (
+            "「대상 SP」(설정은 RELAY_TARGET_HOSTS)"
+            if target
+            else "「원천」(설정은 RELAY_SOURCE_HOSTS)"
+        )
         raise Forbidden(
             code("RELAY", 10),
-            f"{where}: {netloc} 는 이 서버가 AI 요청으로 호출할 수 있는 주소가 아닙니다. "
-            "사용 중인 정의의 주소이거나 RELAY_SOURCE_HOSTS 에 있어야 합니다 — 관리자에게 "
-            "추가를 요청하세요.",
+            f"{where}: {netloc} 는 이 서버가 AI 요청으로 호출할 수 있는 주소가 아닙니다 — "
+            f"사용 중인 정의의 주소이거나 허용 주소여야 합니다. 사람에게 화면 › 중계 › 허용 "
+            f"주소 의 {place} 에 더해 달라고 하세요(재시작 없음).",
         )
 
 
@@ -241,7 +262,7 @@ def check_source(kind: str, spec: dict[str, Any], fenced: Fence) -> None:
 
 def check_target(target: dict[str, Any], fenced: Fence) -> None:
     server = str(target.get("server") or "")
-    check_url(server, fenced.hosts, "target.server")
+    check_url(server, fenced.targets or fenced.hosts, "target.server", target=True)
     check_secret(str(target.get("token_env") or ""), TARGET, server, fenced)
 
 

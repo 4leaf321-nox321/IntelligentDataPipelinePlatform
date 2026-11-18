@@ -240,9 +240,87 @@ def _fence(db: Session) -> guard.Fence:
     return guard.fence(services.catalog(db))
 
 
-def discover(db: Session, spec: dict[str, Any]) -> dict[str, Any]:
-    """어댑터 설정으로 원천에 닿아 본다 — 저장하지 않는다. 식별자 · 열은 비워도 된다."""
+#: 견본 행의 상한 — 시험은 요청 안에서 돈다.
+SAMPLE_ROWS_MAX = 1000
+
+
+def trial_inbox(slug: str) -> Path:
+    """보내 주는 원천의 **시험 수신함** — 원천이 `?trial=1` 로 보낸 것. 실행은 읽지 않는다
+    (정의 시험 · 탐색만 — 받을 함 `inbox/` 가 비었을 때)."""
+    return get_settings().relay_work_dir / slug / "trial-inbox"
+
+
+def _push_inbox(slug: str) -> tuple[Path, str]:
+    """시험이 읽을 받을 함 — 진짜 받을 함에 묶음이 있으면 그것, 없으면 시험 수신함."""
+    from relay_core.adapters.push import SUFFIX
+
+    real = get_settings().relay_work_dir / slug / "inbox"
+    if real.is_dir() and any(one.name.endswith(SUFFIX) for one in real.iterdir()):
+        return real, "받을 함"
+    trial = trial_inbox(slug)
+    if trial.is_dir() and any(one.name.endswith(SUFFIX) for one in trial.iterdir()):
+        return trial, "시험 수신함(?trial=1 로 받은 것 — 실행은 읽지 않는다)"
+    return real, "받을 함"
+
+
+def sample_records(spec: dict[str, Any], items: list[Any]) -> list[Any]:
+    """견본 행 → 미러의 행 — 원천이 보내거나 돌려주는 **항목의 모양**(JSON 객체)으로 받아
+    정의의 식별자 · 열 · 삭제 표시 · 펴기로 편다(진짜 받기와 같은 길, `records_of`)."""
+    from relay_core.adapters.rest import SourceError, check_shape, records_of
+
+    if len(items) > SAMPLE_ROWS_MAX:
+        raise _invalid(f"견본 행은 {SAMPLE_ROWS_MAX}개까지입니다(준 것 {len(items)}개).")
+    kind = str(spec.get("kind") or "rest")
+    if kind == "xml":
+        raise _invalid("XML 원천은 견본 행으로 시험하지 않습니다 — 원천에서 받아 보세요.")
+    columns = spec.get("columns")
+    if columns in (None, "*", {}):
+        first = next((one for one in items if isinstance(one, dict)), {})
+        columns = {str(k): str(k) for k, v in first.items() if not isinstance(v, dict | list)}
+    try:
+        check_shape(spec.get("key") or "", str(spec.get("explode") or ""))
+        out: list[Any] = []
+        for item in items:
+            out += records_of(
+                item,
+                key=spec.get("key") or "",
+                columns=dict(columns),
+                deleted=spec.get("deleted"),
+                updated_at=spec.get("updated_at"),
+                explode=str(spec.get("explode") or ""),
+            )
+    except SourceError as failure:
+        raise _invalid(f"견본 행을 펴지 못했습니다: {failure}") from failure
+    return out
+
+
+def discover(
+    db: Session,
+    spec: dict[str, Any],
+    *,
+    slug: str = "",
+    sample_rows: list[Any] | None = None,
+) -> dict[str, Any]:
+    """어댑터 설정으로 원천에 닿아 본다 — 저장하지 않는다. 식별자 · 열은 비워도 된다.
+    `sample_rows` 면 원천에 닿지 않고 그 항목들로 칸 · 열 · 단서를 고른다. 보내 주는 원천은
+    `slug` 의 받을 함(없으면 시험 수신함)을 읽는다."""
     from app.modules.relay import services
+    from relay_core.adapters.explore import suggest
+
+    if sample_rows is not None:
+        if not isinstance(spec, dict):
+            raise _invalid("adapter 는 JSON 객체여야 합니다.")
+        guard.check_no_secrets(spec, "adapter")
+        kind = str(spec.get("kind") or "rest")
+        items = [one for one in sample_rows[:SAMPLE_ROWS_MAX] if isinstance(one, dict)]
+        found = suggest(items)
+        return {
+            "kind": kind,
+            "ok": True,
+            "probe": f"견본 행 {len(items)}건 — 원천에서 받지 않았습니다",
+            "sample_rows": True,
+            "found": _trim(found),
+        }
 
     if not isinstance(spec, dict):
         raise _invalid("adapter 는 JSON 객체여야 합니다.")
@@ -253,6 +331,7 @@ def discover(db: Session, spec: dict[str, Any]) -> dict[str, Any]:
         raise _invalid(str(failure)) from failure
     guard.check_env(spec)
     guard.check_source(kind, checked, _fence(db))
+    inbox, where = _push_inbox(slug) if kind == "push" and slug else (None, "")
     try:
         adapter = build_adapter(
             spec,
@@ -260,10 +339,13 @@ def discover(db: Session, spec: dict[str, Any]) -> dict[str, Any]:
             partial=True,
             file_roots=get_settings().relay_file_root_paths,
             cert_root=get_settings().relay_cert_path,
+            inbox=inbox,
         )
     except DefinitionError as failure:
         raise _invalid(str(failure)) from failure
     out: dict[str, Any] = {"kind": kind, "ok": True, "probe": ""}
+    if where:
+        out["inbox"] = where
     if checked.get("key"):
         try:
             out["probe"] = adapter.probe()
@@ -492,11 +574,19 @@ def _recipe_for(
 
 
 def trial(
-    db: Session, slug: str, version: int, *, recipe_version: int | None = None, limit: int = 10
+    db: Session,
+    slug: str,
+    version: int,
+    *,
+    recipe_version: int | None = None,
+    limit: int = 10,
+    sample_rows: list[Any] | None = None,
 ) -> dict[str, Any]:
     """그 판으로 원천을 받아 보고 · 대상을 보고 · 레시피로 바꿔 본다 — **아무것도 안
-    보낸다.**"""
+    보낸다.** `sample_rows` 면 원천에서 받지 않고 그 견본 행으로(보내 주는 원천을 사용하기
+    전에 끝까지 시험할 때). 보내 주는 원천은 받을 함이 비었으면 시험 수신함을 읽는다."""
     from app.modules.relay import recipes, services
+    from relay_core.adapters.base import Fetched
 
     row = get(db, slug, version)
     body = dict(row.body)
@@ -532,20 +622,27 @@ def trial(
                 "파이프라인만 사용하세요."
             )
 
-    try:
-        adapter = build_adapter(
-            dict(body["adapter"]),
-            env,
-            file_roots=get_settings().relay_file_root_paths,
-            cert_root=get_settings().relay_cert_path,
-            inbox=get_settings().relay_work_dir / slug / "inbox",
-        )
-        probe = adapter.probe()
-        cap = get_settings().relay_trial_rows
-        fetched = adapter.fetch(None, limit=cap or None)
-    except Exception as failure:  # 원천이 무엇을 던지든 까닭을 보인다
-        out["source"] = {"ok": False, "error": str(failure)}
-        return out
+    cap = get_settings().relay_trial_rows
+    inbox, where = _push_inbox(slug) if kind == "push" else (None, "")
+    if sample_rows is not None:
+        # 원천에 닿지 않는다 — 비밀 · 받을 함 없이 견본으로 끝까지(정의의 모양은 위에서 봤다).
+        records = sample_records(dict(body["adapter"]), list(sample_rows))
+        fetched = Fetched(records=records, complete=True, full=False)
+        probe = f"견본 행 {len(sample_rows)}건 — 원천에서 받지 않았습니다(시험만)"
+    else:
+        try:
+            adapter = build_adapter(
+                dict(body["adapter"]),
+                env,
+                file_roots=get_settings().relay_file_root_paths,
+                cert_root=get_settings().relay_cert_path,
+                inbox=inbox,
+            )
+            probe = adapter.probe()
+            fetched = adapter.fetch(None, limit=cap or None)
+        except Exception as failure:  # 원천이 무엇을 던지든 까닭을 보인다
+            out["source"] = {"ok": False, "error": str(failure)}
+            return out
     seen: dict[str, None] = {}
     filled: set[str] = set()
     for one in fetched.records:
@@ -572,7 +669,16 @@ def trial(
             for one in fetched.records[: max(0, min(limit, SAMPLE_MAX))]
         ],
     }
-    out["intake"] = _intake_preview(body, slug, fetched)
+    if where:
+        out["source"]["inbox"] = where
+    if sample_rows is not None:
+        out["source"]["sample_rows"] = True
+        out["intake"] = {"note": "견본 행이라 받기 점검(대량 삭제 · 빈 칸)은 보지 않았습니다."}
+    else:
+        out["intake"] = _intake_preview(body, slug, fetched)
+    if not fetched.records and recipe_body is not None:
+        out["recipe"] = {"used": recipe_label, "rows": {}, "note": recipes.EMPTY_NOTE}
+        return out
     if recipe_body is None:
         out["recipe"] = {
             "note": "레시피가 아직 없습니다 — recipe_draft_save 로 작성한 뒤 recipe_version "
@@ -590,7 +696,8 @@ def trial(
             recipe_body,
             work,
             described.source,
-            compare=fetched.complete,
+            # 견본 행은 원천의 전부가 아니다 — 견주면 나머지가 다 지움(무덤)으로 보인다.
+            compare=fetched.complete and sample_rows is None,
             # 울타리(`guard.check_target`)를 지난 대상 — 참조 대조가 그 식별자를 읽는다.
             target=(server, env.get(str(dict(body["target"]).get("token_env") or ""), "")),
             computed=dict(body.get("computed") or {}),

@@ -136,6 +136,67 @@ def read_state(slug: str) -> dict[str, Any] | None:
     return body
 
 
+#: 화면을 열 때 대상에 「적용됐나」 를 묻는 사이 — 같은 파이프라인은 이만큼(초)에 한 번.
+SETTLE_EVERY = 30.0
+_asked: dict[str, float] = {}
+_down: dict[str, float] = {}
+
+
+class _Applied:
+    """`runner.settle_pending` 에 넘길 답 — 이미 대상에 물어 적용된 것을 안다."""
+
+    def applied(self, job_id: str) -> bool:
+        return True
+
+
+def settle_seen(db: Session, found: Described, env: Mapping[str, str] | None = None) -> str:
+    """**SP 화면에서 적용한 계획을 화면을 열 때 알아챈다** — 지도 · 상세 · 추적이 부른다.
+
+    대기 계획이 있으면 대상의 작업(`/api/jobs/<id>`)에 적용 기록(`applied_by`)이 있나 묻고,
+    있으면 실행 · 대조가 하는 것과 같이 기준으로 올린다(`runner.settle_pending`). 그렇지 않으면
+    다음 실행 · 대조까지 지도가 「적용 대기」 · 추적이 「아직 적용한 것이 없습니다」 로 남았다
+    (2026-11-18). 묻는 것은 짧게(`PROBE_SECONDS`) · 같은 파이프라인은 `SETTLE_EVERY` 초에
+    한 번 · 닿지 않은 대상은 그만큼 건너뛴다. 실행 · 적용 · 대조가 대기 중이거나 도는 중이면
+    그쪽이 스스로 본다 — 상태 파일을 둘이 쓰지 않게."""
+    import time
+
+    from relay_core import runner
+
+    state = read_state(found.slug) or {}
+    pending = state.get("pending") or {}
+    job_id = str(pending.get("job_id") or "")
+    if found.draft or not job_id or not found.target_server:
+        return ""
+    now = time.monotonic()
+    if now - _asked.get(found.slug, -SETTLE_EVERY) < SETTLE_EVERY:
+        return ""
+    if now - _down.get(found.target_server, -SETTLE_EVERY) < SETTLE_EVERY:
+        return ""
+    _asked[found.slug] = now
+    if any(
+        one.status in ("queued", "running") for one in recent_jobs(db, found.slug, limit=3)
+    ):
+        return ""
+    token = (env or secrets_env()).get(found.target_token_env, "")
+    if not token:
+        return ""
+    status, answer = probe_http(found.target_server, token, f"/api/jobs/{job_id}")
+    if status == 0:
+        _down[found.target_server] = now
+        return ""
+    if status != 200 or not isinstance(answer, dict) or not answer.get("applied_by"):
+        return ""
+    work = Workdir(get_settings().relay_work_dir, found.slug)
+    fresh = work.load_state()
+    if fresh.pending is None or fresh.pending.job_id != job_id:
+        return ""  # 그 사이 실행이 바꿨다
+    note = runner.settle_pending(fresh, _Applied())  # type: ignore[arg-type]
+    if note:
+        fresh.history.append({"at": datetime.now(UTC).isoformat(), "event": "seen_applied"})
+        work.save_state(fresh)
+    return note
+
+
 def read_report(slug: str) -> dict[str, Any] | None:
     """마지막 대조의 보고서(`reconcile.json`) — 없으면 None. 읽기만 한다."""
     file = get_settings().relay_work_dir / slug / reconcile.REPORT
@@ -278,6 +339,7 @@ def build_map(db: Session) -> RelayMap:
     targets: dict[str, tuple[str, str]] = {}
 
     for found in catalog(db):
+        settle_seen(db, found, env)
         state = read_state(found.slug)
         jobs = recent_jobs(db, found.slug, limit=1, kinds=(RUN_KIND, APPLY_KIND))
         late = lateness(db, found)
@@ -448,6 +510,7 @@ def target_model(
 
 def detail(db: Session, slug: str) -> PipelineDetail:
     found = by_slug(slug, db)
+    settle_seen(db, found)
     state = read_state(slug)
     jobs = recent_jobs(db, slug)
     runs = [one for one in jobs if one.kind in (RUN_KIND, APPLY_KIND)]
@@ -536,6 +599,7 @@ def trace_value(db: Session, slug: str, type_slug: str, key: str) -> dict[str, A
         raise NotFound(
             code("RELAY", 19), f"{slug} 은 아직 원천을 받은 적이 없습니다 — 먼저 실행하세요."
         )
+    settle_seen(db, found)
     active = recipes.active(db, slug)
     now: dict[str, Any] | Path | None = active.body if active is not None else found.recipe
     try:
@@ -556,7 +620,9 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
     if not viewer.is_system_admin:
         return []
     counts = {"pending": 0, "blocked": 0, "late": 0, "failed": 0, "broken": 0, "drift": 0}
+    env = secrets_env()
     for found in catalog(db):
+        settle_seen(db, found, env)
         jobs = recent_jobs(db, found.slug, limit=1, kinds=(RUN_KIND, APPLY_KIND))
         late = lateness(db, found)
         status = status_of(found, read_state(found.slug), jobs[0] if jobs else None, late)

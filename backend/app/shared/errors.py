@@ -294,15 +294,21 @@ def register_error_handlers(app: FastAPI) -> None:
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
         # 스택 트레이스를 반드시 남긴다. 사용자에게는 request_id 만 주고, 그 id 로
         # 로그에서 원본을 찾는다.
-        logger.exception("%s %s -> 500 unhandled", request.method, request.url.path)
+        rid = get_request_id()
+        logger.exception(
+            "%s %s -> 500 unhandled (요청 ID %s)", request.method, request.url.path, rid
+        )
         # 이 응답은 요청 ID 미들웨어 바깥에서 나가 그 헤더가 안 붙는다 — 여기서 단다.
+        # **글에도 그 ID 를 넣는다** — 「요청 ID 를 알려 주세요」 만 있고 ID 가 글에 없으면
+        # 본문의 칸을 안 보이는 도구(MCP · 명령 창)에서는 알 길이 없다(2026-11-18 — 서버
+        # 로그를 시각으로 뒤져야 했다).
         return JSONResponse(
             status_code=500,
             content=_body(
                 code("COMMON", 500),
-                "서버 오류가 발생했습니다. 요청 ID를 관리자에게 알려주세요.",
+                f"서버 오류가 발생했습니다. 요청 ID {rid} 를 관리자에게 알려주세요.",
             ),
-            headers={REQUEST_ID_HEADER: get_request_id()},
+            headers={REQUEST_ID_HEADER: rid},
         )
 
     @app.exception_handler(OperationalError)

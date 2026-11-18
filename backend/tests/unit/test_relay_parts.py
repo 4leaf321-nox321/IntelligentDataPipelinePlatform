@@ -124,8 +124,8 @@ class _FlakySubmitter(FakeSubmitter):
         super().__init__()
         self.bad = bad
 
-    def preview(self, run: Path) -> Plan:
-        plan = super().preview(run)
+    def preview(self, run: Path, *, origin: dict[str, str] | None = None) -> Plan:
+        plan = super().preview(run, origin=origin)
         if len(self.previews) == self.bad:
             return dataclasses.replace(plan, ok=False, summary="오류 1건")
         return plan

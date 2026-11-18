@@ -171,3 +171,24 @@ def test_값을_모르고도_쓰는_도구들은_제_길로_간다(monkeypatch: 
     }
     with pytest.raises(server.RelayError, match="쓸 수 없는 글자"):
         asyncio.run(server.alias_requests(ctx, "../jobs"))
+
+
+def test_백엔드의_오류는_요청_ID_를_글에_붙인다(monkeypatch: pytest.MonkeyPatch) -> None:
+    """서버 오류의 요청 ID 는 본문의 칸에 있다 — AI 가 보는 글에 붙여야 사람이 신고한다."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            500,
+            json={
+                "error": {
+                    "code": "DRL-COMMON-0500",
+                    "message": "서버 오류가 발생했습니다.",
+                    "request_id": "abc123def456",
+                }
+            },
+            headers={"X-Request-ID": "abc123def456"},
+        )
+
+    monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(handler))
+    with pytest.raises(server.RelayError, match=r"요청 ID abc123def456"):
+        asyncio.run(server.relay_map(_ctx()))
