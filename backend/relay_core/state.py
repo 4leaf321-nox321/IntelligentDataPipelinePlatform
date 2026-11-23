@@ -43,7 +43,8 @@ class Pending:
     summary: str
     at: str
     origin: str = "run"
-    """그 계획이 어디서 왔나 — `run`(원천이 바뀜) · `reconcile`(대조의 보정 계획)."""
+    """그 계획이 어디서 왔나 — `run`(원천이 바뀜) · `reconcile`(대조의 보정 계획) ·
+    `retract`(보낸 것 걷어내기)."""
     parts: list[str] = field(default_factory=list)
     """나눠 보내면 조각 폴더들(`sends/<때>/parts/001` …, `relay_core.parts`) — 비면 `send`
     하나다. `digest` 는 그때도 **전체** 묶음의 지문이다."""
@@ -72,12 +73,15 @@ class State:
     하거나 원천이 바로잡혀 실행이 지나가면 비운다."""
     blank_watch: dict[str, int] = field(default_factory=dict)
     """실행을 넘어 센 빈 칸(`intake.carry`) — 칸 → 앞선 실행들이 비운 기존 행의 수."""
+    stopped: dict[str, Any] | None = None
+    """멈춤(`retract` — 보낸 것을 걷어냄) — `{"at", "by", "why", "scope"}`. 실행 · 타이머가
+    돌지 않는다. 사람이 화면에서 「다시 켜기」 하면 비운다(`retract.resume`)."""
 
 
 #: 실행마다 생기는 이름 — `stamp()` 모양(보정 계획의 묶음은 `-resync`, 조각을 접은 기준은
-#: `-partial` 이 붙는다 — 그 계획의 실행 시각 그대로). 정리는
-#: **이 모양만** 지운다 — 시험의 임시 폴더(`tmp…`)나 사람이 둔 파일은 건드리지 않는다.
-_RUN_NAME = re.compile(r"^(\d{8}T\d{12}Z)(-resync|-partial)?$")
+#: `-partial`, 걷어내기의 새 기준 · 묶음은 `-retract` 가 붙는다 — 그 계획의 시각 그대로).
+#: 정리는 **이 모양만** 지운다 — 시험의 임시 폴더(`tmp…`)나 사람이 둔 파일은 건드리지 않는다.
+_RUN_NAME = re.compile(r"^(\d{8}T\d{12}Z)(-resync|-partial|-retract)?$")
 #: 변환에 넣은 원천 표 · 레시피 사본, 나눠 변환 · 비교 · 받기 · 대조의 바구니(`<때>.spill` ·
 #: `<때>.send.spill` · `.fetch.spill` · `.reconcile.spill` — 끝나면 지우지만 도중에 죽으면
 #: 남는다).
@@ -127,6 +131,7 @@ class Workdir:
             blank_watch={
                 str(k): int(v) for k, v in dict(raw.get("blank_watch") or {}).items()
             },
+            stopped=raw.get("stopped") or None,
         )
 
     def save_state(self, state: State) -> None:

@@ -4042,6 +4042,102 @@
         }
       }
     },
+    "/api/relay/pipelines/{slug}/retract": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Retract",
+        "description": "보낸 것 걷어내기(`relay_core.retract`) — 이 파이프라인이 대상에 넣은 것(기준)에서 고른\n객체와 그것에 닿는 선을 **사용 중지 · 끊기**로 거두는 계획(미리 보기)을 올리고 파이프라인을\n멈춘다. 대상 SP 는 원천이 잠근 타입의 객체를 화면에서 못 지운다 — 그래서 원천 쪽에서\n시킨다. AI(토큰)도 계획까지는 올린다 — **적용 · 다시 켜기는 화면에서 사람이.**",
+        "operationId": "pipeline_retract_api_relay_pipelines__slug__retract_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetractIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueuedOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/pipelines/{slug}/resume": {
+      "post": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Pipeline Resume",
+        "description": "걷어내고 멈춘 파이프라인을 다시 켠다 — **화면에서 사람만**(원천에서 지웠는지 · 레시피를\n고쳤는지는 사람이 안다 — 안 그러면 다음 실행이 걷어낸 것을 다시 만든다). 걷어내기 계획이\n아직 대기 중이면, 대상에서 적용됐으면 기준으로 올리고 아니면 그 계획을 거둔다.",
+        "operationId": "pipeline_resume_api_relay_pipelines__slug__resume_post",
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Slug"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResumeOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/relay/pipelines/{slug}/trend": {
       "get": {
         "tags": [
@@ -8645,6 +8741,21 @@
             ],
             "title": "Reconcile"
           },
+          "target_version": {
+            "type": "string",
+            "title": "Target Version",
+            "default": ""
+          },
+          "target_deletes": {
+            "type": "boolean",
+            "title": "Target Deletes",
+            "default": false
+          },
+          "retracted": {
+            "type": "integer",
+            "title": "Retracted",
+            "default": 0
+          },
           "reconcile_label": {
             "type": "string",
             "title": "Reconcile Label",
@@ -9497,6 +9608,68 @@
           "offset"
         ],
         "title": "RequestStatsOut"
+      },
+      "ResumeOut": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ResumeOut"
+      },
+      "RetractIn": {
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "deprecate",
+              "delete"
+            ],
+            "title": "Action",
+            "default": "deprecate"
+          },
+          "all": {
+            "type": "boolean",
+            "title": "All",
+            "default": false
+          },
+          "types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Types",
+            "default": []
+          },
+          "keys": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Keys",
+            "default": {}
+          },
+          "previous": {
+            "type": "boolean",
+            "title": "Previous",
+            "default": false
+          },
+          "note": {
+            "type": "string",
+            "title": "Note",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "title": "RetractIn"
       },
       "RunIn": {
         "properties": {

@@ -66,7 +66,10 @@ export interface PendingPlan {
   ok: boolean
   summary: string
   at: string
-  /** 그 계획이 어디서 왔나 — `run`(원천이 바뀜) · `reconcile`(대조의 보정 계획). 옛 상태에는 없다. */
+  /**
+   * 그 계획이 어디서 왔나 — `run`(원천이 바뀜) · `reconcile`(대조의 보정 계획) · `retract`(보낸 것
+   * 걷어내기). 옛 상태에는 없다.
+   */
   origin?: string
   /**
    * 나눠 보내면 조각 폴더들 — 비면 한 묶음이다. `part` 는 지금 조각(0부터)이고 앞 조각들은 적용됐다.
@@ -95,6 +98,17 @@ export interface HeldIntake {
   }
 }
 
+/**
+ * 보낸 것을 걷어내고 멈춘 것(`relay_core.retract`) — 실행 · 타이머가 돌지 않는다. 사람이 「다시 켜기」
+ * 해야 돈다. `scope` 는 무엇을 걷어냈나 한 줄, `by` 는 시킨 사람(AI 면 「(MCP)」 가 붙는다).
+ */
+export interface StoppedPipeline {
+  at: string
+  by?: string
+  why?: string
+  scope?: string
+}
+
 export interface PipelineState {
   watermark?: string | null
   applied_run?: string | null
@@ -102,7 +116,11 @@ export interface PipelineState {
   pending?: PendingPlan | null
   incrementals?: number
   held?: HeldIntake | null
+  stopped?: StoppedPipeline | null
 }
+
+/** 걷어내기의 고르기 — 하나만: 전부 · 타입 · 식별자(타입마다). */
+export type RetractIn = Partial<Schemas['RetractIn']>
 
 /** 칸마다 건수 — `{objects|relations: {타입: {created, changed, unchanged, gone}}}`. */
 export type RunCounts = Record<string, Record<string, Record<string, number>>>
@@ -110,7 +128,8 @@ export type RunCounts = Record<string, Record<string, Record<string, number>>>
 /**
  * 이력 한 줄 — 새것이 먼저 온다. `event` 는 planned · applied · part_applied(나눠 보내는 계획의 한
  * 조각) · blocked · held(받기 점검 멈춤 — `reasons`) · held_accepted(확인 후 진행 — `by` · `reasons`)
- * · nothing · auto_skipped · reconciled. 자동 적용이 적용했으면 `applied` 에 `by: "auto"` 가 붙고(사람의 적용에는 없다), 타이머의
+ * · nothing · auto_skipped · reconciled · retract_cancelled(걷어내기 거둠) · resumed(다시 켬). 걷어내기
+ * 계획은 `planned` 에 `origin: "retract"` 와 고른 것(`scope`)을 싣는다. 자동 적용이 적용했으면 `applied` 에 `by: "auto"` 가 붙고(사람의 적용에는 없다), 타이머의
  * 실행이 기준을 못 넘어 계획이 사람을 기다리면 `auto_skipped` 가 그 까닭(`reasons`)을 싣는다.
  * 대조는 `reconciled` 에 어긋남 수(`drift`)와 한 줄(`summary`)을, 대조의 보정 계획은 `planned` 에
  * `origin: "reconcile"` 을 싣는다.
@@ -127,6 +146,8 @@ export interface HistoryEvent {
   origin?: string
   drift?: number
   summary?: string
+  /** 걷어내기가 고른 것 한 줄. */
+  scope?: string
   /** 나눠 보내는 계획 — `part_applied` · `blocked` 는 그 조각 번호(1부터), `planned` · `applied` 는 조각 수. */
   part?: number
   parts?: number
@@ -556,6 +577,14 @@ export const relayApi = {
   trend: (slug: string, limit = 90) =>
     api.get<TrendOut>(`${slugPath(slug)}/trend?limit=${limit}`),
   apply: (slug: string) => api.post<QueuedOut>(`${slugPath(slug)}/apply`),
+  /**
+   * 보낸 것 걷어내기 — 작업으로 넣는다(202). 고른 것을 사용 중지 · 끊기로 거두는 계획(미리 보기)을 대상에
+   * 올리고 파이프라인을 멈춘다. 적용은 「적용」(또는 대상 SP 화면)에서.
+   */
+  retract: (slug: string, body: RetractIn) =>
+    api.post<QueuedOut>(`${slugPath(slug)}/retract`, body),
+  /** 다시 켜기 — 화면에서 사람만(토큰은 거절). 대기 중인 걷어내기 계획은 적용됐으면 기준으로, 아니면 거둔다. */
+  resume: (slug: string) => api.post<Schemas['ResumeOut']>(`${slugPath(slug)}/resume`),
   /**
    * 대조 — 작업으로 넣는다(202). 대상 SP 의 객체를 읽어 기준과 견줄 뿐 아무것도 안 보낸다. `plan` 이면
    * 어긋난 줄의 **보정 계획**(미리보기)까지 대상의 검토함에 올린다 — 적용은 사람이.

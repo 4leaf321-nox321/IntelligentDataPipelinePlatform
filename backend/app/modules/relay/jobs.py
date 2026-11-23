@@ -1,9 +1,9 @@
-"""파이프라인 실행을 **작업**으로 — 화면의 「지금 실행」 · 「적용」 · 「대조」 와 타이머가 같은
-길을 쓴다.
+"""파이프라인 실행을 **작업**으로 — 화면의 「지금 실행」 · 「적용」 · 「대조」 · 「보낸 것
+걷어내기」 와 타이머가 같은 길을 쓴다.
 
 작업 워커가 `relay_core` 의 같은 함수(`runner.run` · `runner.apply` · `reconcile.compare` ·
-`reconcile.resync`)를 부른다 — CLI 와 다른 길이 없다. 결과의 `summary` 를 작업 화면이 그대로
-보인다.
+`reconcile.resync` · `retract.retract`)를 부른다 — CLI 와 다른 길이 없다. 결과의 `summary` 를
+작업 화면이 그대로 보인다.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from urllib.parse import quote
 from app.config import get_settings
 from app.modules.jobs import kinds
 from app.modules.relay import alerts, recipes, services
-from relay_core import autoapply, intake, reconcile, runner
+from relay_core import autoapply, intake, reconcile, retract, runner
 from relay_core.definition import DefinitionError, Pipeline, load_body
 from relay_core.describe import Described
 from relay_core.state import Workdir
@@ -97,6 +97,8 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
             again = reconcile.compare(pipeline, folder)
             outcome.message += f" · 다시 대조: {again.summary()}"
             reconciled = True
+        if outcome.status == "applied" and pending and pending.origin == retract.ORIGIN:
+            outcome.message += f" {retract.after_apply(folder.load_state().stopped)}"
     else:
         human = str(work.params.get("human_edits") or "")
         options = {"human_edits": human} if human in ("keep", "overwrite") else None
@@ -169,6 +171,53 @@ def apply_job(work: kinds.Work) -> dict[str, Any]:
     return _run(work, apply=True)
 
 
+def retract_job(work: kinds.Work) -> dict[str, Any]:
+    """보낸 것 걷어내기 — 무덤만 든 계획(미리 보기)을 올리고 파이프라인을 멈춘다. 적용 · 다시
+    켜기는 사람이. 선의 도착 쪽 타입은 대상의 관계 종류로 채운다(기준의 정의에 없을 때).
+    지우기는 대상 SP 판이 받을 때만 — 옛 판은 칸을 무시하고 사용 중지하므로, 사람이 고른 것과
+    다른 일이 조용히 일어나지 않게 여기서 멈춘다."""
+    found, pipeline, folder = _load(work)
+    work.progress("걷어내기 계획", 0, 0)
+    action = str(work.params.get("action") or "deprecate")
+    if action == "delete":
+        version = services.target_version(found.target_server)
+        if not retract.supports_delete(version):
+            since = ".".join(map(str, retract.DELETE_SINCE))
+            return {
+                "ok": False,
+                "status": "blocked",
+                "summary": f"[blocked] 대상 SP({version or '판 모름'})는 지우기를 받지 "
+                f"않습니다(SP {since} 부터) — 사용 중지로 걷어내거나, 대상 SP 를 올린 뒤 다시 "
+                "고르세요.",
+            }
+    model, _note = services.target_model(found, services.secrets_env(), work.db)
+    ends = {
+        str(one["slug"]): [str(x) for x in one["dst_type_slugs"]]
+        for one in model["relations"]
+        if one.get("slug") and one.get("dst_type_slugs")
+    }
+    try:
+        scope = retract.Scope.of(work.params.get("scope") or {})
+        outcome = retract.retract(
+            pipeline,
+            folder,
+            scope,
+            by=str(work.params.get("who") or ""),
+            action=action,
+            ends=ends,
+        )
+    except retract.RetractError as refused:
+        outcome = runner.Outcome("blocked", str(refused))
+    return {
+        "ok": outcome.status != "blocked",
+        "status": outcome.status,
+        "summary": f"[{outcome.status}] {outcome.message}",
+        "link": outcome.link,
+        "counts": outcome.counts,
+        "pruned": _tidy(folder),
+    }
+
+
 kinds.register(
     kinds.Kind(
         services.RUN_KIND,
@@ -191,6 +240,17 @@ kinds.register(
         allow_system=True,
         admin_only=True,
         after=alerts.after_job,
+    )
+)
+kinds.register(
+    kinds.Kind(
+        services.RETRACT_KIND,
+        "중계 걷어내기",
+        False,
+        False,
+        retract_job,
+        allow_system=False,
+        admin_only=True,
     )
 )
 kinds.register(

@@ -10,6 +10,9 @@
  *
  * **받기 점검이 멈췄으면**(대량 삭제 · 빈 칸) 「확인 후 진행」 을 낸다 — 지금 멈춘 건수 · 칸까지만
  * 지나가는 실행이다. 원천 · 어댑터를 바로잡았으면 그냥 「지금 실행」 이 지나간다.
+ *
+ * **보낸 것을 걷어내고 멈췄으면** 「지금 실행」 을 세우지 않는다(서버도 거절한다) — 「다시 켜기」 가
+ * 대신 선다(`RetractControls`). 걷어내기 계획의 「적용」 은 평소의 「적용」 이다.
  */
 
 import { useState } from 'react'
@@ -18,6 +21,7 @@ import { Link } from 'react-router-dom'
 
 import { jobLink, partsOf, relayApi, stateOf } from '@/modules/relay/api'
 import type { HeldIntake, PipelineDetail, QueuedOut } from '@/modules/relay/api'
+import { RetractControls } from '@/modules/relay/RetractControls'
 import { ConfirmDialog } from '@/shared/components/ConfirmDialog'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert'
@@ -79,6 +83,7 @@ export function PipelineActions({
   const [confirming, setConfirming] = useState(false)
   const held = stateOf(detail).held
   const pending = stateOf(detail).pending
+  const stopped = Boolean(stateOf(detail).stopped)
   // 나눠 보내다 뒤 조각에서 멈춘 계획은 「적용」 이 그 조각부터 다시 미리 본다.
   const resumes = Boolean(pending && !pending.ok && (pending.part ?? 0) > 0)
   const canApply = Boolean(pending?.ok) || resumes
@@ -123,7 +128,7 @@ export function PipelineActions({
   return (
     <section className="space-y-2 rounded-md border p-3">
       <div className="flex flex-wrap items-center gap-3">
-        <Button size="sm" onClick={() => void act('run')} disabled={busy !== null}>
+        <Button size="sm" onClick={() => void act('run')} disabled={busy !== null || stopped}>
           {busy === 'run' ? <Loader2 className="animate-spin" /> : <Play />}
           지금 실행
         </Button>
@@ -162,6 +167,15 @@ export function PipelineActions({
             : '적용을 기다리는 계획이 없습니다.'}
         {overwrite && ' 덮기를 선택하면 대상에서 사람이 수정한 칸도 원천 값으로 바뀝니다(계획에 적힙니다).'}
       </p>
+      <RetractControls
+        detail={detail}
+        onQueued={(made) => {
+          setFailed(null)
+          setQueued(made)
+          onQueued()
+        }}
+        onChanged={onQueued}
+      />
       {held && (
         <div className="space-y-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
           <p className="font-medium">받기 점검에서 멈췄습니다 — 미러 · 워터마크에 반영하지 않았습니다</p>

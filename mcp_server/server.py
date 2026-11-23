@@ -349,6 +349,44 @@ async def pipeline_reconcile(ctx: Context, slug: str, plan: bool = False) -> Any
 
 
 @mcp.tool()
+async def pipeline_retract(
+    ctx: Context,
+    slug: str,
+    all: bool = False,
+    types: list[str] | None = None,
+    keys: dict[str, list[str]] | None = None,
+    previous: bool = False,
+    action: str = "deprecate",
+    note: str = "",
+) -> Any:
+    """**보낸 것 걷어내기** — 이 파이프라인이 대상 SP 에 넣은 객체(시험으로 · 잘못 보낸 것)를
+    거두는 계획(미리 보기)을 올린다(작업). 고르기는 하나만: `all=True`(전부) · `types`(그 타입
+    전부) · `keys`(`{"plm_model": ["M-001"]}`). 이 파이프라인이 넣지 않은 것(다른 원천 · 사람이
+    만든 것)은 거절한다. 고른 객체에 닿는 선도 끊는다.
+
+    `action`: `deprecate`(기본 — 대상은 사용 중지로 둔다) · `delete`(지운다 — 되돌릴 수 없다.
+    대상 SP 0.4.101 부터, `pipeline_get` 의 `target_deletes`. 이력 · 감사 기록은 남고, 가리키는
+    것이 있으면 대상이 그 줄을 막는다). **사람이 지우라고 하지 않았으면 `delete` 를 고르지
+    않는다.** `previous=True` 는 앞서 사용 중지로 걷어낸 것 중 대상에 남은 것을 지운다(`delete`
+    로만).
+
+    올리면 **파이프라인이 멈춘다**(원천에 그 행이 그대로면 다음 실행이 다시 만드니까). 적용과
+    「다시 켜기」 는 사람이 화면에서 한다 — 사람에게 계획 링크(job_status 의 결과)와 함께,
+    원천에서 지우거나 레시피를 고친 뒤 다시 켜라고 말한다. **사람이 걷어내라고 하지 않았으면
+    부르지 않는다.**
+    `note` 에 까닭을(감사 기록에)."""
+    body = {
+        "all": all,
+        "types": types or [],
+        "keys": keys or {},
+        "previous": previous,
+        "action": action,
+        "note": note,
+    }
+    return await _call(ctx, "POST", f"/relay/pipelines/{slug}/retract", body=body)
+
+
+@mcp.tool()
 async def pipeline_reconcile_report(ctx: Context, slug: str) -> Any:
     """마지막 대조의 보고서 — 타입마다 빠짐 · 안 씀 · 다름(키 → 칸) · 대상에만의 식별자
     전부."""

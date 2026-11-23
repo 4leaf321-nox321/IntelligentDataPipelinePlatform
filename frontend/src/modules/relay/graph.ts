@@ -33,6 +33,7 @@ const STATUS_RANK: Record<string, number> = {
   broken: 5,
   blocked: 4,
   pending: 3,
+  stopped: 2,
   never: 1,
   draft: 1,
 }

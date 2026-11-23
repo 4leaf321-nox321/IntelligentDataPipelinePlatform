@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import itertools
 import json
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request, Response
@@ -51,9 +51,10 @@ from app.modules.relay.schemas import (
     TypeDraftIn,
     TypePlanIn,
 )
+from app.shared import audit
 from app.shared.auth import current_user, require_system_admin
 from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
-from relay_core import intake
+from relay_core import intake, retract
 from relay_core.state import TREND_MAX, Workdir
 
 router = APIRouter(prefix="/relay", tags=["relay"])
@@ -108,6 +109,9 @@ def pipeline_run(
     user: User = Depends(require_system_admin),
     db: Session = Depends(get_db),
 ) -> QueuedOut:
+    stopped = (services.read_state(slug) or {}).get("stopped")
+    if stopped:
+        raise Conflict(code("RELAY", 41), retract.stopped_message(stopped))
     params: dict[str, Any] = {"slug": slug}
     if body and body.human_edits:
         params["human_edits"] = body.human_edits
@@ -182,6 +186,129 @@ def pipeline_reconcile(
         services.RECONCILE_KIND,
         {"slug": slug, "plan": bool(body and body.plan)},
     )
+
+
+class RetractIn(BaseModel):
+    action: Literal["deprecate", "delete"] = "deprecate"
+    """대상에서 어떻게 거두나 — 사용 중지(기본) · 지우기(대상 SP 0.4.101 부터, 기록은 남는다.
+    가리키는 것이 있으면 대상이 그 줄을 막는다)."""
+    all: bool = False
+    """이 파이프라인이 대상에 넣은 것 **전부**."""
+    types: list[str] = []
+    """이 타입의 것 전부."""
+    keys: dict[str, list[str]] = {}
+    """타입마다 식별자 — `{"plm_model": ["M-001", …]}`."""
+    previous: bool = False
+    """앞서 사용 중지로 걷어낸 것 — 대상에 사용 중지로 남은 것을 지운다(`action: delete`
+    로만)."""
+    note: str = ""
+    """왜 걷어내나(감사 기록에)."""
+
+
+@router.post("/pipelines/{slug}/retract", response_model=QueuedOut, status_code=202)
+def pipeline_retract(
+    slug: str,
+    body: RetractIn,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> QueuedOut:
+    """보낸 것 걷어내기(`relay_core.retract`) — 이 파이프라인이 대상에 넣은 것(기준)에서 고른
+    객체와 그것에 닿는 선을 **사용 중지 · 끊기**로 거두는 계획(미리 보기)을 올리고 파이프라인을
+    멈춘다. 대상 SP 는 원천이 잠근 타입의 객체를 화면에서 못 지운다 — 그래서 원천 쪽에서
+    시킨다. AI(토큰)도 계획까지는 올린다 — **적용 · 다시 켜기는 화면에서 사람이.**"""
+    try:
+        scope = retract.Scope.of(body.model_dump())
+        retract.check(scope, body.action)
+    except retract.RetractError as bad:
+        raise AppError(code("RELAY", 44), str(bad), status=422) from None
+    state = services.read_state(slug) or {}
+    if not state.get("applied_run") and not state.get("pending"):
+        raise Conflict(
+            code("RELAY", 44), f"{slug} 은 대상에 적용한 것이 없어 걷어낼 것이 없습니다."
+        )
+    if state.get("stopped") and state.get("pending"):
+        raise Conflict(
+            code("RELAY", 44),
+            f"{slug} 은 걷어내기 계획이 이미 적용을 기다립니다 — 그 계획을 적용하거나, 「다시 "
+            "켜기」 로 거둔 뒤 새로 고르세요.",
+        )
+    by_token = getattr(request.state, "token_scopes", None) is not None
+    who = f"{user.display_name} (MCP)" if by_token else user.display_name
+    audit.record(
+        db,
+        action="relay.retract.request",
+        actor=user,
+        target_table="relay_pipelines",
+        target_id=None,
+        target_label=slug,
+        changes={"scope": scope.to_json(), "action": body.action, "note": body.note[:200]},
+    )
+    return _queue(
+        db,
+        user,
+        services.RETRACT_KIND,
+        {"slug": slug, "scope": scope.to_json(), "action": body.action, "who": who},
+    )
+
+
+class ResumeOut(BaseModel):
+    message: str
+
+
+@router.post("/pipelines/{slug}/resume", response_model=ResumeOut)
+def pipeline_resume(
+    slug: str,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> ResumeOut:
+    """걷어내고 멈춘 파이프라인을 다시 켠다 — **화면에서 사람만**(원천에서 지웠는지 · 레시피를
+    고쳤는지는 사람이 안다 — 안 그러면 다음 실행이 걷어낸 것을 다시 만든다). 걷어내기 계획이
+    아직 대기 중이면, 대상에서 적용됐으면 기준으로 올리고 아니면 그 계획을 거둔다."""
+    if getattr(request.state, "token_scopes", None) is not None:
+        raise Forbidden(
+            code("RELAY", 42),
+            "다시 켜기는 화면에서 사람이 합니다 — 토큰(MCP)으로는 켤 수 없습니다. 원천에서 "
+            "걷어낸 행을 지웠는지 · 레시피를 고쳤는지 확인한 뒤 화면에서 「다시 켜기」 를 "
+            "클릭하세요.",
+        )
+    found = services.by_slug(slug, db)
+    if any(
+        one.status in ("queued", "running") for one in services.recent_jobs(db, slug, limit=5)
+    ):
+        raise Conflict(
+            code("RELAY", 43),
+            f"{slug} 의 작업이 대기 중이거나 도는 중입니다 — 끝난 뒤 다시 켜세요.",
+        )
+    token = services.secrets_env().get(found.target_token_env, "")
+
+    def applied(job_id: str) -> bool | None:
+        if not token or not found.target_server:
+            return None
+        status, answer = services.probe_http(found.target_server, token, f"/api/jobs/{job_id}")
+        if status == 404:
+            return False  # 대상에 그 작업이 없다 — 적용될 수 없다
+        if status != 200 or not isinstance(answer, dict):
+            return None
+        return bool(answer.get("applied_by"))
+
+    work = Workdir(get_settings().relay_work_dir, slug)
+    try:
+        message = retract.resume(work, applied, by=user.display_name)
+    except retract.RetractError as refused:
+        raise Conflict(code("RELAY", 43), str(refused)) from None
+    audit.record(
+        db,
+        action="relay.resume",
+        actor=user,
+        target_table="relay_pipelines",
+        target_id=None,
+        target_label=slug,
+        changes={"message": message[:200]},
+    )
+    db.commit()
+    return ResumeOut(message=message)
 
 
 @router.get("/pipelines/{slug}/reconcile")

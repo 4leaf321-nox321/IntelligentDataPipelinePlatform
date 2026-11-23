@@ -9,7 +9,8 @@
  * 계획이 사람을 기다리면(「자동 적용 안 함」) 그 까닭을 줄 아래에 늘어놓는다.
  *
  * 대조(「대조」)는 결과 한 줄과 함께 — 어긋남이 있으면 주의의 배지. 대조가 올린 계획은 원천이 바뀌어
- * 올린 계획과 다른 이름(「보정 계획」)을 쓴다 — 같은 「계획 생성」 이면 원천이 바뀐 줄로 읽힌다.
+ * 올린 계획과 다른 이름(「보정 계획」)을 쓴다 — 같은 「계획 생성」 이면 원천이 바뀐 줄로 읽힌다. 보낸 것
+ * 걷어내기의 계획도 그렇다(「걷어내기 계획」 — 무엇을 골랐나와 함께).
  */
 
 import type { ReactNode } from 'react'
@@ -47,6 +48,8 @@ const EVENT_LABEL: Record<string, string> = {
   nothing: '보낼 것 없음',
   auto_skipped: '자동 적용 안 함',
   reconciled: '대조',
+  retract_cancelled: '걷어내기 거둠',
+  resumed: '다시 켬',
 }
 
 /**
@@ -56,6 +59,8 @@ const EVENT_LABEL: Record<string, string> = {
 function eventLabel(one: HistoryEvent): string {
   if (one.event === 'applied' && one.by === 'auto') return '자동 적용'
   if (one.event === 'planned' && one.origin === 'reconcile') return '보정 계획'
+  if (one.event === 'planned' && one.origin === 'retract') return '걷어내기 계획'
+  if (one.event === 'blocked' && one.origin === 'retract') return '걷어내기 계획 오류'
   return EVENT_LABEL[one.event ?? ''] ?? one.event ?? '—'
 }
 
@@ -63,6 +68,7 @@ const JOB_KIND: Record<string, string> = {
   relay_run: '실행',
   relay_apply: '적용',
   relay_reconcile: '대조',
+  relay_retract: '걷어내기',
 }
 
 /** 작업의 종류 — 대조 작업 중 보정 계획까지 간 것은 그렇다고 적는다. */
@@ -93,6 +99,23 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
         )}
       </Fact>
       <Fact label="마지막 적용">{shownDateTime(state.applied_at)}</Fact>
+      {state.stopped && (
+        <Fact label="멈춤">
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <StatusBadge kind="relay_pipeline" value="stopped" />
+              <span className="text-muted-foreground text-xs">
+                {shownDateTime(state.stopped.at)}
+                {state.stopped.by ? ` · ${state.stopped.by}` : ''}
+              </span>
+            </div>
+            {state.stopped.scope && <p className="text-xs">걷어낸 것: {state.stopped.scope}</p>}
+            <p className="text-muted-foreground text-xs">
+              실행 · 타이머가 돌지 않습니다 — 원천에 그 행이 그대로 있으면 다음 실행이 다시 만들기 때문입니다.
+            </p>
+          </div>
+        </Fact>
+      )}
       {state.held && (
         <Fact label="받기 점검">
           <div className="space-y-1">
@@ -118,6 +141,9 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
               <StatusBadge kind="relay_pipeline" value={pending.ok ? 'pending' : 'blocked'} />
               {pending.origin === 'reconcile' && (
                 <span className="text-xs font-medium">보정 계획</span>
+              )}
+              {pending.origin === 'retract' && (
+                <span className="text-xs font-medium">걷어내기 계획</span>
               )}
               {partsOf(pending) > 1 && (
                 <span className="text-xs font-medium">
@@ -180,9 +206,10 @@ export function PipelineHistory({ detail }: { detail: PipelineDetail }) {
               <StatusBadge kind="relay_reconcile" value={one.drift ? 'drift' : 'same'} />
             )}
             {line && <span className="text-muted-foreground text-xs">{line}</span>}
-            {one.event === 'held_accepted' && one.by && (
-              <span className="text-muted-foreground text-xs">{one.by}</span>
-            )}
+            {(one.event === 'held_accepted' || one.origin === 'retract' || one.event === 'resumed' ||
+              one.event === 'retract_cancelled') &&
+              one.by && <span className="text-muted-foreground text-xs">{one.by}</span>}
+            {one.scope && <span className="text-muted-foreground text-xs">{one.scope}</span>}
             {one.event === 'reconciled' && one.summary && (
               <span className="text-muted-foreground text-xs">{one.summary}</span>
             )}

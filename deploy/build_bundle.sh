@@ -147,10 +147,23 @@ chmod +x "$STAGE"/*.sh
 # (PPA 있음 · 운영과 같은 우분투 24.04/amd64)에서 미리 받아 두면 deploy.sh 의
 # ensure_apptainer 가 이것을 1순위로 깐다. uidmap · libfuse3-3 은 최소 설치 서버에 없을 수
 # 있는 의존성이다.
+#
+# CI 가 PPA 대신 공식 GitHub 릴리스의 .deb 로 깔았으면(`.github/actions/apptainer` — Launchpad
+# 장애) apt 목록에 apptainer 가 없다. 그때는 그 .deb(`APPTAINER_DEB_DIR`)를 담고 나머지 둘만
+# 기본 저장소에서 받는다.
 echo "==> [3a/4] apptainer .deb 동봉 (오프라인 설치용)"
 mkdir -p "$STAGE/apptainer_debs"
+fallback_debs() {
+    local dir="${APPTAINER_DEB_DIR:-}"
+    [[ -n "$dir" ]] && compgen -G "$dir/apptainer_*.deb" >/dev/null || return 1
+    rm -f "$STAGE/apptainer_debs"/*.deb
+    cp "$dir"/apptainer_*.deb "$STAGE/apptainer_debs/" || return 1
+    (cd "$STAGE/apptainer_debs" && apt-get download uidmap libfuse3-3 >/dev/null 2>&1)
+}
 if (cd "$STAGE/apptainer_debs" && apt-get download apptainer uidmap libfuse3-3 >/dev/null 2>&1); then
     echo "    동봉: $(ls "$STAGE/apptainer_debs" | tr '\n' ' ')"
+elif fallback_debs; then
+    echo "    동봉(PPA 대신 공식 GitHub 릴리스의 .deb): $(ls "$STAGE/apptainer_debs" | tr '\n' ' ')"
 else
     rm -rf "$STAGE/apptainer_debs"
     echo "    ⚠ apt-get download 실패(빌드 머신에 apptainer PPA 가 없나?) — .deb 미동봉."

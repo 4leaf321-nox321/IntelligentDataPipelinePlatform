@@ -6,7 +6,8 @@
  * 보이고, 본보기가 잘렸으면 전체 보고서를 권한다. 보정 계획은 적용을 기다리는 계획이 있으면 막힌다.
  * 값의 출처는 대조 본보기의 식별자를 클릭해도, 직접 입력해도 조회하고, 못 찾으면 서버의 까닭을 보인다.
  * 받기 점검이 멈추면 까닭과 「확인 후 진행」(확인 창의 숫자), 늦으면 맨 위에 까닭, 실행 추이는 그림과
- * 실패 · 멈춤의 줄을 보인다.
+ * 실패 · 멈춤의 줄을 보인다. 보낸 것 걷어내기는 고른 식별자로 작업을 넣고, 걷어내고 멈추면 「지금
+ * 실행」 대신 「다시 켜기」 가 선다.
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react'
@@ -52,6 +53,8 @@ const relayApi = vi.hoisted(() => ({
   aliasCsv: vi.fn(),
   run: vi.fn(),
   apply: vi.fn(),
+  retract: vi.fn(),
+  resume: vi.fn(),
   reconcile: vi.fn(),
   reconcileReport: vi.fn(),
   trace: vi.fn(),
@@ -161,6 +164,9 @@ function detail(over: Partial<PipelineDetail> = {}): PipelineDetail {
     target_schema_note: '',
     reconcile: null,
     reconcile_label: '수동',
+    target_version: 'v0.4.100',
+    target_deletes: false,
+    retracted: 0,
     ...over,
   }
 }
@@ -1420,5 +1426,143 @@ describe('미해결 작업함', () => {
     await mount()
     expect(screen.queryByText('미해결 작업함')).not.toBeInTheDocument()
     expect(relayApi.unresolved).not.toHaveBeenCalled()
+  })
+})
+
+describe('보낸 것 걷어내기', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    auth.admin = true
+    relayApi.recipes.mockResolvedValue(VERSIONS)
+    relayApi.definitions.mockResolvedValue([])
+  })
+
+  it('적용을 기다리는 계획이 있으면 막힌다', async () => {
+    relayApi.pipeline.mockResolvedValue(
+      detail({ state: { ...detail().state, applied_run: 'runs/20261103T090000000000Z' } }),
+    )
+    await mount()
+    expect(screen.getByRole('button', { name: /보낸 것 걷어내기/ })).toBeDisabled()
+  })
+
+  it('대상에 넣은 것이 없으면 걷어내기 단추가 없다', async () => {
+    relayApi.pipeline.mockResolvedValue(detail())
+    await mount()
+    expect(screen.queryByRole('button', { name: /보낸 것 걷어내기/ })).not.toBeInTheDocument()
+  })
+
+  it('식별자를 줄 · 쉼표로 받아 그 타입의 것만 보낸다', async () => {
+    relayApi.pipeline.mockResolvedValue(
+      detail({
+        status: 'ok',
+        state: { ...detail().state, applied_run: 'runs/20261104T090000000000Z', pending: null },
+      }),
+    )
+    relayApi.retract.mockResolvedValue({ job_id: 'job-9', kind: 'relay_retract' })
+    await mount()
+    await userEvent.click(screen.getByRole('button', { name: /보낸 것 걷어내기/ }))
+    const dialog = await screen.findByRole('dialog')
+    const send = within(dialog).getByRole('button', { name: '걷어내기 계획 올리기' })
+    expect(send).toBeDisabled() // 아직 고른 것이 없다
+    await userEvent.type(within(dialog).getByLabelText('걷어낼 식별자'), 'T-1, T-2{enter}T-1')
+    expect(within(dialog).getByText('2개')).toBeInTheDocument()
+    await userEvent.click(send)
+    await waitFor(() =>
+      expect(relayApi.retract).toHaveBeenCalledWith('plm-tasks', { keys: { plm_task: ['T-1', 'T-2'] } }),
+    )
+    expect(await screen.findByText('걷어내기 작업을 등록했습니다')).toBeInTheDocument()
+  })
+
+  it('걷어내고 멈추면 「지금 실행」 대신 「다시 켜기」 — 확인 창이 대기 중인 계획을 거둔다고 말한다', async () => {
+    const stopped = {
+      at: '2026-11-04T10:00:00Z',
+      by: '관리자 (MCP)',
+      why: 'retract',
+      scope: '식별자 2개(plm_task 2)',
+    }
+    relayApi.pipeline.mockResolvedValue(
+      detail({
+        status: 'pending',
+        state: {
+          ...detail().state,
+          stopped,
+          pending: { job_id: 'plan-9', ok: true, summary: '사용 중지 2', at: stopped.at, origin: 'retract' },
+        },
+        history: [
+          { at: stopped.at, event: 'planned', origin: 'retract', ok: true, scope: stopped.scope, by: stopped.by },
+        ],
+      }),
+    )
+    relayApi.resume.mockResolvedValue({ message: '다시 켰습니다 — 다음 실행부터 돕니다.' })
+    await mount()
+    expect(screen.getByRole('button', { name: /지금 실행/ })).toBeDisabled()
+    expect(screen.getByText(/보낸 것을 걷어내고 멈췄습니다 — 식별자 2개/)).toBeInTheDocument()
+    expect(screen.getAllByText('걷어내기 계획').length).toBeGreaterThan(0) // 대기 계획 · 이력의 이름
+    await userEvent.click(screen.getByRole('button', { name: /다시 켜기/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByText(/그 계획을 거둡니다/)).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: '다시 켜기' }))
+    await waitFor(() => expect(relayApi.resume).toHaveBeenCalledWith('plm-tasks'))
+    expect(await screen.findByText(/다시 켰습니다/)).toBeInTheDocument()
+  })
+
+  it('상태 배지의 이름', () => {
+    expect(statusLabel('relay_pipeline', 'stopped')).toBe('걷어내고 멈춤')
+  })
+
+  it('대상이 지우기를 받으면 지우기와 「앞서 걷어낸 것」 을 고를 수 있다', async () => {
+    relayApi.pipeline.mockResolvedValue(
+      detail({
+        status: 'ok',
+        target_version: 'v0.4.101',
+        target_deletes: true,
+        retracted: 3,
+        state: { ...detail().state, applied_run: 'runs/20261104T090000000000Z', pending: null },
+      }),
+    )
+    relayApi.retract.mockResolvedValue({ job_id: 'job-10', kind: 'relay_retract' })
+    await mount()
+    await userEvent.click(screen.getByRole('button', { name: /보낸 것 걷어내기/ }))
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.click(within(dialog).getByLabelText(/^지우기/))
+    await userEvent.type(within(dialog).getByLabelText('걷어낼 식별자'), 'T-1')
+    await userEvent.click(within(dialog).getByRole('button', { name: '걷어내기 계획 올리기' }))
+    await waitFor(() =>
+      expect(relayApi.retract).toHaveBeenCalledWith('plm-tasks', { action: 'delete', keys: { plm_task: ['T-1'] } }),
+    )
+  })
+
+  it('앞서 걷어낸 것은 지우기로만 — 옛 SP 면 지우기를 막고 판을 말한다', async () => {
+    relayApi.pipeline.mockResolvedValue(
+      detail({
+        status: 'ok',
+        target_deletes: true,
+        target_version: 'v0.4.101',
+        retracted: 2,
+        state: { ...detail().state, applied_run: 'runs/20261104T090000000000Z', pending: null },
+      }),
+    )
+    relayApi.retract.mockResolvedValue({ job_id: 'job-11', kind: 'relay_retract' })
+    await mount()
+    await userEvent.click(screen.getByRole('button', { name: /보낸 것 걷어내기/ }))
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.click(within(dialog).getByLabelText(/앞서 사용 중지로 걷어낸 것 지우기/))
+    expect(within(dialog).getByLabelText(/^사용 중지/)).toBeDisabled()
+    await userEvent.click(within(dialog).getByRole('button', { name: '걷어내기 계획 올리기' }))
+    await waitFor(() =>
+      expect(relayApi.retract).toHaveBeenCalledWith('plm-tasks', { previous: true, action: 'delete' }),
+    )
+  })
+
+  it('옛 SP 면 지우기를 고를 수 없고 판을 말한다', async () => {
+    relayApi.pipeline.mockResolvedValue(
+      detail({ status: 'ok', state: { ...detail().state, applied_run: 'runs/x', pending: null }, retracted: 4 }),
+    )
+    await mount()
+    await userEvent.click(screen.getByRole('button', { name: /보낸 것 걷어내기/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).getByLabelText(/^지우기/)).toBeDisabled()
+    expect(within(dialog).getByText(/v0\.4\.100\) 는 지우기를 받지 않습니다/)).toBeInTheDocument()
+    expect(within(dialog).queryByLabelText(/앞서 사용 중지로 걷어낸 것/)).not.toBeInTheDocument()
   })
 })

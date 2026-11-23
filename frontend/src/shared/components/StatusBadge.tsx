@@ -166,6 +166,8 @@ const RELAY_PIPELINE: Record<string, { label: string; tone: Tone }> = {
   never: { label: '실행 전', tone: 'neutral' },
   // 초안도 사고가 아니다 — 정의 판을 켜기 전까지 안 돌 뿐이다(실행도 서버가 거절한다).
   draft: { label: '초안(미사용)', tone: 'neutral' },
+  // 보낸 것을 걷어내고 멈췄다 — 사람이 고른 일이라 사고는 아니지만, 다시 켜기 전엔 흐르지 않는다.
+  stopped: { label: '걷어내고 멈춤', tone: 'warn' },
 }
 
 /** 중계의 대상 SP — 지금 닿나. */

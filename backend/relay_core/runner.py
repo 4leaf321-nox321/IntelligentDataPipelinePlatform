@@ -266,6 +266,14 @@ def _run(
     submit = submit or Submitter(pipeline.target)
     state = work.load_state()
     note = settle_pending(state, submit)
+    if state.stopped:
+        # 보낸 것을 걷어내고 멈췄다(`retract`) — 원천을 받지 않는다(받으면 원천에 남은 그
+        # 행을 다음 계획이 다시 만든다). 걷어내기 계획이 적용됐으면 위에서 기준으로 올렸다.
+        if note:
+            work.save_state(state)
+        from relay_core.retract import stopped_message
+
+        return Outcome("stopped", note + stopped_message(state.stopped))
 
     since = None if full else state.watermark
     if full:
@@ -393,6 +401,12 @@ def _run(
         scratch=work.path(f"work/{when}.send.spill"),
     )
     counts = counts_of(found)
+    if not found.empty:
+        # 걷어낸 적이 있는 것을 다시 보내면 되살린다(`retract.revive`) — 대상에 사용 중지로
+        # 남아 있다.
+        from relay_core.retract import revive
+
+        revive(work, found.run)
     if found.empty:
         if superseded:
             # 들어간 조각까지로 이미 원천과 같다 — 남은 조각은 보낼 것이 아니다.

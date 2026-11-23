@@ -101,6 +101,12 @@ class PipelineDetail(BaseModel):
     draft: bool = False
     """사용 중인 정의가 없다 — 실행되지 않는다. 화면이 「사용」 을 권한다."""
     reconcile: dict[str, Any] | None = None
+    target_version: str = ""
+    """대상 SP 의 판(`/api/health`) — 못 닿았으면 빈 글."""
+    target_deletes: bool = False
+    """대상 SP 가 걷어내기의 지우기(`action: delete`)를 받나 — SP 0.4.101 부터."""
+    retracted: int = 0
+    """거둔 적이 있는 식별자의 수 — 「앞서 사용 중지로 걷어낸 것 지우기」 를 낼지."""
     """마지막 대조(`relay_core.reconcile.Report`) — 타입 · 갈래마다 본보기 20개까지. 전부는
     `GET /pipelines/{slug}/reconcile`. 대조한 적이 없으면 None."""
     reconcile_label: str = "수동"

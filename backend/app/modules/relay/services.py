@@ -46,6 +46,7 @@ from relay_core.state import TREND, Workdir
 RUN_KIND = "relay_run"
 APPLY_KIND = "relay_apply"
 RECONCILE_KIND = "relay_reconcile"
+RETRACT_KIND = "relay_retract"
 #: 타이머의 자문 잠금 이름 — 이중화에서 한 대만 넣는다(`enqueue_due`).
 DUE_LOCK = "datarelay:relay_due"
 
@@ -61,6 +62,7 @@ STATUS_LABEL = {
     "broken": "정의 오류",
     "never": "실행 전",
     "draft": "초안(미사용)",
+    "stopped": "걷어내고 멈춤",
 }
 
 
@@ -197,6 +199,28 @@ def settle_seen(db: Session, found: Described, env: Mapping[str, str] | None = N
     return note
 
 
+def target_version(server: str) -> str:
+    """대상 SP 의 판(`/api/health` 의 `version` — `v0.4.101`). 못 닿으면 빈 글."""
+    if not server:
+        return ""
+    status_code, health = probe_http(server, "", "/api/health")
+    if status_code != 200 or not isinstance(health, dict):
+        return ""
+    return str(health.get("version") or "")
+
+
+def retracted_count(slug: str) -> int:
+    """거둔 적이 있는 식별자의 수(`relay_core.retract.LEDGER`) — 화면이 「앞서 걷어낸 것」 을
+    낼지 정한다. 읽기만 한다."""
+    from relay_core import retract
+
+    file = get_settings().relay_work_dir / slug / retract.LEDGER
+    if not file.is_file():
+        return 0
+    body = json.loads(file.read_text(encoding="utf-8"))
+    return sum(len(keys) for keys in body.values() if isinstance(keys, list))
+
+
 def read_report(slug: str) -> dict[str, Any] | None:
     """마지막 대조의 보고서(`reconcile.json`) — 없으면 None. 읽기만 한다."""
     file = get_settings().relay_work_dir / slug / reconcile.REPORT
@@ -230,7 +254,7 @@ def recent_jobs(
     db: Session,
     slug: str,
     limit: int = 10,
-    kinds: tuple[str, ...] = (RUN_KIND, APPLY_KIND, RECONCILE_KIND),
+    kinds: tuple[str, ...] = (RUN_KIND, APPLY_KIND, RECONCILE_KIND, RETRACT_KIND),
 ) -> list[Job]:
     rows = db.scalars(
         select(Job)
@@ -261,6 +285,10 @@ def status_of(
             return "failed"
     if state is None:
         return "late" if late else "never"
+    # 보낸 것을 걷어내고 멈췄다(`relay_core.retract`) — 걷어내기 계획이 대기 중이면
+    # 「적용 대기」.
+    if state.get("stopped") and not state.get("pending"):
+        return "stopped"
     # 받기 점검이 멈췄다 — 대기 계획이 있어도(앞 실행의 것) 새 원천은 사람을 기다린다.
     if state.get("held"):
         return "blocked"
@@ -283,6 +311,8 @@ def lateness(db: Session, found: Described, now: datetime | None = None) -> str:
     minutes = get_settings().relay_late_minutes
     if found.draft or found.problems or not found.schedule or not minutes:
         return ""
+    if (read_state(found.slug) or {}).get("stopped"):
+        return ""  # 걷어내고 멈췄다 — 돌 차례가 없다
     moment = now or datetime.now().astimezone()
     jobs = recent_jobs(db, found.slug, limit=20, kinds=(RUN_KIND,))
     finished = next(
@@ -549,11 +579,23 @@ def detail(db: Session, slug: str) -> PipelineDetail:
     safe_state = {
         key: value
         for key, value in (state or {}).items()
-        if key in ("watermark", "applied_run", "applied_at", "pending", "incrementals", "held")
+        if key
+        in (
+            "watermark",
+            "applied_run",
+            "applied_at",
+            "pending",
+            "incrementals",
+            "held",
+            "stopped",
+        )
     }
     report = read_report(slug)
     if report is not None:
         report = reconcile.Report.from_json(report).to_json(sample=reconcile.SAMPLE)
+    version = target_version(found.target_server) if not found.draft else ""
+    from relay_core import retract
+
     return PipelineDetail(
         slug=found.slug,
         system=found.system,
@@ -596,6 +638,9 @@ def detail(db: Session, slug: str) -> PipelineDetail:
         draft=found.draft,
         reconcile=report,
         reconcile_label=reconcile_label(),
+        target_version=version,
+        target_deletes=retract.supports_delete(version),
+        retracted=retracted_count(slug),
     )
 
 
@@ -631,7 +676,15 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
     """**적용을 기다리는 계획 · 멈춘 · 실패한 파이프라인**을 홈이 말한다 — 지도를 안 열어도."""
     if not viewer.is_system_admin:
         return []
-    counts = {"pending": 0, "blocked": 0, "late": 0, "failed": 0, "broken": 0, "drift": 0}
+    counts = {
+        "pending": 0,
+        "blocked": 0,
+        "late": 0,
+        "failed": 0,
+        "broken": 0,
+        "drift": 0,
+        "stopped": 0,
+    }
     env = secrets_env()
     for found in catalog(db):
         settle_seen(db, found, env)
@@ -666,6 +719,13 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
             link="/relay/map",
             severity="warning",
         ),
+        # 걷어내고 멈춘 것은 사고가 아니다 — 다시 켜는 것을 잊지 않게만.
+        extensions.MaintenanceItem(
+            key="relay_stopped",
+            label="보낸 것을 걷어내고 멈춘 파이프라인",
+            count=counts["stopped"],
+            link="/relay/map",
+        ),
     ]
     return [one for one in items if one.count]
 
@@ -690,7 +750,7 @@ def enqueue_due(db: Session, now: datetime | None = None) -> list[str]:
     for found in catalog(db):
         if found.draft or found.problems:
             continue
-        if found.schedule:
+        if found.schedule and not (read_state(found.slug) or {}).get("stopped"):
             jobs = recent_jobs(db, found.slug, limit=5, kinds=(RUN_KIND,))
             last = jobs[0].created_at.astimezone(moment.tzinfo) if jobs else None
             busy = any(one.status in ("queued", "running") for one in jobs)
