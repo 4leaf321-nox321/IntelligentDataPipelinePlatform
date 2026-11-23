@@ -10,6 +10,12 @@ relay 는 대상의 타입을 만들지 않는다(온톨로지는 대상에서 �
 (`object_ref`)는 표본으로는 모른다 — 관리자가 정한다.
 
 같은 칸 대응으로 **레시피의 첫 판**(식별자 · 이름 · 칸마다 열)도 낸다 — 날짜 칸은 `date`.
+
+**사이드바 묶음**(`nav_group`) — 그 타입을 SP 사이드바의 어느 묶음에 둘지. 이미 있는 묶음의
+slug, 또는 새 묶음(`{slug, label, icon, …}` — 정의의 `groups` 로 함께 만든다). 안 주면
+`suggest_group` 이 대상의 묶음에서 고른다: 같은 원천의 타입이 든 묶음 › 이름이 원천과 같은
+묶음 › 없으면 새 묶음. 묶음은 원천으로 잠기지 않는다(SP 의 화면 구성이다 — 적용 뒤에도 SP
+관리자가 고친다).
 """
 
 from __future__ import annotations
@@ -28,6 +34,80 @@ _BOOL = {"true", "false", "y", "n", "yes", "no"}
 _URL = re.compile(r"^https?://\S+$")
 _SLUG = re.compile(r"^[a-z][a-z0-9_]{0,59}$")
 LONG = 200
+#: 사이드바 묶음의 칸 — SP 의 정의 가져오기가 받는 것(`ontology/importer.GROUP_FIELDS`).
+GROUP_KEYS = {"slug", "label", "icon", "audience", "color", "parent_slug", "sort_order"}
+_GROUP_SLUG = re.compile(r"^[a-z][a-z0-9_-]{0,59}$")
+_AUDIENCES = {"everyone", "manager", "system_admin"}
+_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def check_group(group: Mapping[str, Any]) -> dict[str, Any]:
+    """새 사이드바 묶음의 모양 — 잘못이면 `ValueError`(SP 가 거절하기 전에)."""
+    unknown = sorted(set(group) - GROUP_KEYS)
+    if unknown:
+        raise ValueError(f"묶음: 모르는 칸입니다: {', '.join(unknown)}")
+    slug = str(group.get("slug") or "")
+    if not _GROUP_SLUG.match(slug):
+        raise ValueError(
+            "묶음 slug 는 소문자로 시작하는 소문자 · 숫자 · '_' · '-' 60자 이내입니다: "
+            f"{slug!r}"
+        )
+    label = str(group.get("label") or "").strip()
+    if not label or len(label) > 100:
+        raise ValueError(f"묶음 {slug}: 이름(label)이 있어야 합니다(100자 이내).")
+    if "audience" in group and group["audience"] not in _AUDIENCES:
+        raise ValueError(
+            f"묶음 {slug}: audience 는 {' · '.join(sorted(_AUDIENCES))} 중 하나입니다."
+        )
+    if "color" in group and not _COLOR.match(str(group["color"])):
+        raise ValueError(f"묶음 {slug}: color 는 #rrggbb 입니다.")
+    return {**dict(group), "slug": slug, "label": label}
+
+
+def suggest_group(
+    groups: Sequence[Mapping[str, Any]],
+    types: Mapping[str, Mapping[str, Any]],
+    source: str,
+    system: str = "",
+) -> dict[str, Any]:
+    """그 원천의 새 타입을 둘 사이드바 묶음 — `{"slug", "label", "new", "why"}`.
+
+    1. 같은 원천(`managed_by`)의 타입이 가장 많이 든 묶음 — 사람이 그 원천을 이미 거기서 본다.
+    2. slug · 이름이 원천 이름 · 시스템 이름과 같은 묶음.
+    3. 없으면 새 묶음(slug 는 원천 이름, 이름은 시스템 이름).
+    """
+    known = {str(one.get("slug")): one for one in groups if one.get("slug")}
+    counts: dict[str, int] = {}
+    for one in types.values():
+        slug = str(one.get("nav_group_slug") or "")
+        if slug in known and source and one.get("managed_by") == source:
+            counts[slug] = counts.get(slug, 0) + 1
+    if counts:
+        best = max(counts, key=lambda slug: (counts[slug], slug))
+        return {
+            "slug": best,
+            "label": str(known[best].get("label") or best),
+            "new": False,
+            "why": f"원천 {source} 의 타입 {counts[best]}개가 든 묶음",
+        }
+    names = {one.lower() for one in (source, system) if one}
+    for slug, one in known.items():
+        if slug.lower() in names or str(one.get("label") or "").lower() in names:
+            return {
+                "slug": slug,
+                "label": str(one.get("label") or slug),
+                "new": False,
+                "why": "이름이 원천과 같은 묶음",
+            }
+    slug = re.sub(r"[^a-z0-9_-]", "_", (source or "relay").lower())
+    if not slug[:1].isalpha():
+        slug = f"g_{slug}"
+    return {
+        "slug": slug[:60],
+        "label": system or (source or "relay").upper(),
+        "new": True,
+        "why": "맞는 묶음이 없어 새로 — 원천의 이름으로",
+    }
 
 
 def data_type(values: Sequence[str]) -> str:
@@ -70,9 +150,10 @@ def draft(
     key_column: str,
     label_column: str = "",
     system: str = "",
+    nav_group: str | Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """`{"ontology": {...}, "recipe": {...}}` — 타입 정의 초안과 그 타입으로 옮기는 레시피의
-    첫 판."""
+    첫 판. `nav_group` 은 사이드바 묶음 — 있는 묶음의 slug 또는 새 묶음(정의의 `groups` 로)."""
     if not _SLUG.match(type_slug):
         raise ValueError(
             "타입 slug 는 소문자로 시작하는 소문자 · 숫자 · '_' 60자 이내입니다: "
@@ -107,6 +188,14 @@ def draft(
             }
         ]
     }
+    if isinstance(nav_group, Mapping):
+        group = check_group(nav_group)
+        ontology["groups"] = [group]
+        ontology["types"][0]["nav_group_slug"] = group["slug"]
+    elif nav_group:
+        if not _GROUP_SLUG.match(str(nav_group)):
+            raise ValueError(f"묶음 slug 의 꼴이 아닙니다: {nav_group!r}")
+        ontology["types"][0]["nav_group_slug"] = str(nav_group)
     recipe = {
         "format": "sp-table/1",
         "title": f"{label or type_slug}(새 연결)",

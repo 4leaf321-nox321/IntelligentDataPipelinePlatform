@@ -188,7 +188,7 @@ async def source_sample(ctx: Context, slug: str, limit: int = 20) -> Any:
 @mcp.tool()
 async def target_schema(ctx: Context, slug: str) -> Any:
     """대상 SP 의 정의 — 레시피가 만드는 타입의 칸 · 자료형 · 고를 값(enum_options) · 참조
-    대상."""
+    대상, 사이드바 묶음(`groups`)과 타입마다 든 묶음(`nav_group_of`)."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/target-schema")
 
 
@@ -418,10 +418,13 @@ async def type_draft(
     label: str = "",
     label_column: str = "",
     system: str = "",
+    nav_group: str | dict[str, Any] | None = None,
 ) -> Any:
     """**SP 타입 정의 초안** — 대상에 받을 타입이 없을 때 원천 표본(`columns` — 열 → 보기
     값들, source_discover 의 paths · source_sample 로 만든다)으로 타입 정의와 그 레시피 첫 판을
-    짓는다. 저장 · 전송하지 않는다 — 타입은 SP 관리자가 대상에 넣는다(사람에게 넘긴다)."""
+    짓는다. 저장 · 전송하지 않는다 — type_plan 으로 대상에 계획을 올린다. `nav_group` 은
+    사이드바 묶음 — 대상에 있는 묶음의 slug(target_schema 의 groups), 또는 새 묶음
+    `{slug, label, icon}`(정의의 groups 로 함께 만든다)."""
     body = {
         "type_slug": type_slug,
         "label": label,
@@ -429,6 +432,7 @@ async def type_draft(
         "label_column": label_column,
         "columns": columns,
         "system": system,
+        "nav_group": nav_group,
     }
     return await _call(ctx, "POST", "/relay/type-draft", body=body)
 
@@ -441,7 +445,11 @@ async def type_plan(
     `ontology`)을 그 파이프라인의 원천 이름(`source` — 그 원천의 것으로 잠긴다)과 함께 대상
     SP 의 **미리 보기 계획**으로. 대상 SP 의 MCP 를 따로 붙이지 않아도 된다. 적용은 사람이
     대상 SP 화면 「작업」 에서(`link`) — 적용 뒤 pipeline_test 로 types_missing 이 비었나
-    본다. 대상 토큰에 ontology:write 범위가 없으면 거절된다 — 그 말을 사람에게 전한다."""
+    본다. 대상 토큰에 ontology:write 범위가 없으면 거절된다 — 그 말을 사람에게 전한다.
+    **사이드바 묶음**: 타입의 `nav_group_slug` 는 대상에 있는 묶음(target_schema 의
+    groups)이거나 `ontology.groups` 로 함께 만드는 묶음이어야 한다. 이미 있는 타입을 다른
+    묶음으로 옮기려면 `{"types": [{"slug": …, "nav_group_slug": …}]}` 만 — SP 는 보낸 칸만
+    고친다."""
     body = {
         "ontology": json.loads(ontology) if isinstance(ontology, str) else ontology,
         "note": note,
@@ -478,6 +486,7 @@ async def pipeline_scaffold(
     note: str = "",
     split: bool = True,
     sample_rows: list[dict[str, Any]] | None = None,
+    nav_group: str | dict[str, Any] | None = None,
 ) -> Any:
     """**한 번에 초안** — 원천의 주소 · 인증(`adapter`, 비밀은 token_env 이름만 — 모양은 비워도
     된다) · 원천 이름(`source` — plm · mes) · 대상 타입(`type_slug`)만으로: 탐색 → 행 자리 ·
@@ -494,7 +503,9 @@ async def pipeline_scaffold(
     relation_candidates · skipped(다른 파이프라인이 채워 참조만)를 본다. 결과의 chosen(고른
     값과 까닭) · required_missing(꼭 받는데 빈 칸 — 먼저) · unmatched · references(참조 칸 —
     match 로) · trial 을 읽고 recipe_draft_save · pipeline_draft_save 로 고친 뒤 `next` 를
-    따른다. 사용하지 않는다 — 사용은 사람이 화면에서."""
+    따른다. 사용하지 않는다 — 사용은 사람이 화면에서. 대상에 타입이 없으면(`type_missing`)
+    `nav_group`(사이드바 묶음 — 있는 묶음 slug 또는 새 묶음)을 따르고, 안 주면 대상의 묶음에서
+    고른다(recipe.nav_group 에 고른 것과 까닭)."""
     body: dict[str, Any] = {
         "adapter": json.loads(adapter) if isinstance(adapter, str) else adapter,
         "source": source,
@@ -510,6 +521,7 @@ async def pipeline_scaffold(
         "note": note,
         "split": split,
         "sample_rows": sample_rows,
+        "nav_group": nav_group,
     }
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/scaffold", body=body)
 

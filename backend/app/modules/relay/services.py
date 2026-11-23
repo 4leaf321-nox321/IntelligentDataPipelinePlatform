@@ -475,10 +475,11 @@ def target_schema(
 def target_model(
     found: Described, env: Mapping[str, str], db: Session | None = None
 ) -> tuple[dict[str, Any], str]:
-    """대상 SP 의 정의 전부 — `{"types": {slug: {"label", "managed_by", "properties"}},
-    "relations": [관계 종류]}`. 못 읽으면 빈 것과 까닭. 초안이면 울타리(`guard.check_target`)를
-    먼저 지난다 — 사람이 아직 안 본 주소 · 토큰이다."""
-    empty: dict[str, Any] = {"types": {}, "relations": []}
+    """대상 SP 의 정의 전부 — `{"types": {slug: {"label", "managed_by", "nav_group_slug",
+    "properties"}}, "relations": [관계 종류], "groups": [사이드바 묶음]}`. 못 읽으면 빈 것과
+    까닭. 초안이면 울타리(`guard.check_target`)를 먼저 지난다 — 사람이 아직 안 본 주소 ·
+    토큰이다."""
+    empty: dict[str, Any] = {"types": {}, "relations": [], "groups": []}
     if found.draft:
         try:
             guard.check_target(
@@ -502,10 +503,21 @@ def target_model(
         types[str(one.get("slug"))] = {
             "label": str(one.get("label") or ""),
             "managed_by": str(one.get("managed_by") or ""),
+            "nav_group_slug": str(one.get("nav_group_slug") or ""),
             "properties": {str(p.get("key")): p for p in one.get("properties") or []},
         }
     relations = [one for one in schema.get("relation_types") or [] if isinstance(one, dict)]
-    return {"types": types, "relations": relations}, ""
+    # 사이드바 묶음 — 새 타입을 어느 묶음에 둘지 고르는 재료(`typedraft.suggest_group`).
+    groups = [
+        {
+            k: one.get(k)
+            for k in ("slug", "label", "icon", "audience", "parent_slug", "sort_order")
+            if k in one
+        }
+        for one in schema.get("groups") or []
+        if isinstance(one, dict) and one.get("slug") and one.get("is_active", True)
+    ]
+    return {"types": types, "relations": relations, "groups": groups}, ""
 
 
 def detail(db: Session, slug: str) -> PipelineDetail:

@@ -254,6 +254,9 @@ class TypeDraftIn(BaseModel):
     columns: dict[str, list[str]]
     """열 → 표본 값들(탐색 · 정의 시험의 표본)."""
     system: str = Field("", max_length=80)
+    nav_group: str | dict[str, Any] | None = None
+    """사이드바 묶음 — 대상에 있는 묶음의 slug, 또는 새 묶음 `{slug, label, icon, …}`(정의의
+    `groups` 로 함께 만든다). 비우면 묶음 없이."""
 
 
 class RecipeOut(BaseModel):
@@ -338,6 +341,10 @@ class ScaffoldIn(BaseModel):
     sample_rows: list[dict[str, Any]] | None = Field(default=None, max_length=1000)
     """견본 행 — 원천을 탐색하지 않고 이것으로 칸 · 열 · 단서를 고르고 시험한다. 보내 주는
     원천(push)은 받은 것이 없으니 이것(또는 `columns`)으로 초안을 짓는다."""
+    nav_group: str | dict[str, Any] | None = None
+    """대상에 타입이 없을 때(SP 타입 정의 초안) 그 타입을 둘 사이드바 묶음 — 있는 묶음의 slug,
+    또는 새 묶음 `{slug, label, icon, …}`. 비우면 대상의 묶음에서 고른다(같은 원천의 타입이 든
+    묶음 › 이름이 원천과 같은 묶음 › 새 묶음)."""
 
 
 class TypePlanIn(BaseModel):

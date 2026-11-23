@@ -416,9 +416,11 @@ def source_sample(
 def target_schema(
     slug: str, _: User = Depends(require_system_admin), db: Session = Depends(get_db)
 ) -> dict[str, Any]:
-    """대상 SP 의 정의 — 레시피가 만드는 타입 · 그 칸(자료형 · 고를 값 · 참조 대상)."""
+    """대상 SP 의 정의 — 레시피가 만드는 타입 · 그 칸(자료형 · 고를 값 · 참조 대상), 그리고
+    사이드바 묶음(`groups`)과 타입마다 든 묶음(`nav_group_of`)."""
     found = services.by_slug(slug, db)
-    schema, note = services.target_schema(found, services.secrets_env(), db)
+    model, note = services.target_model(found, services.secrets_env(), db)
+    schema = {one: info["properties"] for one, info in model["types"].items()}
     wanted = set(found.types) | {"plm_project", "plm_task", "plm_model", "plm_test_site"}
     return {
         "target": found.target_name,
@@ -428,6 +430,12 @@ def target_schema(
             slug_: props
             for slug_, props in schema.items()
             if slug_ in wanted or not found.types
+        },
+        "groups": model["groups"],
+        "nav_group_of": {
+            slug_: info["nav_group_slug"]
+            for slug_, info in model["types"].items()
+            if info["nav_group_slug"]
         },
     }
 
@@ -470,6 +478,7 @@ def type_draft(body: TypeDraftIn, _: User = Depends(require_system_admin)) -> di
             key_column=body.key_column,
             label_column=body.label_column,
             system=body.system,
+            nav_group=body.nav_group,
         )
     except ValueError as failure:
         raise AppError(code("RELAY", 29), str(failure), status=422) from failure

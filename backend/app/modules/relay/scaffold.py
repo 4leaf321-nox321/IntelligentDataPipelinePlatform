@@ -31,6 +31,7 @@ from app.shared.errors import AppError, code
 from relay_core import scaffold as engine
 from relay_core.definition import env_names
 from relay_core.typedraft import draft as type_draft
+from relay_core.typedraft import suggest_group
 
 #: 단서로 채우는 어댑터 칸 — 어댑터 종류마다 있는 것만 쓴다.
 _SHAPE_KEYS = ("rows_path", "paging", "next_path")
@@ -272,15 +273,39 @@ def run(
         status = "drafted"
     else:
         samples = {one["path"]: one["sample"] for one in seen.get("paths") or []}
-        typed = type_draft(
-            type_slug=type_slug,
-            label=str(spec.get("type_label") or ""),
-            columns={col: [str(samples.get(path, ""))] for col, path in columns.items()},
-            key_column=key_spec["column"],
-            label_column=label_col,
-            system=body["system"],
-        )
+        # 사이드바 묶음 — 준 것, 아니면 대상의 묶음에서 고른다(같은 원천의 타입이 든 묶음 ›
+        # 이름이 원천과 같은 묶음 › 새 묶음).
+        given = spec.get("nav_group")
+        if given:
+            nav_group: Any = given
+            group_note = {
+                "slug": given if isinstance(given, str) else given.get("slug"),
+                "why": "준 것",
+            }
+        else:
+            picked = suggest_group(
+                model["groups"], model["types"], body["source"], body["system"]
+            )
+            nav_group = (
+                {"slug": picked["slug"], "label": picked["label"]}
+                if picked["new"]
+                else picked["slug"]
+            )
+            group_note = picked
+        try:
+            typed = type_draft(
+                type_slug=type_slug,
+                label=str(spec.get("type_label") or ""),
+                columns={col: [str(samples.get(path, ""))] for col, path in columns.items()},
+                key_column=key_spec["column"],
+                label_column=label_col,
+                system=body["system"],
+                nav_group=nav_group,
+            )
+        except ValueError as failure:
+            raise AppError(code("RELAY", 38), str(failure), status=422) from failure
         recipe, ontology, mapping = typed["recipe"], typed["ontology"], {}
+        mapping["nav_group"] = group_note
         status = "type_missing"
     rrow, recipe_problems = recipes.save_draft(db, user, request, described, recipe, note)
 
@@ -291,10 +316,11 @@ def run(
     next_steps = []
     if status == "type_missing":
         next_steps.append(
-            f"대상에 {type_slug} 타입이 없습니다 — ontology(SP 타입 정의 초안)를 읽고 고칠 "
-            f"것을 고친 뒤 type_plan(slug, ontology) 로 대상에 타입 계획을 올린다(원천 "
-            f"{body['source']} 로 잠긴다). 사람에게 대상 SP 화면 › 작업 에서 「적용」 을 "
-            "부탁하고, 적용 뒤 레시피를 다시 시험한다."
+            f"대상에 {type_slug} 타입이 없습니다 — ontology(SP 타입 정의 초안 · 사이드바 "
+            "묶음은 recipe.nav_group 이 고른 까닭)를 읽고 고칠 것을 고친 뒤 type_plan(slug, "
+            f"ontology) 로 대상에 타입 계획을 올린다(원천 {body['source']} 로 잠긴다). "
+            "사람에게 대상 SP 화면 › 작업 에서 「적용」 을 부탁하고, 적용 뒤 레시피를 다시 "
+            "시험한다."
         )
     split = [one for one in mapping.get("types") or [] if one.get("via") != "주 타입"]
     if split:

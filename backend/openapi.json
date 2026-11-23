@@ -4743,7 +4743,7 @@
           "relay"
         ],
         "summary": "Target Schema",
-        "description": "대상 SP 의 정의 — 레시피가 만드는 타입 · 그 칸(자료형 · 고를 값 · 참조 대상).",
+        "description": "대상 SP 의 정의 — 레시피가 만드는 타입 · 그 칸(자료형 · 고를 값 · 참조 대상), 그리고\n사이드바 묶음(`groups`)과 타입마다 든 묶음(`nav_group_of`).",
         "operationId": "target_schema_api_relay_pipelines__slug__target_schema_get",
         "parameters": [
           {
@@ -9649,6 +9649,21 @@
               }
             ],
             "title": "Sample Rows"
+          },
+          "nav_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav Group"
           }
         },
         "type": "object",
@@ -10703,6 +10718,21 @@
             "maxLength": 80,
             "title": "System",
             "default": ""
+          },
+          "nav_group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nav Group"
           }
         },
         "type": "object",
