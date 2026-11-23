@@ -405,10 +405,13 @@ def test_번들에_deb_가_있으면_그것을_먼저_깐다(tmp_path: Path) -> 
 
 
 def test_번들이_apptainer_deb_를_동봉한다() -> None:
-    """build_bundle.sh 가 빌드 머신에서 받아 넣고, deploy.sh 가 그 폴더를 본다."""
+    """build_bundle.sh 가 빌드 머신에서 받아 넣고, deploy.sh 가 그 폴더를 본다. PPA 에서 못
+    받으면 CI 가 알린 공식 GitHub 릴리스의 .deb(지문 확인)로 담는다 — Launchpad 503 으로
+    v0.2.14 의 첫 릴리스 번들에서 빠졌다."""
     builder = (DEPLOY / "build_bundle.sh").read_text(encoding="utf-8")
     installer = (DEPLOY / "deploy.sh").read_text(encoding="utf-8")
-    assert "apt-get download apptainer" in builder and "apptainer_debs" in builder
+    assert "download apptainer uidmap libfuse3-3" in builder and "apptainer_debs" in builder
+    assert "APPTAINER_FALLBACK_URL" in builder and "sha256sum -c" in builder
     assert "apptainer_debs" in _piece(installer, "ensure_apptainer")
 
 

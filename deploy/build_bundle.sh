@@ -150,17 +150,26 @@ chmod +x "$STAGE"/*.sh
 #
 # CI 가 PPA 대신 공식 GitHub 릴리스의 .deb 로 깔았으면(`.github/actions/apptainer` — Launchpad
 # 장애) apt 목록에 apptainer 가 없다. 그때는 그 .deb(`APPTAINER_DEB_DIR`)를 담고 나머지 둘만
-# 기본 저장소에서 받는다.
+# 기본 저장소에서 받는다. PPA 로 깔았어도 여기서 PPA 의 .deb 받기가 503 에 걸리면(v0.2.14 의 첫
+# 릴리스) CI 가 알린 우회 파일(`APPTAINER_FALLBACK_URL` · 지문)을 받아 담는다. 받기는 몇 번 더
+# 두드린다 — 한 번의 503 으로 우회까지 가지 않게.
 echo "==> [3a/4] apptainer .deb 동봉 (오프라인 설치용)"
 mkdir -p "$STAGE/apptainer_debs"
+APT_GET=(apt-get -o Acquire::Retries=5 -o Acquire::http::Timeout=30)
 fallback_debs() {
     local dir="${APPTAINER_DEB_DIR:-}"
-    [[ -n "$dir" ]] && compgen -G "$dir/apptainer_*.deb" >/dev/null || return 1
+    if ! { [[ -n "$dir" ]] && compgen -G "$dir/apptainer_*.deb" >/dev/null; }; then
+        local url="${APPTAINER_FALLBACK_URL:-}" sum="${APPTAINER_FALLBACK_SHA256:-}"
+        [[ -n "$url" && -n "$sum" ]] || return 1
+        dir="$(mktemp -d)"
+        curl -fsSL --retry 5 --retry-all-errors -o "$dir/${url##*/}" "$url" || return 1
+        echo "$sum  $dir/${url##*/}" | sha256sum -c - >/dev/null || return 1
+    fi
     rm -f "$STAGE/apptainer_debs"/*.deb
     cp "$dir"/apptainer_*.deb "$STAGE/apptainer_debs/" || return 1
-    (cd "$STAGE/apptainer_debs" && apt-get download uidmap libfuse3-3 >/dev/null 2>&1)
+    (cd "$STAGE/apptainer_debs" && "${APT_GET[@]}" download uidmap libfuse3-3 >/dev/null 2>&1)
 }
-if (cd "$STAGE/apptainer_debs" && apt-get download apptainer uidmap libfuse3-3 >/dev/null 2>&1); then
+if (cd "$STAGE/apptainer_debs" && "${APT_GET[@]}" download apptainer uidmap libfuse3-3 >/dev/null 2>&1); then
     echo "    동봉: $(ls "$STAGE/apptainer_debs" | tr '\n' ' ')"
 elif fallback_debs; then
     echo "    동봉(PPA 대신 공식 GitHub 릴리스의 .deb): $(ls "$STAGE/apptainer_debs" | tr '\n' ' ')"
