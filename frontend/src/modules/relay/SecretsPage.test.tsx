@@ -76,9 +76,9 @@ describe('비밀', () => {
   it('상태 · 쓰는 곳 · 마지막 입력 — 값은 없다', async () => {
     await show()
     expect(await screen.findByText('MES_LOT_TOKEN')).toBeInTheDocument()
-    expect(screen.getByTestId('secrets-missing')).toHaveTextContent('비어 있는 비밀 1개')
+    expect(screen.getByTestId('secrets-missing')).toHaveTextContent('미입력 인증 정보 1개')
     const missing = rowOf('MES_LOT_TOKEN')
-    expect(missing.getByText('비어 있음')).toBeInTheDocument()
+    expect(missing.getByText('미입력')).toBeInTheDocument()
     // 정의 전 요청은 상세로 갈 곳이 없다 — 글자만.
     expect(missing.queryByRole('link')).not.toBeInTheDocument()
     expect(missing.getByRole('button', { name: '입력' })).toBeInTheDocument()
@@ -90,13 +90,13 @@ describe('비밀', () => {
       '/relay/pipelines/plm-models',
     )
     expect(screenRow.getByText('ops@corp.local')).toBeInTheDocument()
-    expect(screenRow.getByRole('button', { name: '바꾸기' })).toBeInTheDocument()
-    expect(screenRow.getByRole('button', { name: '지우기' })).toBeInTheDocument()
+    expect(screenRow.getByRole('button', { name: '변경' })).toBeInTheDocument()
+    expect(screenRow.getByRole('button', { name: '삭제' })).toBeInTheDocument()
 
     // 서버 설정은 화면에서 지울 것이 없다.
     const server = rowOf('PLM_PASSWORD')
     expect(server.getByText('서버 설정')).toBeInTheDocument()
-    expect(server.queryByRole('button', { name: '지우기' })).not.toBeInTheDocument()
+    expect(server.queryByRole('button', { name: '삭제' })).not.toBeInTheDocument()
   })
 
   it('입력 — 비밀번호 칸으로 받아 저장하고 다시 읽는다', async () => {
@@ -121,10 +121,10 @@ describe('비밀', () => {
 
   it('지우기 — 무엇을 잃는지 적고 지운다', async () => {
     await show()
-    fireEvent.click(await screen.findByRole('button', { name: '지우기' }))
+    fireEvent.click(await screen.findByRole('button', { name: '삭제' }))
     const dialog = await screen.findByRole('dialog')
     expect(dialog).toHaveTextContent('서버 설정(.env)에 같은 이름이 있으면')
-    fireEvent.click(within(dialog).getByRole('button', { name: '지우기' }))
+    fireEvent.click(within(dialog).getByRole('button', { name: '삭제' }))
     await waitFor(() => expect(relayApi.deleteSecret).toHaveBeenCalledWith('MFG_HUB_TOKEN'))
   })
 

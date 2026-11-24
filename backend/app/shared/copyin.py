@@ -82,7 +82,7 @@ def _require_defaults(table: Table, names: list[str]) -> None:
     given = set(names)
     unknown = sorted(given - set(table.c.keys()))
     if unknown:
-        raise ValueError(f"{table.name} 에 없는 칸입니다: {', '.join(unknown)}")
+        raise ValueError(f"{table.name}에 없는 열입니다: {', '.join(unknown)}")
     for column in table.c:
         if column.key in given:
             continue
@@ -91,7 +91,7 @@ def _require_defaults(table: Table, names: list[str]) -> None:
         if column.default is None and column.nullable:
             continue
         raise ValueError(
-            f"{table.name}.{column.key} 는 DB 기본값이 없습니다 — 값을 넘겨야 합니다"
+            f"{table.name}.{column.key}에 DB 기본값이 없습니다. 값을 전달해야 합니다"
         )
 
 

@@ -90,21 +90,23 @@ def check(body: dict[str, Any]) -> list[str]:
     if raw is None:
         return []
     if not isinstance(raw, dict):
-        return [f"{KEY} 는 {{대상 타입: {{원천 표기: 대상 키}}}} 모양이어야 합니다."]
+        return [f"{KEY}는 {{대상 타입: {{원천 표기: 대상 키}}}} 형식이어야 합니다."]
     problems: list[str] = []
     targets = match_targets(body)
     for target, table in raw.items():
         if not isinstance(table, dict):
-            problems.append(f"{KEY}.{target} 는 {{원천 표기: 대상 키}} 여야 합니다.")
+            problems.append(f"{KEY}.{target}: {{원천 표기: 대상 키}} 형식이어야 합니다.")
             continue
         if target not in targets:
             problems.append(
-                f"{KEY}.{target} — 레시피에 이 타입과 참조 대조(match.keys)하는 칸이 없어 "
-                "쓰이지 않습니다."
+                f"{KEY}.{target}: 레시피에 이 타입과 참조 대조(match.keys)하는 속성이 없어 "
+                "사용되지 않습니다."
             )
         for text, key in table.items():
             if not str(text).strip() or not isinstance(key, str) or not key.strip():
-                problems.append(f"{KEY}.{target}: 빈 표기 · 빈 키는 적지 않습니다({text!r}).")
+                problems.append(
+                    f"{KEY}.{target}: 빈 표기나 빈 키는 입력할 수 없습니다({text!r})."
+                )
     return problems
 
 
@@ -143,17 +145,17 @@ def inject(mapping: Any, body: dict[str, Any]) -> list[str]:
     notes: list[str] = []
     if used:
         notes.append(
-            "relay 사전으로 푼 표기: "
+            "relay 사전으로 처리한 표기: "
             + " · ".join(f"{target} {count}개" for target, count in sorted(used.items()))
         )
     if platform:
         notes.append(
-            f"relay 사전 중 대상이 이미 푸는 표기 {len(platform)}개(대표 플랫폼의 별칭이 "
-            f"정본 — relay 사전에서 삭제하세요): {', '.join(platform[:10])}"
+            f"relay 사전 중 대상이 이미 처리하는 표기 {len(platform)}개(대표 플랫폼의 별칭이 "
+            f"정본이므로 relay 사전에서 삭제하세요): {', '.join(platform[:10])}"
         )
     if missing:
         notes.append(
-            f"relay 사전 중 대상에 없는 키 {len(missing)}개 — 쓰지 않았습니다(그 표기는 "
+            f"relay 사전 중 대상에 없는 키 {len(missing)}개는 사용하지 않았습니다(해당 표기는 "
             f"미해결로 남습니다): {', '.join(missing[:10])}"
         )
     return notes

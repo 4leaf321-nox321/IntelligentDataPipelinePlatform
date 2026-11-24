@@ -27,7 +27,7 @@ function Thumb({ id, name }: { id: string; name: string }) {
       {thumb.url ? (
         <img src={thumb.url} alt={name} className="size-full object-cover" />
       ) : (
-        <ImageIcon className="text-muted-foreground size-4" aria-label={`${name} 미리보기`} />
+        <ImageIcon className="text-muted-foreground size-4" aria-label={`${name} 미리 보기`} />
       )}
     </span>
   )
@@ -39,7 +39,7 @@ export function AttachmentCell({ cell }: { cell?: AttachmentCellValue | null }) 
   const { first, count } = cell
   const more =
     count > 1 ? (
-      <span className="text-muted-foreground text-xs tabular-nums" title={`모두 ${count}개`}>
+      <span className="text-muted-foreground text-xs tabular-nums" title={`전체 ${count}개`}>
         +{count - 1}
       </span>
     ) : null

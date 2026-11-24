@@ -219,15 +219,15 @@ def candidates(text: str, objects: list[TargetObject], *, limit: int = 5) -> lis
             if not have:
                 continue
             if have == wanted:
-                score, why = 1.0, f"{kind} — 띄어쓰기 · 대소문자 · 이음표만 다름"
+                score, why = 1.0, f"{kind} 일치(띄어쓰기, 대소문자, 하이픈 차이)"
             elif min(len(have), len(wanted)) >= CONTAINS_MIN and (
                 have in wanted or wanted in have
             ):
                 score = 0.6 + 0.3 * min(len(have), len(wanted)) / max(len(have), len(wanted))
-                why = f"{kind} — 한쪽이 다른 쪽을 품음"
+                why = f"{kind} 부분 일치"
             else:
                 score = 0.8 * SequenceMatcher(None, wanted, have).ratio()
-                why = f"{kind} — 비슷한 글자"
+                why = f"{kind} 유사"
             if score < FLOOR:
                 continue
             if one.key not in best or best[one.key].score < score:
@@ -273,9 +273,11 @@ def aggregate(
     """레시피의 그 칸을 **모으는 칸**으로 바꾼 새 본문 — `join` 은 한 글로(`separator`),
     `collect` 는 목록으로. 식별자 · 이미 모으는 칸 · 레시피에 없는 칸이면 `ValueError`."""
     if mode not in MODES:
-        raise ValueError(f"모으는 방식은 {' · '.join(MODES)} 입니다: {mode!r}")
+        raise ValueError(f"집계 방식은 {' · '.join(MODES)} 중 하나여야 합니다: {mode!r}")
     if name == "key":
-        raise ValueError("식별자는 모으는 칸이 될 수 없습니다 — 레시피의 식별자를 고치세요.")
+        raise ValueError(
+            "식별자는 집계 속성으로 지정할 수 없습니다. 레시피의 식별자를 수정하세요."
+        )
     out: dict[str, Any] = json.loads(json.dumps(body))
     for one in out.get("types") or []:
         if not isinstance(one, dict) or one.get("type_slug") != type_slug:
@@ -285,9 +287,9 @@ def aggregate(
         else:
             spec = (one.get("fields") or {}).get(name)
         if not isinstance(spec, dict):
-            raise ValueError(f"레시피의 {type_slug} 에 칸 {name} 이 없습니다.")
+            raise ValueError(f"레시피의 {type_slug} 타입에 없는 속성입니다: {name}")
         if any(m in spec for m in MODES):
-            raise ValueError(f"{type_slug}.{name} 은 이미 모으는 칸입니다.")
+            raise ValueError(f"이미 집계 속성입니다: {type_slug}.{name}")
         wrapped: dict[str, Any] = (
             {"join": spec, "separator": separator} if mode == "join" else {"collect": spec}
         )
@@ -296,4 +298,4 @@ def aggregate(
         else:
             one["fields"][name] = wrapped
         return out
-    raise ValueError(f"레시피에 타입 {type_slug} 이 없습니다.")
+    raise ValueError(f"레시피에 없는 타입입니다: {type_slug}")

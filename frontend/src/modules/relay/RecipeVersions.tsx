@@ -44,19 +44,20 @@ function TrialNote({ trial }: { trial: RecipeTrial | undefined }) {
   if (!trial) {
     return (
       <p className="text-amber-700 dark:text-amber-400">
-        이 판을 아직 이 화면에서 시험하지 않았습니다 — 먼저 「시험」 으로 무엇이 바뀌는지 보세요.
+        이 버전은 아직 이 화면에서 테스트하지 않았습니다. 먼저 [테스트]로 변경 사항을 확인하세요.
       </p>
     )
   }
   if (!trial.clean) {
     return (
       <p className="text-destructive">
-        시험에서 막혔습니다 — 사용하면 다음 실행이 멈춥니다. 수정한 판을 기다리는 편이 낫습니다.
+        테스트에서 문제가 발견되었습니다. 사용하면 다음 실행이 중단됩니다. 수정한 버전으로
+        진행하세요.
       </p>
     )
   }
   const line = countsLine(trial.would_send)
-  return <p>시험은 깨끗했습니다{line ? ` — 사용하면 보낼 것: ${line}` : ''}.</p>
+  return <p>테스트를 통과했습니다.{line ? ` 사용 시 전송 예정: ${line}` : ''}</p>
 }
 
 export function RecipeVersions({
@@ -124,7 +125,7 @@ export function RecipeVersions({
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">레시피 판</h2>
+        <h2 className="text-base font-semibold">레시피 버전</h2>
         {!editing && (
           <Button
             size="sm"
@@ -139,10 +140,10 @@ export function RecipeVersions({
         )}
       </div>
       <p className="text-muted-foreground text-sm">
-        AI(MCP)가, 또는 여기 「초안 작성」 으로 레시피 초안을 작성하고 시험합니다 — 사용 여부는 사람이
-        여기서 정합니다. 사용하면 다음 실행부터 그 판으로 변환합니다. 현재 레시피:{' '}
+        AI(MCP) 또는 [초안 작성]으로 레시피 초안을 작성하고 테스트합니다. 사용 여부는 사람이 이
+        화면에서 결정합니다. 사용하면 다음 실행부터 이 버전으로 변환합니다. 현재 레시피:{' '}
         <span className="text-foreground font-medium">
-          {recipeLabel === '파일' ? '정의 파일의 레시피(사용 중인 판 없음)' : recipeLabel}
+          {recipeLabel === '파일' ? '정의 파일의 레시피(사용 중인 버전 없음)' : recipeLabel}
         </span>
       </p>
       <ErrorNotice error={versions.error ?? failed} />
@@ -162,8 +163,8 @@ export function RecipeVersions({
         <Alert data-testid="recipe-saved">
           <AlertDescription>
             <p>
-              판 {saved.version} 초안을 저장했습니다 — 아래 목록에서 「시험」 으로 「사용하면 보낼 것」 을
-              확인한 뒤 「사용」 하세요.
+              버전 {saved.version} 초안을 저장했습니다. 아래 목록에서 [테스트]로 '사용 시 전송 예정'을
+              확인한 후 [사용]을 클릭하세요.
             </p>
             {saved.problems.length > 0 && (
               <ul className="list-disc pl-4">
@@ -177,19 +178,19 @@ export function RecipeVersions({
       )}
       {versions.data && list.length === 0 && (
         <p className="text-muted-foreground text-sm">
-          아직 판이 없습니다 — 정의 파일의 레시피를 사용합니다. AI(MCP)가, 또는 「초안 작성」 으로
-          초안을 작성하면 여기 한 줄이 생깁니다.
+          레시피 버전이 없어 정의 파일의 레시피를 사용합니다. AI(MCP) 또는 [초안 작성]으로 초안을
+          작성하면 이 목록에 표시됩니다.
         </p>
       )}
       {list.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>판</TableHead>
+              <TableHead>버전</TableHead>
               <TableHead>상태</TableHead>
               <TableHead>메모</TableHead>
               <TableHead>작성 경로</TableHead>
-              <TableHead>만든 시각</TableHead>
+              <TableHead>작성 시각</TableHead>
               <TableHead>사용 시작</TableHead>
               <TableHead />
             </TableRow>
@@ -201,7 +202,7 @@ export function RecipeVersions({
               return (
                 <Fragment key={one.version}>
                   <TableRow className={cn(discarded && 'text-muted-foreground')}>
-                    <TableCell className="font-mono">판 {one.version}</TableCell>
+                    <TableCell className="font-mono">버전 {one.version}</TableCell>
                     <TableCell>
                       <StatusBadge kind="relay_recipe" value={one.status} />
                       {trial && (
@@ -224,18 +225,18 @@ export function RecipeVersions({
                         <Button
                           size="xs"
                           variant="outline"
-                          aria-label={`판 ${one.version} 시험`}
+                          aria-label={`버전 ${one.version} 테스트`}
                           disabled={busy !== null}
                           onClick={() => void test(one.version)}
                         >
                           {busy === one.version && <Loader2 className="animate-spin" />}
-                          시험
+                          테스트
                         </Button>
                       )}
                       {one.status !== 'active' && !discarded && (
                         <Button
                           size="xs"
-                          aria-label={`판 ${one.version} 사용`}
+                          aria-label={`버전 ${one.version} 사용`}
                           disabled={busy !== null}
                           onClick={() => {
                             setConfirming(one)
@@ -249,7 +250,7 @@ export function RecipeVersions({
                         <Button
                           size="xs"
                           variant="ghost"
-                          aria-label={`판 ${one.version} 폐기`}
+                          aria-label={`버전 ${one.version} 폐기`}
                           disabled={busy !== null}
                           onClick={() => {
                             setDiscarding(one)
@@ -262,11 +263,11 @@ export function RecipeVersions({
                       <Button
                         size="xs"
                         variant="ghost"
-                        aria-label={`판 ${one.version} 본문 보기`}
+                        aria-label={`버전 ${one.version} 원문 조회`}
                         disabled={busy !== null}
                         onClick={() => void showBody(one.version)}
                       >
-                        본문 보기
+                        원문 조회
                       </Button>
                       {trial && (
                         <Button
@@ -274,7 +275,7 @@ export function RecipeVersions({
                           variant="ghost"
                           onClick={() => setOpened(opened === one.version ? null : one.version)}
                         >
-                          {opened === one.version ? '결과 접기' : '결과 펼치기'}
+                          {opened === one.version ? '결과 숨김' : '결과 표시'}
                         </Button>
                       )}
                     </TableCell>
@@ -295,13 +296,13 @@ export function RecipeVersions({
 
       <ConfirmDialog
         open={asking}
-        title={`판 ${confirming?.version ?? ''} 을 사용합니다`}
+        title={`레시피 버전 ${confirming?.version ?? ''} 사용`}
         description={
           <div className="space-y-2">
             <p>
-              다음 실행부터 이 판으로 변환합니다. 지금 사용 중인 것({recipeLabel})은 사용 종료로
-              바뀝니다 — 사용 종료한 판은 언제든 다시 사용할 수 있습니다. 사용하는 것만으로는
-              대상에 아무것도 보내지 않습니다.
+              다음 실행부터 이 버전으로 변환합니다. 현재 사용 중인 레시피({recipeLabel})는 '사용
+              종료'로 변경됩니다. 사용 종료한 버전은 언제든 다시 사용할 수 있습니다. 사용만으로는
+              대상에 아무것도 전송하지 않습니다.
             </p>
             <TrialNote trial={confirming ? trials[confirming.version] : undefined} />
           </div>
@@ -313,14 +314,14 @@ export function RecipeVersions({
 
       <ConfirmDialog
         open={askingDiscard}
-        title={`판 ${discarding?.version ?? ''} 을 폐기합니다`}
+        title={`레시피 버전 ${discarding?.version ?? ''} 폐기`}
         description={
           <div className="space-y-2">
             <p>
-              초안 판 {discarding?.version} 을 폐기합니다 — 복원할 수 없습니다. 판 번호는 다시
-              사용하지 않습니다. 폐기한 판은 목록에 「폐기」 로 남고 본문은 볼 수 있습니다.
+              초안(버전 {discarding?.version})을 폐기합니다. 복원할 수 없습니다. 버전 번호는 다시
+              사용하지 않습니다. 폐기한 버전은 목록에 '폐기'로 남고 원문은 조회할 수 있습니다.
             </p>
-            <p>지금 사용 중인 것({recipeLabel})은 바뀌지 않습니다.</p>
+            <p>현재 사용 중인 레시피({recipeLabel})는 변경되지 않습니다.</p>
           </div>
         }
         confirmLabel="폐기"
@@ -332,7 +333,7 @@ export function RecipeVersions({
       <Dialog open={body !== null} onOpenChange={(next) => !next && setBody(null)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
           <DialogHeader>
-            <DialogTitle>판 {body?.version} 본문</DialogTitle>
+            <DialogTitle>레시피 버전 {body?.version} 원문</DialogTitle>
             <DialogDescription>{body?.note || '메모 없음'}</DialogDescription>
           </DialogHeader>
           <pre className="bg-muted/30 overflow-auto rounded-md border p-2 text-xs">

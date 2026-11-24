@@ -65,7 +65,9 @@ def fetch(
             if got.status_code != 200:
                 raise SourceError(
                     scrub(
-                        f"지침서를 받지 못했습니다: {got.status_code} ({url})", sent, secrets
+                        f"API 명세를 다운로드하지 못했습니다: {got.status_code} ({url})",
+                        sent,
+                        secrets,
                     )
                 )
             raw = bytearray()
@@ -73,11 +75,14 @@ def fetch(
                 raw += chunk
                 if len(raw) > MAX_BYTES:
                     raise SourceError(
-                        f"지침서가 {MAX_BYTES // (1024 * 1024)}MB 를 넘습니다 — 받지 않습니다."
+                        f"API 명세가 {MAX_BYTES // (1024 * 1024)}MB를 초과해 다운로드하지 "
+                        "않습니다."
                     )
             return bytes(raw), got.headers.get("content-type", "")
     except httpx.HTTPError as failure:
-        raise SourceError(scrub(f"지침서에 닿지 않습니다: {failure}", sent, secrets)) from None
+        raise SourceError(
+            scrub(f"API 명세 주소에 연결할 수 없습니다: {failure}", sent, secrets)
+        ) from None
     finally:
         if own:
             http.close()
@@ -92,7 +97,7 @@ def summarize(raw: bytes, content_type: str, url: str) -> dict[str, Any]:
         try:
             root = etree.fromstring(raw, parser=_PARSER)
         except etree.XMLSyntaxError as failure:
-            return {"kind": "unknown", "note": f"XML 로 읽지 못했습니다: {failure}"}
+            return {"kind": "unknown", "note": f"XML로 읽을 수 없습니다: {failure}"}
         tag = etree.QName(root).localname.lower()
         if tag == "edmx":
             return _odata(root)
@@ -101,16 +106,20 @@ def summarize(raw: bytes, content_type: str, url: str) -> dict[str, Any]:
         return {
             "kind": "xml",
             "root": etree.QName(root).localname,
-            "note": "OData · WSDL 이 아닌 XML 입니다.",
+            "note": "OData나 WSDL이 아닌 XML입니다.",
         }
     doc = _load(text)
     if isinstance(doc, dict) and ("openapi" in doc or "swagger" in doc):
         return _openapi(doc, url)
     if doc is None:
-        return {"kind": "unknown", "note": "JSON · YAML · XML 로 읽지 못했습니다."}
+        return {
+            "kind": "unknown",
+            "note": "JSON, YAML, XML 중 어느 형식으로도 읽을 수 없습니다.",
+        }
     return {
         "kind": "data",
-        "note": "지침서가 아니라 데이터로 보입니다 — 원천 주소면 source_discover 로 보세요.",
+        "note": "API 명세가 아닌 데이터로 보입니다. 원천 주소이면 source_discover로 "
+        "탐색하세요.",
         "top": sorted(doc)[:30] if isinstance(doc, dict) else f"목록 {len(doc)}개",
     }
 
@@ -255,7 +264,7 @@ def _auth_of(doc: dict[str, Any]) -> list[dict[str, Any]]:
                 "relay_auth": auth or None,
                 "note": ""
                 if auth
-                else "relay 가 지원하지 않는 방식이거나 정보가 모자랍니다 — 원천 담당 확인",
+                else "relay 미지원 방식 또는 정보 부족(원천 담당자 확인 필요)",
             }
         )
     return out
@@ -370,9 +379,9 @@ def _openapi(doc: dict[str, Any], url: str) -> dict[str, Any]:
         "auth": _auth_of(doc),
         "operations": ops[:OPS_MAX],
         "operations_total": len(ops),
-        "note": "목록을 주는 조회(rows_path 가 있는 것)가 앞이다. base_url 은 servers 중 "
-        "하나, "
-        "path 는 조회의 path. hints 는 이름으로 고른 후보 — source_discover 로 확인한다.",
+        "note": "목록 조회(rows_path가 있는 조회)를 앞에 표시합니다. base_url은 servers 중 "
+        "하나, path는 조회의 path입니다. hints는 이름으로 선택한 후보이므로 source_discover로 "
+        "확인하세요.",
     }
 
 
@@ -456,9 +465,8 @@ def _odata(root: Any) -> dict[str, Any]:
         "kind": "odata",
         "version": str(root.get("Version") or ""),
         "entity_sets": sets,
-        "note": "어댑터는 odata — service_url 은 $metadata 앞의 주소, entity_set 은 위의 "
-        "이름. "
-        "탐색 속성은 expand 로 함께 받는다.",
+        "note": "어댑터는 odata입니다. service_url은 $metadata 앞의 주소, entity_set은 위의 "
+        "이름입니다. 탐색 속성은 expand로 함께 수신합니다.",
     }
 
 
@@ -495,9 +503,9 @@ def _wsdl(root: Any) -> dict[str, Any]:
         "service": [str(s.get("name")) for s in root.xpath("//*[local-name()='service']")],
         "addresses": address,
         "operations": ops,
-        "note": "어댑터는 xml — url 은 addresses 중 하나, envelope 에 조회 작업의 SOAP "
-        "본문({since} 자리), "
-        "soap_action 은 위의 값. 행 자리(rows_xpath)는 응답을 source_discover 로 보고 정한다.",
+        "note": "어댑터는 xml입니다. url은 addresses 중 하나, envelope에는 조회 작업의 SOAP "
+        "본문({since} 위치 포함), soap_action은 위의 값입니다. 행 위치(rows_xpath)는 "
+        "source_discover로 응답을 확인한 후 지정합니다.",
     }
 
 
@@ -513,7 +521,7 @@ def _html(text: str, url: str) -> dict[str, Any]:
     return {
         "kind": "html",
         "candidates": found[:20],
-        "note": "사람이 보는 문서 화면입니다 — candidates 의 지침서 파일 주소를 다시 "
-        "source_spec 으로 "
-        "읽으세요. 없으면 원천 담당에게 OpenAPI(JSON · YAML) 주소나 파일을 받으세요.",
+        "note": "사람이 보는 문서 화면입니다. candidates의 API 명세 파일 주소를 다시 "
+        "source_spec으로 분석하세요. 후보가 없으면 원천 담당자에게 OpenAPI(JSON, YAML) 주소나 "
+        "파일을 요청하세요.",
     }

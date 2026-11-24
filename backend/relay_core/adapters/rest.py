@@ -101,7 +101,7 @@ class Auth:
             return {"Authorization": f"Bearer {self.access_token()}"}
         if self.kind in ("none", "query", "ntlm"):
             return {}
-        raise ValueError(f"모르는 인증 방식입니다: {self.kind}")
+        raise ValueError(f"지원하지 않는 인증 방식입니다: {self.kind}")
 
     def http_auth(self) -> httpx.Auth | None:
         """머리글 한 번으로 안 끝나는 인증 — NTLM 은 세 번 주고받는다(같은 연결에서)."""
@@ -149,12 +149,10 @@ class Auth:
     def access_token(self) -> str:
         """oauth2 client credentials — 받은 토큰을 만료 1분 전까지 다시 쓴다."""
         if not self.token_url or not self.user:
-            raise SourceError(
-                "oauth2 에는 auth.token_url 과 auth.user(client_id)가 필요합니다."
-            )
+            raise SourceError("oauth2에는 auth.token_url과 auth.user(client_id)가 필요합니다.")
         if not self.token:
             raise SourceError(
-                "oauth2 의 client secret 이 비었습니다 — auth.token_env 의 환경 변수를 "
+                "oauth2의 client secret이 입력되지 않았습니다. auth.token_env의 환경 변수를 "
                 "확인하세요."
             )
         cache = self._cache()
@@ -173,18 +171,20 @@ class Auth:
         except httpx.HTTPError as failure:
             raise SourceError(
                 scrub(
-                    f"토큰 주소에 닿지 않습니다({self.token_url}): {failure}", {}, [self.token]
+                    f"토큰 주소에 연결할 수 없습니다({self.token_url}): {failure}",
+                    {},
+                    [self.token],
                 )
             ) from failure
         if answer.status_code != 200:
             said = scrub(answer.text[:300], {}, [self.token])
-            raise SourceError(f"토큰 주소가 거절했습니다({answer.status_code}): {said}")
+            raise SourceError(f"토큰 주소가 요청을 거부했습니다({answer.status_code}): {said}")
         try:
             body = answer.json()
             access = str(body["access_token"])
             life = float(body.get("expires_in") or 3600)
         except (ValueError, KeyError, TypeError) as failure:
-            raise SourceError("토큰 주소의 답에 access_token 이 없습니다.") from failure
+            raise SourceError("토큰 주소의 응답에 access_token이 없습니다.") from failure
         _TOKENS[cache] = (access, time.time() + max(life - 60, 30))
         return access
 
@@ -219,7 +219,7 @@ class NtlmAuth(httpx.Auth):
             answer = context.step(base64.b64decode(offered[0]))
         except Exception as failure:  # 도전이 틀렸다 — 무엇이든 까닭을 보인다
             raise SourceError(
-                f"NTLM 도전을 풀지 못했습니다: {type(failure).__name__}"
+                f"NTLM 인증 챌린지를 처리하지 못했습니다: {type(failure).__name__}"
             ) from None
         request.headers["Authorization"] = "NTLM " + base64.b64encode(answer or b"").decode()
         yield request
@@ -298,9 +298,7 @@ def as_text(value: Any) -> str:
     if isinstance(value, list):
         return MULTI_JOIN.join(as_text(one) for one in value if one not in (None, ""))
     if isinstance(value, dict):
-        raise SourceError(
-            f"평평하지 않은 값입니다 — columns 에 더 깊은 자리를 적으세요: {value!r}"
-        )
+        raise SourceError(f"중첩된 값입니다. columns에 하위 위치를 지정하세요: {value!r}")
     return str(value)
 
 
@@ -354,12 +352,13 @@ def request_json(
                 method, target, json=body, headers=sent, auth=auth.http_auth() or USE_CLIENT
             )
         except httpx.HTTPError as failure:
-            last = f"닿지 않습니다: {failure}"
+            last = f"연결할 수 없습니다: {failure}"
             if "CERTIFICATE_VERIFY_FAILED" in last:
                 # 다시 물어도 같다 — 사내 CA 를 알려 줘야 한다(`app/modules/relay/network.py`).
                 said = (
-                    f"원천의 인증서를 믿을 수 없습니다({url}): {failure} — 사내 인증서로 "
-                    "서명된 주소면 서버의 RELAY_CA_FILE 에 사내 CA(PEM)를 적고 재시작하세요."
+                    f"원천의 인증서를 신뢰할 수 없습니다({url}): {failure}. 사내 인증서로 "
+                    "서명된 주소이면 서버의 RELAY_CA_FILE에 사내 CA(PEM)를 지정하고 "
+                    "재시작하세요."
                 )
                 raise SourceError(scrub(said, sent, secrets)) from None
         else:
@@ -368,10 +367,10 @@ def request_json(
             last = f"{answer.status_code} {answer.text[:2000]}"
             if answer.status_code < 500 and answer.status_code != 429:
                 # 주소까지 지운다 — 다음 쪽 주소에 서버가 `?api_key=…` 를 되돌려 싣는다.
-                said = scrub(f"원천이 거절했습니다({url}): {last}", sent, secrets)
+                said = scrub(f"원천이 요청을 거부했습니다({url}): {last}", sent, secrets)
                 raise SourceError(said[:400])
         sleep(min(2**attempt, 10))
-    said = scrub(f"원천에 {retries}번 물었지만 실패했습니다({url}): {last}", sent, secrets)
+    said = scrub(f"원천 요청이 {retries}회 모두 실패했습니다({url}): {last}", sent, secrets)
     raise SourceError(said[:400])
 
 
@@ -425,8 +424,8 @@ def check_shape(key: str | Sequence[str], explode: str) -> None:
     paths = key_paths(key)
     if explode and not any(_under(one, explode) is not None for one in paths):
         raise SourceError(
-            f"explode({explode}) 하면 식별자(key)에 그 원소의 칸이 있어야 합니다 — "
-            f"예: {[*paths, explode + '.no']}"
+            f"explode({explode})를 사용하면 식별자(key)에 해당 원소의 필드가 포함되어야 "
+            f"합니다. 예: {[*paths, explode + '.no']}"
         )
 
 
@@ -458,7 +457,7 @@ def records_of(
         parts = [text(pick(item, element, one, explode)).strip() for one in paths]
         if not parts or not all(parts):
             shown = " · ".join(paths)
-            raise SourceError(f"식별자({shown})가 빈 항목입니다: {item!r:.300}")
+            raise SourceError(f"식별자({shown}) 값이 비어 있는 항목입니다: {item!r:.300}")
         values = (
             {}
             if gone
@@ -585,7 +584,7 @@ class RestAdapter:
         items = value_at(body, rows_path) if rows_path else body
         if not isinstance(items, list):
             top = sorted(body) if isinstance(body, dict) else []
-            raise SourceError(f"행 자리({rows_path})에 목록이 없습니다 — 응답의 칸: {top}")
+            raise SourceError(f"행 위치({rows_path})에 목록이 없습니다. 응답의 필드: {top}")
         return items
 
     def _with_detail(self, item: Any) -> Any:
@@ -598,7 +597,8 @@ class RestAdapter:
             value = as_text(value_at(item, found.group(1))).strip()
             if not value:
                 raise SourceError(
-                    f"상세 주소의 자리({found.group(1)})가 빈 항목입니다: {item!r:.200}"
+                    f"상세 주소의 위치({found.group(1)}) 값이 비어 있는 항목입니다: "
+                    f"{item!r:.200}"
                 )
             return quote(value, safe="")
 
@@ -609,7 +609,7 @@ class RestAdapter:
             else (source.base_url.rstrip("/") + path)
         )
         if not same_place(url, source.base_url):
-            raise SourceError(f"상세 주소가 원천과 다른 곳입니다: {url}")
+            raise SourceError(f"상세 주소가 원천과 다른 곳을 가리킵니다: {url}")
         got, _headers = self._ask(url, None)
         if source.detail_rows_path:
             got = value_at(got, source.detail_rows_path)
@@ -673,7 +673,7 @@ class RestAdapter:
             first = ", 식별자 " + KEY_JOIN.join(
                 as_text(value_at(items[0], one)) for one in key_paths(self.source.key)
             )
-        return f"응답 정상 — 첫 쪽 {len(items)}줄{first}"
+        return f"응답 정상 · 첫 페이지 {len(items)}행{first}"
 
     def discover(self) -> dict[str, Any]:
         """첫 쪽 몇 줄 → 칸의 자리 · 보기 값 · 열 이름 제안(MCP `source_discover`). 상세를
@@ -705,7 +705,7 @@ class RestAdapter:
         check_shape(source.key, source.explode)
         post = source.method.upper() == "POST"
         if post and not source.body:
-            raise SourceError("method POST 에는 body(본문 틀)가 있어야 합니다.")
+            raise SourceError("method POST에는 body(본문 템플릿)가 필요합니다.")
         records = Records()
         page, offset, cursor, follow = source.start_page, 0, "", ""
         watermark: str | None = None
@@ -738,7 +738,7 @@ class RestAdapter:
                         if cursor:
                             params[source.cursor_param] = cursor
                 if source.paging not in PAGINGS:
-                    raise ValueError(f"모르는 쪽 넘김입니다: {source.paging}")
+                    raise ValueError(f"지원하지 않는 페이지 처리 방식입니다: {source.paging}")
                 body, headers = self._first(params, slots)
             items = self._items(body)
             if limit and source.detail_path:
@@ -769,14 +769,18 @@ class RestAdapter:
                 follow = urljoin(follow or self.url, given)
                 if not same_place(follow, source.base_url):
                     raise SourceError(
-                        f"다음 쪽 주소가 원천과 다른 곳입니다 — 따라가지 않습니다: {follow}"
+                        "다음 페이지 주소가 원천과 다른 곳을 가리켜 요청하지 않습니다: "
+                        f"{follow}"
                     )
             elif len(items) < source.page_size:
                 break
             page += 1
             offset += len(items)
         else:
-            raise SourceError(f"쪽이 {source.max_pages}개를 넘었습니다 — 끝을 알 수 없습니다.")
+            raise SourceError(
+                f"페이지가 {source.max_pages}개를 초과했습니다. 마지막 페이지를 확인할 수 "
+                "없습니다."
+            )
         if watermark is None:
             watermark = records.latest or since
         return Fetched(records=records, watermark=watermark, complete=True, full=not since)

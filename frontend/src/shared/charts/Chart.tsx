@@ -110,7 +110,7 @@ export function Chart({
   height = 240,
   stacked = false,
   onPick,
-  emptyText = '그릴 것이 없습니다.',
+  emptyText = '표시할 데이터 없음',
   title,
   className,
 }: ChartProps) {

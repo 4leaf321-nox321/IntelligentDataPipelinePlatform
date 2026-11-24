@@ -40,30 +40,32 @@ BODY_MAX = 512 * 1024
 
 def _check(ontology: Any) -> dict[str, Any]:
     if not isinstance(ontology, dict):
-        raise AppError(code("RELAY", 40), "ontology 는 JSON 객체여야 합니다.", status=422)
+        raise AppError(code("RELAY", 40), "ontology는 JSON 객체여야 합니다.", status=422)
     types = ontology.get("types")
     if not isinstance(types, list) or not types:
         raise AppError(
             code("RELAY", 40),
-            "ontology.types 에 타입이 하나는 있어야 합니다 — type_draft · 한 번에 초안의 "
-            "ontology 를 그대로 주세요.",
+            "ontology.types에 타입이 하나 이상 있어야 합니다. type_draft 또는 일괄 초안 "
+            "생성 결과의 ontology를 그대로 입력하세요.",
             status=422,
         )
     if len(types) > TYPES_MAX:
         raise AppError(
-            code("RELAY", 40), f"타입은 한 번에 {TYPES_MAX}개까지입니다.", status=422
+            code("RELAY", 40), f"타입은 한 번에 최대 {TYPES_MAX}개입니다.", status=422
         )
     if any(not isinstance(one, dict) or not one.get("slug") for one in types):
         raise AppError(
-            code("RELAY", 40), "ontology.types 마다 slug 가 있어야 합니다.", status=422
+            code("RELAY", 40), "ontology.types의 각 항목에 slug가 있어야 합니다.", status=422
         )
     if len(json.dumps(ontology, ensure_ascii=False).encode()) > BODY_MAX:
-        raise AppError(code("RELAY", 40), "정의가 너무 큽니다(512KB).", status=413)
+        raise AppError(code("RELAY", 40), "정의가 너무 큽니다(최대 512KB).", status=413)
     groups = ontology.get("groups")
     if groups is not None:
         if not isinstance(groups, list) or not all(isinstance(one, dict) for one in groups):
             raise AppError(
-                code("RELAY", 40), "ontology.groups 는 묶음(객체)의 목록입니다.", status=422
+                code("RELAY", 40),
+                "ontology.groups는 사이드바 그룹(객체)의 목록이어야 합니다.",
+                status=422,
             )
         try:
             ontology = {**ontology, "groups": [check_group(one) for one in groups]}
@@ -86,9 +88,9 @@ def _check_groups(body: dict[str, Any], known: list[dict[str, Any]]) -> list[str
         shown = ", ".join(sorted(existing)) or "없음"
         raise AppError(
             code("RELAY", 40),
-            f"대상에 없는 사이드바 묶음을 가리킵니다: {', '.join(missing)} — 있는 묶음"
-            f"({shown}) 중에서 고르거나, ontology.groups 에 그 묶음({{slug, label, icon}})을 "
-            "함께 적으세요.",
+            f"대상에 없는 사이드바 그룹을 참조합니다: {', '.join(missing)}. 기존 그룹 중에서 "
+            "선택하거나 ontology.groups에 해당 그룹({slug, label, icon})을 함께 입력하세요. "
+            f"기존 그룹: {shown}.",
             status=422,
         )
     return [one for one in made if one not in existing]
@@ -102,7 +104,8 @@ def submit(
     if not found.target_server or not found.source:
         raise AppError(
             code("RELAY", 40),
-            "정의에 대상(target.server)과 원천 이름(source)이 있어야 타입 계획을 올립니다.",
+            "타입 계획을 생성하려면 정의에 대상(target.server)과 원천 이름(source)이 있어야 "
+            "합니다.",
             status=422,
         )
     if found.draft:
@@ -115,8 +118,8 @@ def submit(
     if not token:
         raise AppError(
             code("RELAY", 40),
-            f"대상 토큰({found.target_token_env})이 비어 있습니다 — 사람에게 화면 › 중계 › "
-            "비밀 에서 넣어 달라고 하세요.",
+            f"대상 토큰({found.target_token_env})이 미입력 상태입니다. 사람에게 [중계 › 인증 "
+            "정보] 화면에서 입력을 요청하세요.",
             status=409,
         )
     model, _note = services.target_model(found, env, db)
@@ -135,15 +138,15 @@ def submit(
     try:
         result = sp.pipeline._post_bundle(found.target_server, token, sent)
     except sp.pipeline.Stop as stop:
-        text = str(stop).replace(token, "***")
+        text = str(stop).replace(token, "***").rstrip(". ")
         hint = (
-            " — 대상 토큰에 ontology:write 범위가 없으면 SP 관리자에게 그 범위를 더해 달라고 "
-            "하거나, ontology(SP 타입 정의 초안)를 SP 관리자에게 넘깁니다."
+            " 대상 토큰에 ontology:write 범위가 없으면 SP 관리자에게 범위 추가를 요청하거나, "
+            "ontology(SP 타입 정의 초안)를 SP 관리자에게 전달하세요."
             if "ontology:write" in text
             else ""
         )
         raise AppError(
-            code("RELAY", 40), f"대상이 타입 계획을 받지 않았습니다: {text}{hint}", status=502
+            code("RELAY", 40), f"대상이 타입 계획을 거부했습니다: {text}.{hint}", status=502
         ) from None
     job_id = str(result.get("job_id") or "")
     link = sp.pipeline.jobs_link(found.target_server, job_id) if job_id else ""
@@ -171,9 +174,9 @@ def submit(
         },
         "plan": result.get("ontology"),
         "next": [
-            f"사람에게: 대상 SP 화면 › 작업 에서 이 계획({job_id[:8]})을 열어 확인하고 "
-            f"「적용」 해 달라고 한다 — {link}",
-            "적용되면 pipeline_test(recipe_version=…)를 다시 불러 target.types_missing 이 "
-            "비었는지 본다.",
+            f"사람에게 대상 SP의 [작업] 화면에서 이 계획({job_id[:8]})을 확인하고 "
+            f"[적용]하도록 요청하세요. 링크: {link}",
+            "적용 후 pipeline_test(recipe_version=…)를 다시 호출해 target.types_missing이 "
+            "비어 있는지 확인하세요.",
         ],
     }

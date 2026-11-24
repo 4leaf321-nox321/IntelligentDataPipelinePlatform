@@ -27,7 +27,7 @@ const BY_GRADE = [
   { name: 'A', 건수: 24 },
   { name: 'B', 건수: 13 },
   { name: 'C', 건수: 7 },
-  { name: '(비어 있음)', 건수: 3 },
+  { name: '(값 없음)', 건수: 3 },
 ]
 
 function Card({
@@ -54,16 +54,16 @@ export default function ChartGalleryPage() {
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader
-        title="차트 보기"
-        description="각 플랫폼이 쓸 수 있는 그림들입니다. shared/charts 에서 가져다 쓰고, 화면에서 recharts·plotly 를 직접 부르지 않습니다 — 그러면 축 색과 범례 규칙이 화면마다 갈립니다."
+        title="차트 갤러리"
+        description="각 플랫폼에서 사용할 수 있는 차트입니다. shared/charts의 컴포넌트를 사용하고, 화면에서 recharts, plotly를 직접 호출하지 않습니다. 직접 호출하면 축 색과 범례 규칙이 화면마다 달라집니다."
       />
 
       <div className="mb-6 space-y-2 rounded-md border p-4">
         <h2 className="text-sm font-medium">계열 색</h2>
         <p className="text-muted-foreground text-xs">
-          여덟 개를 돌려 쓰고, <strong>ReportArchive 와 같은 색</strong>입니다 — 두 플랫폼의 그림이
-          한 보고서에 나란히 실리는 날이 옵니다. 값 이름으로 색을 고정하려면{' '}
-          <code>colorFor(name)</code>.
+          8가지 색을 순환해 사용하며, <strong>ReportArchive와 같은 색</strong>입니다. 두 플랫폼의
+          차트가 한 보고서에 함께 실릴 수 있기 때문입니다. 값 이름으로 색을 고정하려면{' '}
+          <code>colorFor(name)</code>을 사용하세요.
         </p>
         <div className="flex flex-wrap gap-2">
           {SERIES_COLORS.map((color, index) => (
@@ -90,7 +90,7 @@ export default function ChartGalleryPage() {
         </Card>
 
         <Card
-          title="막대 — 여러 계열·쌓기"
+          title="막대 — 여러 계열 · 누적"
           code={`<Chart kind="bar" stacked data={rows} x="name"\n  series={[{ key: '접수' }, { key: '완료' }]} />`}
         >
           <Chart
@@ -99,7 +99,7 @@ export default function ChartGalleryPage() {
             data={BY_MONTH}
             x="name"
             series={[{ key: '접수' }, { key: '완료' }]}
-            title="달별 접수와 완료"
+            title="월별 접수와 완료"
           />
         </Card>
 
@@ -112,12 +112,12 @@ export default function ChartGalleryPage() {
             data={BY_MONTH}
             x="name"
             series={[{ key: '접수' }, { key: '완료' }]}
-            title="달별 추이"
+            title="월별 추이"
           />
         </Card>
 
         <Card
-          title="영역형 — 쌓아서 전체를 볼 때"
+          title="영역형 — 누적 합계"
           code={`<Chart kind="area" stacked data={rows} x="name"\n  series={[{ key: '접수' }, { key: '완료' }]} />`}
         >
           <Chart
@@ -126,12 +126,12 @@ export default function ChartGalleryPage() {
             data={BY_MONTH}
             x="name"
             series={[{ key: '접수' }, { key: '완료' }]}
-            title="달별 누적"
+            title="월별 누적"
           />
         </Card>
 
         <Card
-          title="원 — 조각이 서넛일 때만"
+          title="원 — 항목 3~4개 이하"
           code={`<Chart kind="pie" data={rows} x="name"\n  series={[{ key: '건수' }]} />`}
         >
           {/* 사람은 각도보다 길이를 훨씬 잘 읽는다. 조각이 여덟이면 순위를 못 읽는다. */}
@@ -171,7 +171,7 @@ export default function ChartGalleryPage() {
         </Card>
 
         <Card
-          title="흐름(사케이) — plotly"
+          title="흐름(생키) — plotly"
           code={`<LazyPlot data={[{ type: 'sankey', node, link }]} />`}
         >
           <LazyPlot
@@ -189,9 +189,9 @@ export default function ChartGalleryPage() {
       </div>
 
       <p className="text-muted-foreground mt-6 text-xs">
-        여기 없는 그림이 필요하면 <code>LazyPlot</code> 에 plotly 의 trace 를 그대로 넘기면
-        됩니다(등고선·3차원·트리맵…). 자주 쓰게 되면 그때 <code>Chart</code> 에 종류를 더합니다 —
-        화면마다 plotly 를 직접 부르는 것이 늘어나는 것이 가장 나쁩니다.
+        여기에 없는 차트가 필요하면 <code>LazyPlot</code>에 plotly의 trace를 그대로 전달하세요(등고선,
+        3차원, 트리맵 등). 자주 사용하게 되면 <code>Chart</code>에 종류를 추가합니다. 화면마다 plotly를
+        직접 호출하는 방식은 지양합니다.
       </p>
     </div>
   )

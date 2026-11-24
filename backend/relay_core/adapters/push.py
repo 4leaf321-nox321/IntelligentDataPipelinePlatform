@@ -49,7 +49,7 @@ def items_of(body: Any, rows_path: str) -> list[Any]:
     """보낸 본문 → 항목들. 모양이 틀리면 `SourceError`."""
     items = value_at(body, rows_path) if rows_path else body
     if not isinstance(items, list):
-        raise SourceError(f"보낸 본문의 {rows_path or '맨 위'}에 목록이 없습니다.")
+        raise SourceError(f"전송한 본문의 {rows_path or '최상위'}에 목록이 없습니다.")
     return items
 
 
@@ -61,8 +61,8 @@ class PushAdapter:
     def _files(self) -> list[Path]:
         if self.inbox is None:
             raise SourceError(
-                "보내 주는 원천은 파이프라인의 받을 함으로 읽습니다 — 정의를 저장한 뒤 원천이 "
-                "보내게 하고 정의 시험 · 실행으로 보세요."
+                "푸시 원천은 파이프라인의 수신함에서 읽습니다. 정의를 저장한 후 원천에서 "
+                "데이터를 전송하고 정의 테스트나 실행으로 확인하세요."
             )
         if not self.inbox.is_dir():
             return []
@@ -73,7 +73,9 @@ class PushAdapter:
         try:
             body = json.loads(file.read_text(encoding="utf-8"))
         except (OSError, ValueError) as failure:
-            raise SourceError(f"받은 묶음을 읽지 못했습니다({file.name}): {failure}") from None
+            raise SourceError(
+                f"수신 데이터를 읽을 수 없습니다({file.name}): {failure}"
+            ) from None
         out: list[SourceRecord] = []
         for item in items_of(body, ""):  # 받을 때 이미 목록만 남겼다(`inbound`)
             out += records_of(
@@ -113,10 +115,10 @@ class PushAdapter:
 
     def probe(self) -> str:
         files = self._files()
-        return f"받을 함에 묶음 {len(files)}개가 기다립니다" + (
-            f"(가장 오래된 것 {files[0].name})"
+        return f"수신함에 {len(files)}건이 대기 중입니다" + (
+            f"(가장 오래된 파일 {files[0].name})."
             if files
-            else " — 원천이 아직 보내지 않았습니다"
+            else ". 원천이 아직 데이터를 전송하지 않았습니다."
         )
 
     def discover(self) -> dict[str, Any]:
@@ -125,7 +127,8 @@ class PushAdapter:
         files = self._files()
         if not files:
             raise SourceError(
-                "아직 받은 묶음이 없습니다 — 원천이 한 번 보내면 탐색할 수 있습니다."
+                "아직 수신한 데이터가 없습니다. 원천이 데이터를 한 번 전송하면 탐색할 수 "
+                "있습니다."
             )
         body = json.loads(files[-1].read_text(encoding="utf-8"))
         return suggest(items_of(body, "")[:5])

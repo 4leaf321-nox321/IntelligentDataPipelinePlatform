@@ -59,9 +59,9 @@ def test_못_찾으면_까닭을_말한다(
     unknown = _get(client, member, slug, type_slug="plm_model", key="M404")
     assert unknown.status_code == 404
     assert unknown.json()["error"]["code"].endswith("RELAY-0019")
-    assert "찾지 못했습니다" in unknown.json()["error"]["message"]
+    assert "원천 표에 없는 식별자입니다" in unknown.json()["error"]["message"]
     never = _get(client, member, fresh, type_slug="plm_model", key="M1")
     assert never.status_code == 404
-    assert "받은 적이 없습니다" in never.json()["error"]["message"]
+    assert "수신하지 않았습니다" in never.json()["error"]["message"]
     missing = _get(client, member, slug, type_slug="plm_model")
     assert missing.status_code == 422  # 식별자 없이는 묻지 않는다

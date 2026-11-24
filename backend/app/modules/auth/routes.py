@@ -99,7 +99,7 @@ def refresh(
 ) -> LoginResponse:
     raw = request.cookies.get(get_settings().refresh_cookie_name)
     if not raw:
-        raise AppError(code("AUTH", 3), "세션이 없습니다. 로그인해 주세요.", status=401)
+        raise AppError(code("AUTH", 3), "세션이 없습니다. 로그인하세요.", status=401)
 
     user, access, expires_in, new_raw = services.rotate_refresh(
         db, raw, request.headers.get("user-agent")
@@ -136,7 +136,8 @@ def portal_callback(
     if not portal.enabled(settings):
         raise NotFound(
             code("AUTH", 9),
-            "포털 SSO 가 꺼져 있습니다 — 이 설치의 .env 에 PORTAL_JWKS_URL 이 없습니다.",
+            "포털 SSO가 미사용 상태입니다. "
+            "이 설치의 .env에 PORTAL_JWKS_URL이 설정되지 않았습니다.",
         )
     base = settings.base_path
     try:
@@ -203,7 +204,8 @@ def portal_exchange(
     if not portal.enabled(settings):
         raise NotFound(
             code("AUTH", 9),
-            "포털 SSO 가 꺼져 있습니다 — 이 설치의 .env 에 PORTAL_JWKS_URL 이 없습니다.",
+            "포털 SSO가 미사용 상태입니다. "
+            "이 설치의 .env에 PORTAL_JWKS_URL이 설정되지 않았습니다.",
         )
     try:
         user, access, expires_in, refresh_raw = portal.sign_in(
@@ -213,7 +215,7 @@ def portal_exchange(
         _log_portal_refusal(failed)
         raise AppError(
             code("AUTH", 20),
-            "HWAX 포털 로그인을 받지 못했습니다.",
+            "HWAX 포털 로그인을 처리할 수 없습니다.",
             status=_EXCHANGE_STATUS.get(failed.reason, 403),
             details={"reason": failed.reason},
         ) from None
@@ -230,8 +232,8 @@ def portal_callback_get() -> None:
     SPA 의 「없는 엔드포인트」(404)를 주면 포털의 진단표가 그것을 「SSO 꺼짐」 으로 읽는다."""
     raise AppError(
         code("AUTH", 10),
-        "포털 로그인 콜백은 POST 로만 받습니다 — HWAX 포털의 타일이나 로그인 화면의 "
-        "단추로 여세요.",
+        "포털 로그인 콜백은 POST 요청만 지원합니다. HWAX 포털의 타일이나 로그인 화면의 "
+        "버튼으로 접속하세요.",
         status=405,
     )
 

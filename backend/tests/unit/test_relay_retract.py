@@ -59,8 +59,8 @@ def test_고른_객체와_닿는_선을_무덤으로_올리고_멈춘다(tmp_pat
     )
     assert outcome.status == "planned", outcome.message
     assert (
-        "객체 1개 사용 중지 · 선 1줄 끊기" in outcome.message
-        and "멈췄습니다" in outcome.message
+        "객체 1개 사용 중지 · 관계 1건 해제" in outcome.message
+        and "중지했습니다" in outcome.message
     )
     graves = _graves(fake)
     # 사용 중지가 기본 — `action` 칸은 지우기일 때만 싣는다(옛 SP 도 같은 뜻으로 읽는다).
@@ -81,7 +81,7 @@ def test_고른_객체와_닿는_선을_무덤으로_올리고_멈춘다(tmp_pat
 
     # 멈춘 동안 실행은 원천을 받지 않는다.
     stopped = runner.run(pipeline, work, fake)
-    assert stopped.status == "stopped" and "다시 켜기" in stopped.message
+    assert stopped.status == "stopped" and "[재개]" in stopped.message
 
     assert runner.apply(pipeline, work, fake).status == "applied"
     state = work.load_state()
@@ -92,7 +92,7 @@ def test_고른_객체와_닿는_선을_무덤으로_올리고_멈춘다(tmp_pat
 
     # 다시 켜면 돈다 — 원천에 M1 이 그대로라 다시 만든다(그래서 멈췄었다).
     said = retract.resume(work, fake.applied, by="관리자")
-    assert "다시 켰습니다" in said and work.load_state().stopped is None
+    assert "재개했습니다" in said and work.load_state().stopped is None
     again = runner.run(pipeline, work, fake)
     assert again.status == "planned", again.message
     assert again.counts["objects"]["plm_model"]["created"] == 1
@@ -112,7 +112,7 @@ def test_도착_쪽_타입을_모르면_출발_쪽만_본다(tmp_path: Path) -> 
         pipeline, work, Scope.of({"keys": {"plm_model": ["M1"]}}), submit=fake
     )
     assert outcome.status == "planned"
-    assert "plm_derived_from" in outcome.message and "출발 쪽만" in outcome.message
+    assert "plm_derived_from" in outcome.message and "출발 객체 기준으로만" in outcome.message
     assert _graves(fake).get("relations") == []  # M2 → M1 은 M2 가 출발 — 남는다
 
     other = _applied(tmp_path / "b")
@@ -142,7 +142,7 @@ def test_넣지_않은_것은_거절하고_아무것도_바꾸지_않는다(tmp_
         retract.retract(
             pipeline, work, Scope.of({"keys": {"plm_model": ["M1", "M9"]}}), submit=fake
         )
-    with pytest.raises(RetractError, match="넣은 적이 없는 타입입니다: mes_lot"):
+    with pytest.raises(RetractError, match="적재하지 않은 타입입니다: mes_lot"):
         retract.retract(pipeline, work, Scope.of({"types": ["mes_lot"]}), submit=fake)
     after = work.load_state()
     assert after.stopped is None and after.pending is None
@@ -156,7 +156,7 @@ def test_대기_계획이_있으면_올리지_않는다(tmp_path: Path) -> None:
     fake: Any = FakeSubmitter()
     pipeline = _pipeline(tmp_path, [dict(one) for one in ROWS])
     nothing = retract.retract(pipeline, work, Scope.of({"all": True}), submit=fake)
-    assert nothing.status == "nothing" and "적용한 것이 없어" in nothing.message
+    assert nothing.status == "nothing" and "적용한 계획이 없어" in nothing.message
     assert runner.run(pipeline, work, fake).status == "planned"
     waiting = retract.retract(pipeline, work, Scope.of({"all": True}), submit=fake)
     assert waiting.status == "waiting" and work.load_state().stopped is None
@@ -165,11 +165,11 @@ def test_대기_계획이_있으면_올리지_않는다(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("body", "said"),
     [
-        ({}, "무엇을 걷어낼지"),
-        ({"all": True, "types": ["plm_model"]}, "홀로"),
+        ({}, "회수 범위를 지정"),
+        ({"all": True, "types": ["plm_model"]}, "단독"),
         ({"types": "plm_model"}, "목록"),
         ({"keys": ["M1"]}, "keys"),
-        ({"keys": {"plm_model": []}}, "무엇을 걷어낼지"),
+        ({"keys": {"plm_model": []}}, "회수 범위를 지정"),
     ],
 )
 def test_고르기의_모양(body: dict[str, Any], said: str) -> None:
@@ -179,12 +179,12 @@ def test_고르기의_모양(body: dict[str, Any], said: str) -> None:
 
 def test_다시_켜기는_대기_중인_걷어내기를_거두거나_기준으로_올린다(tmp_path: Path) -> None:
     pipeline, work, fake = _applied(tmp_path)
-    with pytest.raises(RetractError, match="멈춰 있지 않습니다"):
+    with pytest.raises(RetractError, match="중지 상태가 아닙니다"):
         retract.resume(work, fake.applied)
 
     retract.retract(pipeline, work, Scope.of({"keys": {"plm_model": ["M3"]}}), submit=fake)
     job = work.load_state().pending.job_id  # type: ignore[union-attr]
-    with pytest.raises(RetractError, match="닿지 않아"):
+    with pytest.raises(RetractError, match="연결할 수 없어"):
         retract.resume(work, lambda _job: None)
     assert work.load_state().stopped  # 그대로
 
@@ -237,15 +237,15 @@ def test_지우기는_무덤에_action_을_싣는다(tmp_path: Path) -> None:
         ends=ENDS,
         submit=fake,
     )
-    assert outcome.status == "planned" and "객체 1개 지우기 · 선 1줄 끊기" in outcome.message
+    assert outcome.status == "planned" and "객체 1개 삭제 · 관계 1건 해제" in outcome.message
     graves = _graves(fake)
     assert graves["objects"] == [
         {"type_slug": "plm_model", "key": "M2", "merged_into": None, "action": "delete"}
     ]
     assert graves["relations"][0]["dst_type"] == "plm_model"  # 관계 종류의 도착 타입이 하나
     assert work.load_state().stopped["action"] == "delete"  # type: ignore[index]
-    assert "지웠습니다" in retract.after_apply(work.load_state().stopped)
-    assert "사용 중지로" in retract.after_apply({"action": "deprecate"})
+    assert "삭제했습니다" in retract.after_apply(work.load_state().stopped)
+    assert "사용 중지했습니다" in retract.after_apply({"action": "deprecate"})
 
 
 def test_앞서_사용_중지로_걷어낸_것을_지운다(tmp_path: Path) -> None:
@@ -260,7 +260,10 @@ def test_앞서_사용_중지로_걷어낸_것을_지운다(tmp_path: Path) -> N
     nothing = retract.retract(
         pipeline, work, Scope.of({"previous": True}), action="delete", submit=fake, reader=gone
     )
-    assert nothing.status == "nothing" and "사용 중지로 남은 것이 없습니다" in nothing.message
+    assert (
+        nothing.status == "nothing"
+        and "사용 중지 상태로 남은 객체가 없습니다" in nothing.message
+    )
 
     target = _Target({"plm_model": {"M1": "active", "M2": "active", "M3": "deprecated"}})
     outcome = retract.retract(
@@ -292,7 +295,7 @@ def test_지우기를_받는_판(version: str, deletes: bool) -> None:
 
 
 def test_previous_는_홀로() -> None:
-    with pytest.raises(RetractError, match="홀로"):
+    with pytest.raises(RetractError, match="단독"):
         Scope.of({"previous": True, "all": True})
     with pytest.raises(RetractError, match="action"):
         retract.check(Scope.of({"all": True}), "purge")

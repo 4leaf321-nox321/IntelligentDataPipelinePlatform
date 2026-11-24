@@ -58,7 +58,7 @@ def test_확인_후_진행은_멈춘_것이_있을_때_화면의_사람만(
     assert (
         detail["status"] == "blocked" and detail["state"]["held"]["reasons"] == HELD["reasons"]
     )
-    assert "빈 칸 3건 이상이면 멈춤" in detail["intake_label"]
+    assert "빈 필드 3건 이상 시 중단" in detail["intake_label"]
     nodes = client.get("/api/relay/map", headers=member.headers).json()["nodes"]
     (pipeline,) = [one for one in nodes if one["kind"] == "pipeline" and one["label"] == slug]
     assert pipeline["status"] == "blocked" and pipeline["detail"]["held"] == HELD["reasons"]
@@ -150,9 +150,9 @@ def test_늦음은_일정_타이머가_한_번_알리고_다시_끝나면_재개
     db.commit()
     assert slug not in alerts.watch_late(db)  # 같은 늦음은 다시 안 알린다
     db.commit()
-    assert _bell(db, admin.email, slug) == [("relay.run.late", f"{slug} 실행 늦음")]
+    assert _bell(db, admin.email, slug) == [("relay.run.late", f"{slug} 실행 지연")]
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
-    assert detail["status"] == "late" and "5시간째 끝나지 않았습니다" in detail["late"]
+    assert detail["status"] == "late" and "5시간째 완료되지 않았습니다" in detail["late"]
     home = client.get("/api/server/maintenance", headers=admin.headers).json()
     assert any(one["key"] == "relay_trouble" and one["count"] >= 1 for one in home)
 
@@ -190,7 +190,7 @@ def test_정의_시험은_이_정의로_받으면_받기_점검에_걸리는지_
         SourceRecord(key=f"M{n}", values={"MODEL_ID": f"M{n}", "KIND": ""}) for n in range(5)
     ]
     got = _intake_preview(body, slug, Fetched(records=renamed, complete=False))
-    assert got["checked"] and got["held"] and "빈 칸 KIND" in got["reasons"][0]
+    assert got["checked"] and got["held"] and "빈 필드 KIND" in got["reasons"][0]
     assert work.mirror_size() == 10  # 쓰지 않는다
     # 앞부분만 받은 시험이라 안 온 다섯 행은 삭제로 보지 않는다.
     fine = _intake_preview(body, slug, Fetched(records=rows[:5], complete=False))

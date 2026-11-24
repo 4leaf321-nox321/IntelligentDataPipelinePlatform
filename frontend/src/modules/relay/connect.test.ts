@@ -59,7 +59,7 @@ describe('새 연결의 입력', () => {
     expect(valueOf(field('page_size', 'int'), '200')).toBe(200)
     expect(valueOf(field('params', 'Mapping[str, str]'), '{"a":"b"}')).toEqual({ a: 'b' })
     expect(valueOf(field('rows_path'), '  ')).toBeUndefined()
-    expect(() => valueOf(field('page_size', 'int'), 'many')).toThrow(/수입니다/)
+    expect(() => valueOf(field('page_size', 'int'), 'many')).toThrow(/숫자를 입력하세요/)
     expect(() => valueOf(field('params', 'Mapping[str, str]'), '{a')).toThrow(/JSON/)
   })
 
@@ -84,7 +84,7 @@ describe('새 연결의 입력', () => {
 
     const twice = form()
     twice.picks = twice.picks.map((one) => ({ ...one, key: true, column: 'SAME' }))
-    expect(() => adapterOf(twice)).toThrow(/둘입니다/)
+    expect(() => adapterOf(twice)).toThrow(/중복됩니다/)
   })
 
   it('정의 · 레시피의 첫 판', () => {

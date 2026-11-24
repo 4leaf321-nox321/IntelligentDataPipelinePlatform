@@ -119,7 +119,7 @@ def test_relay_사전은_못_푼_표기만_대상에_있는_키로_푼다(tmp_pa
     found = _objects(run)
     assert found["M3"]["site"] == "S-SEOUL" and found["M5"]["site"] == "S-BUSAN"
     report = (run / "table-report.txt").read_text(encoding="utf-8")
-    assert "relay 사전으로 푼 표기: @sites.txt 2개" in report
+    assert "relay 사전으로 처리한 표기: @sites.txt 2개" in report
 
     # 대상에 없는 키로는 풀지 않는다 — 그 표기는 미해결로 남고 보고서가 말한다.
     wrong = aliases.merge(RECIPE, [aliases.Entry(SITES, "서울시험소", "S-NOWHERE")])
@@ -134,7 +134,7 @@ def test_relay_사전의_모양과_쓰일_곳을_본다() -> None:
     assert aliases.match_targets(RECIPE) == {SITES}
     odd = {**RECIPE, "relay_aliases": {"t_other": {"x": "y"}, SITES: {"": "S-SEOUL"}}}
     problems = aliases.check(odd)
-    assert any("t_other" in one and "쓰이지 않습니다" in one for one in problems)
+    assert any("t_other" in one and "사용되지 않습니다" in one for one in problems)
     assert any("빈 표기" in one for one in problems)
     assert aliases.check({**RECIPE, "relay_aliases": ["x"]})
     merged = aliases.merge(
@@ -208,7 +208,7 @@ def test_GLM_은_후보_안에서만_고르고_확신이_모자라면_고르지_
     assert empty.pick(text="x", target="t", column="C", candidates=[]).key is None
     assert asked == []  # 후보가 없으면 묻지 않는다
 
-    with pytest.raises(LlmError, match="거절"):
+    with pytest.raises(LlmError, match="거부"):
         _llm({}, [], status=500).pick(text="x", target="t", column="C", candidates=CANDIDATES)
     with pytest.raises(LlmError, match="JSON"):
         _llm("정답은 S-SEOUL", []).pick(
@@ -293,5 +293,5 @@ def test_값이_갈리는_칸은_모으는_칸으로_바꾸면_풀린다(tmp_pat
         inbox.aggregate(body, "t_model", "key", "join")
     with pytest.raises(ValueError, match="이미"):
         inbox.aggregate(joined, "t_model", "label", "collect")
-    with pytest.raises(ValueError, match="없습니다"):
+    with pytest.raises(ValueError, match="없는 속성입니다"):
         inbox.aggregate(body, "t_model", "nope", "join")

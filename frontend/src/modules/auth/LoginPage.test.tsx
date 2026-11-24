@@ -87,7 +87,7 @@ describe('HWAX 포털로 로그인', () => {
   it('승인 대기는 기다리라고 말하고 오류 색을 쓰지 않는다', () => {
     renderAt('/login?sso=pending')
     const shown = screen.getByRole('status')
-    expect(shown).toHaveTextContent('가입 승인을 기다립니다')
+    expect(shown).toHaveTextContent('가입 승인 대기 중입니다')
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
@@ -121,7 +121,7 @@ describe('포털 안에서 열렸을 때(자동 로그인과 같은 길)', () =>
     auth.loginWithPortal.mockResolvedValue({ ok: false, reason: 'pending' })
     renderAt('/login')
     await userEvent.click(screen.getByRole('button', { name: 'HWAX 포털로 로그인' }))
-    expect(await screen.findByRole('status')).toHaveTextContent('가입 승인을 기다립니다')
+    expect(await screen.findByRole('status')).toHaveTextContent('가입 승인 대기 중입니다')
 
     const assign = vi.fn()
     vi.stubGlobal('location', { ...window.location, assign })
@@ -139,15 +139,15 @@ describe('포털 안에서 열렸을 때(자동 로그인과 같은 길)', () =>
 
 describe('?sso= 사유 문구', () => {
   it.each([
-    ['pending', 'info', '가입 승인을 기다립니다'],
+    ['pending', 'info', '가입 승인 대기 중입니다'],
     ['deleted', 'error', '삭제된 계정입니다'],
     ['expired', 'error', '유효 시간'],
     ['invalid', 'error', '확인하지 못했습니다'],
-    ['unavailable', 'error', '공개 키를 받지 못해'],
-    ['admin_sub', 'error', '아이디 · 비밀번호로 로그인하세요'],
-    ['portal-login', 'info', 'HWAX 포털에 다시 로그인한 뒤'],
+    ['unavailable', 'error', '공개 키를 수신하지 못해'],
+    ['admin_sub', 'error', '아이디와 비밀번호로 로그인하세요'],
+    ['portal-login', 'info', 'HWAX 포털에 다시 로그인한 후'],
     ['no-tile', 'error', '등록되지 않았거나 사용 권한이 없습니다'],
-    ['network', 'error', '연결이 끊겼습니다'],
+    ['network', 'error', '연결이 끊어졌습니다'],
   ])('%s', (reason, tone, words) => {
     const got = ssoMessage(reason)
     expect(got.tone).toBe(tone)

@@ -128,7 +128,7 @@ def test_새_파이프라인은_초안으로_서고_토큰은_시험까지만(
     saved = _save(client, mcp, slug, _body(slug, drop, recipe="x.table.json"))
     assert saved.status_code == 201, saved.text
     assert saved.json()["version"] == 1
-    assert any("recipe 칸은 제외했습니다" in one for one in saved.json()["problems"])
+    assert any("recipe 항목은 제외했습니다" in one for one in saved.json()["problems"])
 
     nodes = client.get("/api/relay/map", headers=admin.headers).json()["nodes"]
     (pipeline,) = [one for one in nodes if one["kind"] == "pipeline" and one["label"] == slug]
@@ -165,7 +165,7 @@ def test_새_파이프라인은_초안으로_서고_토큰은_시험까지만(
     )
     assert on.status_code == 200 and on.json()["status"] == "active", on.text
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
-    assert detail["definition_label"] == "판 1" and not detail["draft"]
+    assert detail["definition_label"] == "버전 1" and not detail["draft"]
     assert any(
         "레시피가 없습니다" in one for one in detail["problems"]
     )  # 레시피 판은 아직 꺼짐
@@ -173,7 +173,7 @@ def test_새_파이프라인은_초안으로_서고_토큰은_시험까지만(
     client.post(f"/api/relay/pipelines/{slug}/recipes/1/activate", headers=admin.headers)
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
     assert detail["problems"] == [] and detail["status"] == "never"
-    assert detail["recipe_label"] == "판 1" and detail["types"] == ["plm_model"]
+    assert detail["recipe_label"] == "버전 1" and detail["types"] == ["plm_model"]
 
     # 켜진 판이 돈다 — 원천(파일)은 읽고, 대상에 못 닿아 실패한다(정의 · 레시피는 풀렸다)
     monkeypatch.setenv("RELAY_T_TOKEN", "x")
@@ -201,7 +201,7 @@ def test_켜진_판이_같은_slug_의_정의_파일을_이긴다(
 
     client.post(f"/api/relay/pipelines/{slug}/definitions/1/activate", headers=admin.headers)
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
-    assert detail["definition_label"] == "판 1" and detail["adapter_kind"] == "file"
+    assert detail["definition_label"] == "버전 1" and detail["adapter_kind"] == "file"
     assert detail["recipe_label"] == "파일" and detail["types"] == ["plm_model"]
     assert detail["problems"] == []  # 레시피는 같은 slug 의 정의 파일 것을 빌린다
 
@@ -306,7 +306,7 @@ def test_시험은_큰_원천의_앞만_받고_보낼_것은_세지_않는다(
     ).json()
     assert tried["source"]["rows"] == 1 and tried["source"]["capped"] == 1
     assert tried["recipe"]["rows"] == {"plm_model": 1} and "would_send" not in tried["recipe"]
-    assert "앞부분만" in tried["recipe"]["against"]
+    assert "일부 행만" in tried["recipe"]["against"]
 
 
 def test_공유_폴더도_부를_수_있는_주소만(client: TestClient, admin: Signed) -> None:
@@ -330,7 +330,9 @@ def test_자동_적용은_정의에_적고_사람이_켜야_서고_틀리면_거
     assert _save(client, admin.headers, slug, body).status_code == 201
     client.post(f"/api/relay/pipelines/{slug}/definitions/1/activate", headers=admin.headers)
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
-    assert detail["auto_apply_label"].startswith("타이머 실행 · 사람 적용 3번 뒤 · 변경 50건")
+    assert detail["auto_apply_label"].startswith(
+        "타이머 실행 · 사람 적용 3회 이후 · 변경 50건"
+    )
 
 
 def test_사용_중인_정의의_비밀은_그_역할_그_주소에만(
@@ -385,7 +387,7 @@ def test_사용_중인_정의의_비밀은_그_역할_그_주소에만(
     (draft,) = [one for one in nodes if one["kind"] == "target" and "127.0.0.2" in one["sub"]]
     assert draft["status"] == "draft"
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
-    assert "초안의 대상에는 묻지 않았습니다" in detail["target_schema_note"]
+    assert "초안의 대상은 조회하지 않았습니다" in detail["target_schema_note"]
     assert not any("127.0.0.2" in one for one in asked)
 
     fresh = {**elsewhere, "token_env": "RELAY_NEW_SP_TOKEN"}

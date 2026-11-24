@@ -33,8 +33,8 @@ export function QueuedNotice({ queued }: { queued: QueuedOut & { what: string } 
     <Alert>
       <AlertTitle>{queued.what} 작업을 등록했습니다</AlertTitle>
       <AlertDescription>
-        워커가 가져가면 실행됩니다.{' '}
-        <Link to={jobLink(queued.job_id)}>작업 화면에서 진행 보기</Link>
+        작업 워커가 순서대로 실행합니다.{' '}
+        <Link to={jobLink(queued.job_id)}>작업 화면에서 진행 상황 확인</Link>
       </AlertDescription>
     </Alert>
   )
@@ -48,20 +48,21 @@ function acceptText(held: HeldIntake) {
       <ul className="list-disc space-y-1 pl-4">
         {found.deleted > 0 && (
           <li>
-            미러 {found.before.toLocaleString()}건 중 <b>{found.deleted.toLocaleString()}건</b>이 삭제되고,
-            다음 계획에 그만큼의 삭제(사용 중지)가 들어갑니다.
+            미러 {found.before.toLocaleString()}건 중 <b>{found.deleted.toLocaleString()}건</b>이 삭제됩니다.
+            다음 계획에 같은 건수의 삭제(사용 중지)가 포함됩니다.
           </li>
         )}
         {found.blanks.map((one) => (
           <li key={one.column}>
-            칸 <span className="font-mono">{one.column}</span> 의 값이 있던{' '}
-            <b>{one.lost.toLocaleString()}건</b>이 비고, 다음 계획이 대상의 그 칸을 비웁니다.
+            필드 <span className="font-mono">{one.column}</span>의 값이 있던{' '}
+            <b>{one.lost.toLocaleString()}건</b>이 빈 값이 됩니다. 다음 계획은 대상의 해당 속성을 비웁니다.
           </li>
         ))}
       </ul>
       <p>
-        확인한 건수 · 칸까지만 진행합니다 — 실행할 때 원천이 더 나빠졌으면 다시 멈춥니다. 대상에는 계획을
-        읽고 「적용」 해야 들어갑니다. 원천이 일부만 준 것이면 진행하지 말고 원천 · 어댑터를 먼저 수정하세요.
+        확인한 건수와 필드까지만 진행합니다. 실행 시 원천 상태가 더 나빠졌으면 다시 중단됩니다. 대상에는
+        계획을 [적용]해야 반영됩니다. 원천이 데이터를 일부만 제공한 경우에는 진행하지 말고 원천 또는
+        어댑터를 먼저 수정하세요.
       </p>
     </div>
   )
@@ -92,8 +93,8 @@ export function PipelineActions({
     return (
       <section className="rounded-md border border-dashed p-3">
         <p className="text-muted-foreground text-sm">
-          초안은 실행되지 않습니다 — 아래 「정의 판」 에서 판을 시험하고 사용하면 「지금 실행」 ·
-          「적용」 이 표시됩니다.
+          초안은 실행되지 않습니다. 아래 [정의 버전]에서 버전을 테스트하고 사용하면 [즉시 실행]과
+          [적용]이 표시됩니다.
         </p>
       </section>
     )
@@ -130,7 +131,7 @@ export function PipelineActions({
       <div className="flex flex-wrap items-center gap-3">
         <Button size="sm" onClick={() => void act('run')} disabled={busy !== null || stopped}>
           {busy === 'run' ? <Loader2 className="animate-spin" /> : <Play />}
-          지금 실행
+          즉시 실행
         </Button>
         <label className="flex items-center gap-1.5 text-sm">
           <input
@@ -138,11 +139,11 @@ export function PipelineActions({
             checked={overwrite}
             onChange={(event) => setOverwrite(event.target.checked)}
           />
-          사람이 수정한 칸도 {detail.system || '원천'} 값으로 덮기(overwrite)
+          사람이 수정한 속성도 {detail.system || '원천'} 값으로 덮어쓰기(overwrite)
         </label>
-        <label className="flex items-center gap-1.5 text-sm" title="어댑터의 칸을 수정한 뒤 이미 지나간 행까지 다시 읽습니다 — 안 온 행은 삭제로 읽히고, 받기 점검이 대량 삭제를 막습니다.">
+        <label className="flex items-center gap-1.5 text-sm" title="워터마크를 무시하고 원천 전체를 다시 수신합니다. 어댑터 필드를 수정한 후 사용합니다. 수신되지 않은 행은 삭제로 처리되며, 수신 검증이 대량 삭제를 막습니다.">
           <input type="checkbox" checked={full} onChange={(event) => setFull(event.target.checked)} />
-          전량 다시 받기
+          전체 재수신
         </label>
         <Button
           size="sm"
@@ -155,17 +156,17 @@ export function PipelineActions({
         </Button>
       </div>
       <p className="text-muted-foreground text-xs">
-        실행은 대상 SP 에 계획만 생성합니다 — 아무것도 들어가지 않습니다.{' '}
+        실행은 대상 SP에 계획만 생성합니다. 대상은 변경되지 않습니다.{' '}
         {resumes
-          ? '앞 조각은 적용됐고 한 조각의 미리 보기에서 멈췄습니다 — 원인을 해결한 뒤 「적용」 하면 그 조각부터 다시 보냅니다.'
+          ? '앞의 분할 번들은 적용되었고, 다음 분할 번들의 미리 보기에서 중단되었습니다. 원인을 해결한 후 [적용]하면 해당 분할 번들부터 다시 전송합니다.'
           : canApply
             ? pending && partsOf(pending) > 1
-              ? `나눠 보내는 계획입니다(조각 ${partsOf(pending)}개) — 대상 SP 에서 첫 조각의 계획을 읽고 「적용」 을 클릭하면 조각마다 차례로 미리 보고 들어갑니다.`
-              : '대상 SP 에서 계획을 읽고 「적용」 을 클릭하면 들어갑니다.'
+              ? `분할 번들 ${partsOf(pending)}개로 나눈 계획입니다. 대상 SP에서 첫 번째 분할 번들의 계획을 확인하고 [적용]을 클릭하면 분할 번들마다 차례로 미리 보기 후 반영됩니다.`
+              : '대상 SP에서 계획을 확인하고 [적용]을 클릭하면 반영됩니다.'
             : pending
-            ? '지금 계획에는 오류가 있어 적용할 수 없습니다 — 원인을 해결한 뒤 다시 실행하세요.'
-            : '적용을 기다리는 계획이 없습니다.'}
-        {overwrite && ' 덮기를 선택하면 대상에서 사람이 수정한 칸도 원천 값으로 바뀝니다(계획에 적힙니다).'}
+            ? '현재 계획에 오류가 있어 적용할 수 없습니다. 원인을 해결한 후 다시 실행하세요.'
+            : '적용 대기 중인 계획이 없습니다.'}
+        {overwrite && ' 덮어쓰기를 선택하면 대상에서 사람이 수정한 속성도 원천 값으로 변경됩니다(계획에 기록).'}
       </p>
       <RetractControls
         detail={detail}
@@ -178,7 +179,7 @@ export function PipelineActions({
       />
       {held && (
         <div className="space-y-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
-          <p className="font-medium">받기 점검에서 멈췄습니다 — 미러 · 워터마크에 반영하지 않았습니다</p>
+          <p className="font-medium">수신 검증으로 중단되었습니다. 미러와 워터마크에 반영하지 않았습니다.</p>
           <ul className="list-disc space-y-0.5 pl-4 text-xs">
             {held.reasons.map((reason) => (
               <li key={reason}>{reason}</li>
@@ -190,7 +191,7 @@ export function PipelineActions({
               확인 후 진행
             </Button>
             <span className="text-muted-foreground text-xs">
-              원천 · 어댑터를 수정했으면 「지금 실행」 을 클릭하세요 — 바로잡혔으면 점검을 지나갑니다.
+              원천 또는 어댑터를 수정했으면 [즉시 실행]을 클릭하세요. 문제가 해결되었으면 수신 검증을 통과합니다.
             </span>
           </div>
         </div>
@@ -200,7 +201,7 @@ export function PipelineActions({
       {held && (
         <ConfirmDialog
           open={confirming}
-          title="받기 점검의 멈춤을 확인하고 진행합니다"
+          title="수신 검증 중단 확인 후 진행"
           description={acceptText(held)}
           confirmLabel="확인 후 진행"
           destructive={held.findings.deleted > 0}

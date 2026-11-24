@@ -186,13 +186,13 @@ export function AttachmentList({
 
       {rows.length === 0 ? (
         <EmptyState
-          title={imageOnly ? '사진이 없습니다' : '첨부가 없습니다'}
+          title={imageOnly ? '사진 없음' : '첨부 없음'}
           hint={
             canEdit
-              ? `위 단추로 선택하거나, 이 자리로 끌어다 놓거나, 클릭한 뒤 붙여넣기(Ctrl+V)로 업로드할 수 있습니다.${
-                  imageOnly ? ' 사진(PNG · JPEG · GIF · WebP)만 업로드할 수 있습니다.' : ''
+              ? `위 버튼으로 선택하거나, 이 영역에 끌어 놓거나, 클릭한 후 붙여넣기(Ctrl+V)로 업로드할 수 있습니다.${
+                  imageOnly ? ' 사진(PNG, JPEG, GIF, WebP)만 업로드할 수 있습니다.' : ''
                 }`
-              : '아직 올라온 파일이 없습니다.'
+              : '업로드된 파일이 없습니다.'
           }
         />
       ) : (
@@ -211,7 +211,7 @@ export function AttachmentList({
                       variant="secondary"
                       size="icon"
                       className="absolute top-1 right-1 size-7 opacity-80 hover:opacity-100"
-                      aria-label={`${one.original_name} 떼기`}
+                      aria-label={`${one.original_name} 첨부 해제`}
                       onClick={() => act(() => attachmentApi.remove(one.id))}
                     >
                       <Trash2 className="size-3.5" />
@@ -244,7 +244,7 @@ export function AttachmentList({
                     <Button
                       variant="ghost"
                       size="icon"
-                      aria-label={`${one.original_name} 떼기`}
+                      aria-label={`${one.original_name} 첨부 해제`}
                       onClick={() => act(() => attachmentApi.remove(one.id))}
                     >
                       <Trash2 className="size-4" />

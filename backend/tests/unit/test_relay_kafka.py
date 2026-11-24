@@ -195,7 +195,7 @@ def test_보존_기간으로_지워진_위치_상한_비석을_말한다() -> No
     broker.send(1, None, key="L7")  # 비석 — 식별자가 메시지 키가 아니면 건너뛴다
     skipped = _adapter(broker).fetch(None)
     assert [one.key for one in skipped.records] == ["L5"]
-    assert any("비석" in one for one in skipped.notes)
+    assert any("삭제 메시지" in one for one in skipped.notes)
 
     keyed = Broker()
     keyed.send(0, {"Qty": 1}, key="K1")
@@ -204,7 +204,7 @@ def test_보존_기간으로_지워진_위치_상한_비석을_말한다() -> No
     by_key = _adapter(keyed, key="_kafka.key", columns={"K": "_kafka.key"}).fetch(None)
     last = {one.key: one for one in by_key.records.in_key_order()}  # type: ignore[union-attr]
     assert last["K1"].deleted and not last["K2"].deleted
-    assert not any("비석" in one for one in by_key.notes)
+    assert not any("삭제 메시지" in one for one in by_key.notes)
 
 
 def test_시험은_앞_몇_건만_읽고_확정하지_않는다() -> None:
@@ -217,7 +217,7 @@ def test_시험은_앞_몇_건만_읽고_확정하지_않는다() -> None:
     found = _adapter(broker).discover()
     assert found["waiting"] == 5 and found["messages_read"] >= 2
     assert "LotId" in {one["path"] for one in found["paths"]}
-    assert "읽을 것 5건" in _adapter(broker).probe()
+    assert "미수신 5건" in _adapter(broker).probe()
 
 
 def test_Avro_는_스키마_레지스트리에서_스키마를_읽는다() -> None:
@@ -273,7 +273,7 @@ def test_Avro_는_스키마_레지스트리에서_스키마를_읽는다() -> No
     )  # 스키마는 한 번 읽고 기억한다 and seen[0].headers["authorization"].startswith("Basic ")
     plain = Broker()
     plain.send(0, {"LotId": "X"})
-    with pytest.raises(SourceError, match="스키마 레지스트리의 꼴"):
+    with pytest.raises(SourceError, match="스키마 레지스트리 형식"):
         KafkaAdapter(source, consumer=plain.consumer, client=client).fetch(None)
 
 
@@ -330,7 +330,7 @@ def test_정의_검사() -> None:
         ({**good, "auth": {"kind": "bearer", "token_env": "X"}}, "none · sasl · oauth2"),
         ({**good, "auth": {"kind": "sasl", "user": "svc", "token_env": "X"}}, "mechanism"),
         ({**good, "schema_registry": {"url": "ftp://r"}}, "schema_registry"),
-        ({**good, "password": "pw"}, "비밀"),
+        ({**good, "password": "pw"}, "인증 정보"),
     ):
         with pytest.raises(DefinitionError, match=said):
             check_adapter(bad)

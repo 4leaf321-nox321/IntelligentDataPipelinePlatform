@@ -241,7 +241,7 @@ def test_정의의_비밀은_환경_변수_이름으로만() -> None:
     rest["columns"] = {"ID": "id"}
     bearer = {"kind": "bearer", "token": "abc"}
     for leaked in ({**rest, "token": "abc"}, {**rest, "auth": bearer}):
-        with pytest.raises(DefinitionError, match="비밀"):
+        with pytest.raises(DefinitionError, match="인증 정보"):
             build_adapter(leaked, {})
     named = {**rest, "auth": {"kind": "bearer", "token_env": "PLM_TOKEN"}}
     assert build_adapter(named, {"PLM_TOKEN": "t"}).source.auth.token == "t"
@@ -252,7 +252,7 @@ def test_정의의_비밀은_환경_변수_이름으로만() -> None:
 def test_DB_를_바로_읽는_원천은_없다() -> None:
     """원천은 API(OData · REST · XML) · 파일 · 공유 폴더로만 받는다 — 바깥 DB 에 바로 붙을
     권한도 일도 없다(2026-11-05). 옛 정의가 `sql` 을 적었으면 조용히 넘기지 않고 거절한다."""
-    with pytest.raises(DefinitionError, match="모르는 어댑터"):
+    with pytest.raises(DefinitionError, match="지원하지 않는 어댑터"):
         build_adapter({"kind": "sql", "dsn_env": "MES_DB", "key": "k", "table": "t"}, {})
 
 
@@ -336,7 +336,7 @@ def test_공유_폴더가_안_닿으면_되풀이하고_까닭을_말한다() ->
             raise OSError("STATUS_LOGON_FAILURE")
 
     source = FileSource(location="smb://mesfs01/export/lots.csv", key="K", retries=2)
-    with pytest.raises(SourceError, match=r"2번.*STATUS_LOGON_FAILURE"):
+    with pytest.raises(SourceError, match=r"2회.*STATUS_LOGON_FAILURE"):
         FileAdapter(source, smb=Down({}), sleep=lambda _s: None).fetch(None)
 
 

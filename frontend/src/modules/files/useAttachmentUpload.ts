@@ -46,7 +46,7 @@ export function useAttachmentUpload(
     const made: Attachment[] = []
     const failed = chosen
       .filter((file) => file.size > limit)
-      .map((file) => `${file.name}: 한 파일은 ${shownLimit(limit)} 까지입니다`)
+      .map((file) => `${file.name}: 파일 크기 상한(${shownLimit(limit)}) 초과`)
     const files = chosen.filter((file) => file.size <= limit)
     for (const [index, file] of files.entries()) {
       setProgress(

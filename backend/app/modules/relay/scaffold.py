@@ -41,7 +41,7 @@ def _fields_of(kind: str) -> set[str]:
     for one in definitions.kinds()["kinds"]:
         if one["kind"] == kind:
             return {f["name"] for f in one["fields"]}
-    raise AppError(code("RELAY", 38), f"모르는 어댑터 종류입니다: {kind}", status=422)
+    raise AppError(code("RELAY", 38), f"알 수 없는 어댑터 종류입니다: {kind}", status=422)
 
 
 def _target(db: Session, given: dict[str, Any] | None, target_from: str) -> dict[str, Any]:
@@ -62,8 +62,8 @@ def _target(db: Session, given: dict[str, Any] | None, target_from: str) -> dict
     choices = [f"{name}({server})" for server, _env, name in known] or ["없음"]
     raise AppError(
         code("RELAY", 38),
-        "대상을 정하지 못했습니다 — target 을 주거나 target_from 에 대상이 같은 파이프라인을 "
-        f"적으세요. 알려진 대상: {', '.join(sorted(choices))}",
+        "대상을 결정할 수 없습니다. target을 입력하거나 target_from에 대상이 같은 "
+        f"파이프라인을 입력하세요. 등록된 대상: {', '.join(sorted(choices))}",
         status=422,
     )
 
@@ -82,7 +82,7 @@ def _from_columns(columns: dict[str, str]) -> dict[str, Any]:
     ]
     return {
         "ok": True,
-        "probe": f"칸 목록 {len(columns)}개 — 원천에서 받지 않았습니다",
+        "probe": f"필드 목록 {len(columns)}개(원천에서 수신하지 않음)",
         "found": {"columns": columns, "paths": paths, "hints": hints},
     }
 
@@ -149,11 +149,10 @@ def run(
             "status": "needs_secrets",
             "secrets_needed": lacking,
             "next": [
-                "사람에게 화면 › 중계 › 비밀 에서 "
-                + " · ".join(lacking)
-                + " 의 값 입력을 부탁한다 "
-                "(값은 대화로 받지 않는다).",
-                "입력되면 pipeline_scaffold 를 같은 인자로 다시 부른다.",
+                "사람에게 [중계 › 인증 정보] 화면에서 다음 인증 정보의 값 입력을 요청하세요: "
+                + ", ".join(lacking)
+                + ". 값은 대화로 받지 않습니다.",
+                "입력이 끝나면 pipeline_scaffold를 같은 인자로 다시 호출하세요.",
             ],
         }
 
@@ -169,9 +168,10 @@ def run(
         out = {"status": "discover_failed", "error": found.get("error"), "discover": found}
         if kind == "push":
             out["next"] = [
-                "보내 주는 원천은 받은 것이 없어 탐색할 수 없다 — 원천 담당에게 받은 보낼 "
-                "모양(예시 JSON)을 sample_rows 로, 또는 칸 목록을 columns({열: 자리})로 주고 "
-                "다시 부른다. 원천이 시험으로 보내게 하려면 받는 자리에 ?trial=1.",
+                "푸시 원천은 수신 데이터가 없어 탐색할 수 없습니다. 원천 담당자에게 받은 전송 "
+                "형식(예시 JSON)을 sample_rows로, 또는 필드 목록을 columns({열: 위치})로 "
+                "입력해 다시 호출하세요. 원천에서 테스트 전송을 하려면 수신 주소에 ?trial=1을 "
+                "붙이세요.",
             ]
         return out
     seen = found.get("found") or {}
@@ -187,7 +187,7 @@ def run(
     ):
         best = (rows.get("candidates") or [{}])[0]
         if "path" in best:
-            chosen["rows_path"] = (best["path"], "응답에서 찾은 목록 자리")
+            chosen["rows_path"] = (best["path"], "응답에서 찾은 목록 위치")
     paging = (shape.get("paging") or {}) if shape else {}
     if (
         "paging" in allowed
@@ -202,25 +202,27 @@ def run(
     ):
         chosen["paging"] = (paging["guess"], paging.get("evidence", ""))
         if paging.get("next_path") and "next_path" not in adapter:
-            chosen["next_path"] = (paging["next_path"], "다음 쪽 값의 자리")
+            chosen["next_path"] = (paging["next_path"], "다음 페이지 값의 위치")
     columns = dict(spec.get("columns") or seen.get("columns") or {})
     if sample_rows is not None and not columns:
         raise AppError(
-            code("RELAY", 38), "견본 행에서 열을 고르지 못했습니다(객체가 없음).", status=422
+            code("RELAY", 38),
+            "샘플 데이터에서 열을 선택할 수 없습니다(객체 없음).",
+            status=422,
         )
     key = spec.get("key") or adapter.get("key") or (hints.get("key") or [None])[0]
     if not key:
         return {
             "status": "needs_key",
             "candidates": [one["path"] for one in seen.get("paths") or []][:30],
-            "next": ["원천의 안 바뀌는 식별자 자리를 골라 key 로 다시 부른다."],
+            "next": ["원천에서 변하지 않는 식별자 위치를 선택해 key로 다시 호출하세요."],
         }
     if not spec.get("key") and not adapter.get("key"):
-        chosen["key"] = (key, "값이 모두 다른 칸(식별자 후보의 첫째)")
+        chosen["key"] = (key, "값이 모두 다른 필드(식별자 후보 중 첫 번째)")
     for field, hint_key in (("updated_at", "updated_at"), ("deleted", "deleted")):
         target_field = "modified_field" if kind == "odata" and field == "updated_at" else field
         if target_field in allowed and target_field not in adapter and hints.get(hint_key):
-            chosen[target_field] = (hints[hint_key][0], "이름 · 값 꼴로 고른 후보")
+            chosen[target_field] = (hints[hint_key][0], "이름과 값 형식으로 선택한 후보")
     for field, (value, _why) in chosen.items():
         adapter[field] = value
     adapter["key"] = key
@@ -243,7 +245,7 @@ def run(
         body["computed"] = key_spec["computed"]
     if spec.get("schedule"):
         body["schedule"] = spec["schedule"]
-    note = str(spec.get("note") or "한 번에 초안")
+    note = str(spec.get("note") or "일괄 초안 생성")
     row, def_problems = definitions.save_draft(db, user, request, slug, body, note)
 
     # 4. 대상 타입 → 레시피 첫 판(없으면 SP 타입 정의 초안).
@@ -280,7 +282,7 @@ def run(
             nav_group: Any = given
             group_note = {
                 "slug": given if isinstance(given, str) else given.get("slug"),
-                "why": "준 것",
+                "why": "직접 지정",
             }
         else:
             picked = suggest_group(
@@ -316,42 +318,44 @@ def run(
     next_steps = []
     if status == "type_missing":
         next_steps.append(
-            f"대상에 {type_slug} 타입이 없습니다 — ontology(SP 타입 정의 초안 · 사이드바 "
-            "묶음은 recipe.nav_group 이 고른 까닭)를 읽고 고칠 것을 고친 뒤 type_plan(slug, "
-            f"ontology) 로 대상에 타입 계획을 올린다(원천 {body['source']} 로 잠긴다). "
-            "사람에게 대상 SP 화면 › 작업 에서 「적용」 을 부탁하고, 적용 뒤 레시피를 다시 "
-            "시험한다."
+            f"대상에 {type_slug} 타입이 없습니다. ontology(SP 타입 정의 초안)와 "
+            "recipe.nav_group(사이드바 그룹 선택 사유)을 확인해 필요한 부분을 수정한 후 "
+            "type_plan(slug, ontology)로 대상에 타입 계획을 생성하세요. 타입은 원천 "
+            f"{body['source']}로 잠깁니다. 사람에게 대상 SP의 [작업] 화면에서 [적용]을 "
+            "요청하고, 적용 후 레시피를 다시 테스트하세요."
         )
     split = [one for one in mapping.get("types") or [] if one.get("via") != "주 타입"]
     if split:
         made_types = ", ".join(f"{one['type_slug']}({one['key']})" for one in split)
         next_steps.append(
-            f"한 행을 타입 {len(split) + 1}개로 나눴다 — 더 만든 것: {made_types}. 시험의 "
-            "recipe.rows 에서 타입마다 객체 수가 맞는지(같은 식별자는 하나로 합쳐진다), "
-            "값이 갈린 칸(미해결)이 없는지 본다. 나누지 않으려면 split: false 로 다시 부른다."
+            f"한 행을 타입 {len(split) + 1}개로 분할했습니다. 추가 생성 타입: {made_types}. "
+            "테스트 결과의 recipe.rows에서 타입별 객체 수를 확인하세요(같은 식별자는 하나로 "
+            "합쳐집니다). 값 충돌 속성(미해결)이 없는지도 확인하세요. 분할하지 않으려면 "
+            "split: false로 다시 호출하세요."
         )
     if mapping.get("relation_candidates"):
         next_steps.append(
-            "relation_candidates(대상의 관계 종류 중 열을 하나로 고르지 못한 것)는 맞는 열이 "
-            "있으면 recipe 의 relations 에 적는다 — 없으면 두고 넘어간다."
+            "relation_candidates는 대상의 관계 종류 중 열을 하나로 결정하지 못한 항목입니다. "
+            "맞는 열이 있으면 recipe의 relations에 입력하고, 없으면 그대로 두세요."
         )
     if mapping.get("required_missing"):
         gaps = ", ".join(
             f"{one['property']}({one['label']})" for one in mapping["required_missing"]
         )
         next_steps.append(
-            f"대상이 꼭 받는 칸 {gaps} 이 비었습니다 — 이대로 사용하면 실행이 대상에서 "
-            "멈춘다. references 의 candidates(원천 열)로 match 를 적거나, 원천에 그 값이 "
-            "없으면 사람에게 알린다."
+            f"대상의 필수 속성이 비어 있습니다: {gaps}. 이대로 사용하면 대상에서 실행이 "
+            "중단됩니다. references의 candidates(원천 열)로 match를 입력하거나, 원천에 해당 "
+            "값이 없으면 사람에게 알리세요."
         )
     if mapping.get("unmatched") or mapping.get("references"):
         next_steps.append(
-            "unmatched(이름으로 못 이은 칸) · references(참조 칸 — match 로 상대 타입의 "
-            "식별자와 맞춘다)를 원천 열(unused)과 견주어 recipe_draft_save 로 고친다."
+            "unmatched는 이름으로 연결하지 못한 속성이고, references는 match로 상대 타입의 "
+            "식별자와 연결할 참조 속성입니다. 두 항목을 원천 열(unused)과 비교해 "
+            "recipe_draft_save로 수정하세요."
         )
     next_steps.append(
-        f"시험이 깨끗하면 사람에게: 화면 › 파이프라인 › {slug} 에서 정의 판 {row.version} · "
-        f"레시피 판 {rrow.version} 을 「사용」 해 달라고 한다."
+        f"테스트 결과에 문제가 없으면 사람에게 {slug} 파이프라인 상세 화면에서 정의 버전 "
+        f"{row.version}, 레시피 버전 {rrow.version}의 [사용]을 요청하세요."
     )
     return {
         "status": status,

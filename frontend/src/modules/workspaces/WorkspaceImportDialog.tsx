@@ -25,9 +25,9 @@ import {
 import { Textarea } from '@/shared/components/ui/textarea'
 
 const ACTION: Record<string, string> = {
-  create: '새로',
-  update: '고침',
-  unchanged: '그대로',
+  create: '생성',
+  update: '변경',
+  unchanged: '변경 없음',
   skip: '건너뜀',
   error: '오류',
 }
@@ -70,9 +70,9 @@ export function WorkspaceImportDialog({ onClose, onApplied }: Props) {
         <DialogHeader>
           <DialogTitle>부서 붙여넣기 추가</DialogTitle>
           <DialogDescription>
-            ReportArchive 등 다른 플랫폼의 「부서 정보 CSV 내보내기」 를 엑셀에서 열어 복사해
-            붙입니다(탭 구분). 열 이름이 열쇠라 첫 줄은 그대로 두세요. 같은 slug 는 수정하고, 개인
-            공간은 건너뜁니다. 멤버·관리자는 안 읽습니다.
+            ReportArchive 등 다른 플랫폼의 [부서 정보] › [CSV 내보내기] 파일을 엑셀에서 열어 복사한
+            후 붙여넣으세요(탭 구분). 열 이름으로 항목을 구분하므로 첫 행은 그대로 두세요. 같은 slug는
+            수정하고, 개인 공간은 건너뜁니다. 멤버와 관리자 정보는 가져오지 않습니다.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -92,9 +92,9 @@ export function WorkspaceImportDialog({ onClose, onApplied }: Props) {
           {plan && (
             <div className="space-y-2">
               <div className="flex flex-wrap items-center gap-2 text-sm">
-                <Badge>새로 {plan.counts.create}</Badge>
-                <Badge variant="secondary">고침 {plan.counts.update}</Badge>
-                <Badge variant="outline">그대로 {plan.counts.unchanged}</Badge>
+                <Badge>생성 {plan.counts.create}</Badge>
+                <Badge variant="secondary">변경 {plan.counts.update}</Badge>
+                <Badge variant="outline">변경 없음 {plan.counts.unchanged}</Badge>
                 {plan.counts.skip > 0 && <Badge variant="outline">건너뜀 {plan.counts.skip}</Badge>}
                 {plan.counts.error > 0 && (
                   <Badge variant="destructive">오류 {plan.counts.error}</Badge>
@@ -159,7 +159,7 @@ export function WorkspaceImportDialog({ onClose, onApplied }: Props) {
                 미리 보기
               </Button>
               <Button onClick={() => run(true)} disabled={busy || !canApply}>
-                적용 — 새로 {plan?.counts.create ?? 0}, 고침 {plan?.counts.update ?? 0}
+                적용(생성 {plan?.counts.create ?? 0}, 변경 {plan?.counts.update ?? 0})
               </Button>
             </>
           )}

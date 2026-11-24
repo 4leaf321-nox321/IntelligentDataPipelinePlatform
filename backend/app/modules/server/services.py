@@ -173,7 +173,7 @@ def set_enabled(db: Session, user: User, name: str, on: bool) -> tuple[str, bool
     if name not in available():
         raise NotFound(
             code("SERVER", 1),
-            f"이 설치에 없는 확장입니다: {name}",
+            f"이 설치에 없는 확장 모듈입니다: {name}",
             details={"available": list(available())},
         )
     row = db.get(ExtensionState, name)
@@ -235,7 +235,7 @@ def live_facts(db: Session) -> list[extensions.ProfileFact]:
                         for name in names
                     )
                 ],
-                marks={f"extension:{name}": f"확장 「{name}」" for name in names},
+                marks={f"extension:{name}": f"확장 '{name}'" for name in names},
             )
         )
     return out
@@ -254,11 +254,11 @@ def stale_reasons(
     """사람이 쓴 뒤 **달라진 것** — 생긴 타입 · 데이터 소스, 없어진 것, 정본이 바뀐 것. 소개가
     아직 없으면 그것이 한 줄이다."""
     if row is None or not row.summary.strip():
-        return ["자기소개를 아직 안 적었다"]
+        return ["플랫폼 소개 미작성"]
     now = marks_of(facts)
     seen = dict(row.facts_seen or {})
-    born = [f"생김: {now[key]}" for key in sorted(now) if key not in seen]
-    gone = [f"없어짐: {seen[key]}" for key in sorted(seen) if key not in now]
+    born = [f"추가: {now[key]}" for key in sorted(now) if key not in seen]
+    gone = [f"제거: {seen[key]}" for key in sorted(seen) if key not in now]
     return born + gone
 
 
@@ -270,16 +270,16 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
     reasons = stale_reasons(profile(db), live_facts(db))
     if not reasons:
         return []
-    empty = reasons == ["자기소개를 아직 안 적었다"]
+    empty = reasons == ["플랫폼 소개 미작성"]
     return [
         extensions.MaintenanceItem(
             key="platform_profile",
             label=(
-                "플랫폼 자기소개가 비어 있음 — 에이전트가 어느 플랫폼에 물을지 가르는 글"
+                "플랫폼 자기소개 미작성(AI 에이전트가 조회할 플랫폼을 선택하는 기준)"
                 if empty
-                else "플랫폼 자기소개가 그 뒤 바뀐 자료를 반영하지 않음 — "
+                else "플랫폼 자기소개에 미반영된 변경 사항: "
                 + " · ".join(reasons[:3])
-                + (f" 외 {len(reasons) - 3}" if len(reasons) > 3 else "")
+                + (f" 외 {len(reasons) - 3}건" if len(reasons) > 3 else "")
             ),
             count=len(reasons),
             link="/admin/server",

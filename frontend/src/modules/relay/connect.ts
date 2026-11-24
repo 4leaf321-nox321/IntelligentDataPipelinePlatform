@@ -26,9 +26,9 @@ export function authKindsFor(adapterKind: string): readonly AuthKind[] {
 export const AUTH_LABEL: Record<AuthKind, string> = {
   none: '없음',
   bearer: 'Bearer 토큰',
-  header: '머리글 하나',
+  header: '사용자 지정 헤더',
   basic: '계정 · 비밀번호(basic)',
-  query: '질의 문자열의 키',
+  query: '쿼리 문자열 키',
   oauth2: 'OAuth2 client credentials',
   ntlm: 'Windows 통합 인증(NTLM)',
   sasl: 'SASL 계정 · 비밀번호(Kafka)',
@@ -38,9 +38,9 @@ export const AUTH_LABEL: Record<AuthKind, string> = {
 export const AUTH_EXTRA: Record<AuthKind, { name: string; label: string }[]> = {
   none: [],
   bearer: [],
-  header: [{ name: 'header', label: '머리글 이름' }],
+  header: [{ name: 'header', label: '헤더 이름' }],
   basic: [{ name: 'user', label: '계정' }],
-  query: [{ name: 'param', label: '질의 이름(예: api_key)' }],
+  query: [{ name: 'param', label: '쿼리 파라미터 이름(예: api_key)' }],
   oauth2: [
     { name: 'token_url', label: '토큰 주소' },
     { name: 'user', label: 'client_id' },
@@ -48,7 +48,7 @@ export const AUTH_EXTRA: Record<AuthKind, { name: string; label: string }[]> = {
   ],
   ntlm: [{ name: 'user', label: '계정(CORP\\svc_relay)' }],
   sasl: [
-    { name: 'mechanism', label: '방식(PLAIN · SCRAM-SHA-256 · SCRAM-SHA-512)' },
+    { name: 'mechanism', label: '방식(PLAIN, SCRAM-SHA-256, SCRAM-SHA-512)' },
     { name: 'user', label: '계정' },
   ],
 }
@@ -83,7 +83,7 @@ export function valueOf(field: AdapterField, raw: string): unknown {
   if (!text) return undefined
   if (field.type === 'int' || field.type === 'float') {
     const number = Number(text)
-    if (!Number.isFinite(number)) throw new Error(`${field.name} 은 수입니다: ${text}`)
+    if (!Number.isFinite(number)) throw new Error(`${field.name}: 숫자를 입력하세요(입력값 ${text})`)
     return number
   }
   if (field.type === 'bool') return text === 'true'
@@ -91,7 +91,7 @@ export function valueOf(field: AdapterField, raw: string): unknown {
     try {
       return JSON.parse(text)
     } catch {
-      throw new Error(`${field.name} 은 JSON 입니다(예: {"a": "b"}): ${text}`)
+      throw new Error(`${field.name}: JSON 형식으로 입력하세요(예: {"a": "b"}). 입력값: ${text}`)
     }
   }
   return text
@@ -137,16 +137,16 @@ export function adapterOf(form: AdapterForm, partial = false): Record<string, un
   }
   if (partial) return out
   const keys = form.picks.filter((one) => one.key).map((one) => one.path)
-  if (keys.length === 0) throw new Error('식별자로 쓸 칸을 하나 이상 선택하세요.')
+  if (keys.length === 0) throw new Error('식별자로 사용할 필드를 하나 이상 선택하세요.')
   out.key = keys.length === 1 ? keys[0] : keys
   const columns: Record<string, string> = {}
   for (const one of form.picks.filter((pick) => pick.include)) {
     const name = one.column.trim()
-    if (!name) throw new Error(`${one.path} 의 열 이름이 비었습니다.`)
-    if (columns[name]) throw new Error(`열 이름 ${name} 이 둘입니다.`)
+    if (!name) throw new Error(`${one.path}: 열 이름을 입력하세요.`)
+    if (columns[name]) throw new Error(`열 이름이 중복됩니다: ${name}`)
     columns[name] = one.path
   }
-  if (Object.keys(columns).length === 0) throw new Error('레시피가 읽을 칸을 하나 이상 선택하세요.')
+  if (Object.keys(columns).length === 0) throw new Error('레시피가 읽을 필드를 하나 이상 선택하세요.')
   out.columns = columns
   return out
 }
@@ -172,7 +172,7 @@ export function keyColumnOf(picks: Picked[]): KeyColumn | null {
   if (keys.length === 0) return null
   if (keys.length === 1) return { column: keys[0].column.trim(), sample: keys[0].sample }
   for (const one of keys) {
-    if (/[{}]/.test(one.column)) throw new Error(`식별자 열 이름에는 { } 를 쓸 수 없습니다: ${one.column}`)
+    if (/[{}]/.test(one.column)) throw new Error(`식별자 열 이름에는 { }를 사용할 수 없습니다: ${one.column}`)
   }
   const taken = new Set(picks.filter((one) => one.include).map((one) => one.column.trim()))
   let column = KEY_COLUMN

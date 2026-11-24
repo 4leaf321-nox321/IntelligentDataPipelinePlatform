@@ -98,7 +98,7 @@ function Samples({
       <p className="text-xs font-medium">
         {DRIFT_LABEL[kind]} {total}건
         {shown < total && (
-          <span className="text-muted-foreground ml-1 font-normal">— 앞의 {shown}건만 표시</span>
+          <span className="text-muted-foreground ml-1 font-normal">(앞의 {shown}건만 표시)</span>
         )}
       </p>
       {kind === 'changed' ? (
@@ -106,7 +106,7 @@ function Samples({
           {Object.entries(type.changed ?? {}).map(([key, fields]) => (
             <li key={key}>
               <KeyChip slug={slug} value={key} onTrace={onTrace} />
-              <span className="text-muted-foreground"> — {fields.join(' · ')}</span>
+              <span className="text-muted-foreground">: {fields.join(' · ')}</span>
             </li>
           ))}
         </ul>
@@ -121,8 +121,8 @@ function Samples({
       )}
       {kind === 'extra' && !type.managed && (
         <p className="text-muted-foreground text-xs">
-          이 원천이 관리하지 않는 타입이라 대상에만 있는 객체는 사람이 만든 것일 수 있습니다 — 보정
-          계획에 포함하지 않으며 사람이 판단합니다.
+          이 원천이 관리하지 않는 타입이므로 대상에만 존재하는 객체는 사람이 생성한 객체일 수 있습니다.
+          보정 계획에 포함하지 않으며 사람이 판단합니다.
         </p>
       )}
     </div>
@@ -153,7 +153,7 @@ function TypeTable({ report, onTrace }: { report: ReconcileReport; onTrace?: OnT
                 {DRIFT_LABEL[kind]}
               </TableHead>
             ))}
-            <TableHead className="text-right">확인 못 한 참조</TableHead>
+            <TableHead className="text-right">미확인 참조</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -187,10 +187,10 @@ function TypeTable({ report, onTrace }: { report: ReconcileReport; onTrace?: OnT
                       <Button
                         size="xs"
                         variant="ghost"
-                        aria-label={`${slug} 본보기 ${opened.has(slug) ? '접기' : '펼치기'}`}
+                        aria-label={`${slug} 항목 ${opened.has(slug) ? '숨김' : '표시'}`}
                         onClick={() => toggle(slug)}
                       >
-                        {opened.has(slug) ? '본보기 접기' : '본보기 펼치기'}
+                        {opened.has(slug) ? '항목 숨김' : '항목 표시'}
                       </Button>
                     )}
                   </TableCell>
@@ -212,11 +212,12 @@ function TypeTable({ report, onTrace }: { report: ReconcileReport; onTrace?: OnT
         </TableBody>
       </Table>
       <p className="text-muted-foreground text-xs">
-        빠짐 — 기준에는 있는데 대상에 없음 · 안 씀 — 기준에서는 사용인데 대상에서 사용 중지 · 다름 —
-        칸 값이 기준과 다름 · 대상에만 — 대상에는 사용인데 기준에 없음. 확인 못 한 참조는 상대 객체를
-        이 대조에서 확인하지 못한 참조 칸이며 어긋남에 포함하지 않습니다.
+        누락은 기준 출력에는 있으나 대상에 없는 객체, 사용 중지는 기준 출력에서는 사용 중이나 대상에서
+        사용 중지된 객체, 값 불일치는 속성 값이 기준 출력과 다른 객체, 대상에만 존재는 대상에서는 사용
+        중이나 기준 출력에 없는 객체입니다. 미확인 참조는 참조하는 객체를 대상 SP에서 확인할 수 없는
+        참조 속성이며, 불일치로 집계하지 않습니다.
         {unmanagedExtra &&
-          ' (사람이 판단) — 이 원천이 관리하지 않는 타입이라 대상에만 있는 객체는 보정 계획에 포함하지 않습니다.'}
+          " '(사람이 판단)'은 이 원천이 관리하지 않는 타입이어서 대상에만 존재하는 객체를 보정 계획에 포함하지 않는다는 표시입니다."}
       </p>
     </div>
   )
@@ -227,14 +228,14 @@ function planBlocker(detail: PipelineDetail, report: ReconcileReport): string {
   const pending = stateOf(detail).pending
   if (pending) {
     return pending.origin === 'reconcile'
-      ? '보정 계획이 이미 적용을 기다리고 있습니다 — 대상 SP 에서 계획을 확인하고 적용하세요. 적용하면 바로 다시 대조합니다.'
-      : '적용을 기다리는 계획이 있어 보정 계획을 생성할 수 없습니다 — 덮어쓰면 사람이 보던 계획이 사라집니다. 그 계획을 적용한 뒤 다시 대조하세요.'
+      ? '보정 계획이 이미 적용 대기 중입니다. 대상 SP에서 계획을 확인하고 적용하세요. 적용하면 즉시 다시 대조합니다.'
+      : '적용 대기 중인 계획이 있어 보정 계획을 생성할 수 없습니다. 덮어쓰면 검토 중인 계획이 사라집니다. 해당 계획을 적용한 후 다시 대조하세요.'
   }
   if ((report.problems ?? []).length > 0) {
-    return '마지막 대조를 마치지 못해 보정 계획을 생성할 수 없습니다 — 원인을 확인한 뒤 다시 대조하세요.'
+    return '마지막 대조가 완료되지 않아 보정 계획을 생성할 수 없습니다. 원인을 확인한 후 다시 대조하세요.'
   }
   if (fixableCount(report) === 0) {
-    return '어긋남이 이 원천이 관리하지 않는 타입의 「대상에만」 뿐이라 보정 계획에 실을 것이 없습니다 — 사람이 판단합니다.'
+    return "불일치가 이 원천이 관리하지 않는 타입의 '대상에만 존재' 항목뿐이라 보정 계획에 포함할 항목이 없습니다. 사람이 판단합니다."
   }
   return ''
 }
@@ -250,12 +251,12 @@ function PlanLines({ report }: { report: ReconcileReport }) {
     else sum.otherExtra += driftCount(one, 'extra')
   }
   const lines = [
-    sum.missing > 0 && `빠짐 ${sum.missing}건 — 기준 그대로 다시 추가`,
-    sum.deprecated > 0 && `안 씀 ${sum.deprecated}건 — 다시 「사용」 으로 표시`,
-    sum.changed > 0 && `다름 ${sum.changed}건 — 기준 값으로 수정`,
-    sum.managedExtra > 0 && `대상에만 ${sum.managedExtra}건 — 사용 중지(이 원천이 관리하는 타입)`,
+    sum.missing > 0 && `누락 ${sum.missing}건: 기준 출력대로 다시 추가`,
+    sum.deprecated > 0 && `사용 중지 ${sum.deprecated}건: 다시 '사용'으로 표시`,
+    sum.changed > 0 && `값 불일치 ${sum.changed}건: 기준 출력 값으로 수정`,
+    sum.managedExtra > 0 && `대상에만 존재 ${sum.managedExtra}건: 사용 중지(이 원천이 관리하는 타입)`,
     sum.otherExtra > 0 &&
-      `대상에만 ${sum.otherExtra}건 — 포함하지 않음(이 원천이 관리하지 않는 타입 — 사람이 판단)`,
+      `대상에만 존재 ${sum.otherExtra}건: 포함하지 않음(이 원천이 관리하지 않는 타입, 사람이 판단)`,
   ].filter((one): one is string => Boolean(one))
   return (
     <ul className="list-disc pl-4">
@@ -326,13 +327,13 @@ function ReconcileActions({
         )}
       </div>
       <p className="text-muted-foreground text-xs">
-        대조는 대상 SP 의 객체를 읽기만 합니다 — 대상에 아무것도 보내지 않습니다.
-        {!baseline && ' 아직 적용한 것이 없어 견줄 기준이 없습니다 — 첫 적용 뒤부터 대조할 수 있습니다.'}
+        대조는 대상 SP의 객체를 조회만 합니다. 대상에 아무것도 전송하지 않습니다.
+        {!baseline && ' 적용 이력이 없어 비교할 기준 출력이 없습니다. 첫 적용 후부터 대조할 수 있습니다.'}
       </p>
       {offerPlan && (
         <p className={cn('text-xs', blocker ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground')}>
           {blocker ||
-            '보정 계획은 어긋난 객체를 기준 그대로 다시 보내는 미리 보기입니다 — 대상 SP 의 검토함에 표시되고, 적용은 사람이 합니다.'}
+            '보정 계획은 불일치 객체를 기준 출력대로 다시 전송하는 미리 보기입니다. 대상 SP의 검토함에 표시되며, 적용은 사람이 합니다.'}
         </p>
       )}
       <ErrorNotice error={failed} />
@@ -341,18 +342,18 @@ function ReconcileActions({
       {report && (
         <ConfirmDialog
           open={asking}
-          title="보정 계획을 생성합니다"
+          title="보정 계획 생성"
           description={
             <div className="space-y-2">
               <p>
-                대상과 다시 대조한 뒤, 어긋난 객체를 기준(지난번 적용된 출력) 그대로 다시 보내는 계획을
-                대상 SP 의 검토함에 미리 보기로 등록합니다. 등록하는 것만으로는 대상이 바뀌지 않습니다
-                — 계획을 확인하고 적용하는 것은 사람입니다.
+                대상과 다시 대조한 후, 불일치 객체를 기준 출력(마지막으로 적용된 출력)대로 다시 전송하는
+                계획을 대상 SP의 검토함에 미리 보기로 등록합니다. 등록만으로는 대상이 변경되지 않습니다.
+                계획의 확인과 적용은 사람이 합니다.
               </p>
               <PlanLines report={report} />
               <p className="text-muted-foreground">
-                마지막 대조({shownDateTime(report.at)})의 수입니다 — 생성할 때 다시 견주므로 달라질 수
-                있습니다. 다시 보내는 객체에 닿는 기준의 관계도 함께 싣습니다. 적용하면 바로 다시
+                마지막 대조({shownDateTime(report.at)}) 기준 건수입니다. 생성 시 다시 비교하므로 달라질 수
+                있습니다. 다시 전송하는 객체와 연결된 기준 출력의 관계도 함께 포함합니다. 적용하면 즉시 다시
                 대조합니다.
               </p>
             </div>
@@ -368,9 +369,9 @@ function ReconcileActions({
 
 /** 대조가 대상을 읽은 길(`Report.via`) — 코어가 가장 빠르고, 목록은 대상이 클수록 느려진다. */
 const VIA_LABEL: Record<string, string> = {
-  코어: '코어 API(커서로 2,000개씩)',
-  내보내기: '묶음 내보내기 한 번',
-  목록: '목록(200개씩 쪽마다 — 느림)',
+  코어: '코어 API(커서, 2,000개 단위)',
+  내보내기: '번들 내보내기(1회)',
+  목록: '목록 API(페이지당 200개, 느림)',
 }
 
 export function ReconcileSection({
@@ -410,13 +411,13 @@ export function ReconcileSection({
     <section className="space-y-3">
       <h2 className="text-base font-semibold">대조</h2>
       <p className="text-muted-foreground text-sm">
-        대상 SP 에 지금 있는 객체를 지난번 적용된 출력(기준)과 견줍니다 — 대상에서 누가 객체를 삭제하거나
-        사용 중지하거나 백업에서 복원하면 평소 실행은 그것을 모릅니다. 어긋난 객체는 「보정 계획」 으로 기준
-        그대로 다시 보냅니다.
+        대상 SP의 현재 객체를 기준 출력(마지막으로 적용된 출력)과 비교합니다. 대상에서 객체를 삭제 또는
+        사용 중지하거나 백업에서 복원한 경우 일반 실행으로는 감지되지 않습니다. 불일치 객체는 보정 계획으로
+        기준 출력대로 다시 전송합니다.
       </p>
 
       <dl className="space-y-1.5">
-        <Fact label="일정">
+        <Fact label="대조 주기">
           <span className={cn(schedule === '수동' && 'text-muted-foreground')}>{schedule}</span>
         </Fact>
         {shown && (
@@ -428,7 +429,7 @@ export function ReconcileSection({
               </span>
             </Fact>
             <Fact label="결과">{shown.summary || '—'}</Fact>
-            {shown.via && <Fact label="대상 읽기">{VIA_LABEL[shown.via] ?? shown.via}</Fact>}
+            {shown.via && <Fact label="대상 조회 방식">{VIA_LABEL[shown.via] ?? shown.via}</Fact>}
           </>
         )}
       </dl>
@@ -438,22 +439,22 @@ export function ReconcileSection({
       )}
       {!admin && (
         <p className="text-muted-foreground text-sm">
-          「대조」 · 「보정 계획 생성」 은 시스템 관리자가 합니다.
+          [대조], [보정 계획 생성]은 시스템 관리자만 할 수 있습니다.
         </p>
       )}
 
       {!shown ? (
         <EmptyState
-          title="아직 대조한 적이 없습니다"
+          title="대조 이력 없음"
           hint={
             detail.draft
-              ? '초안은 실행되지 않아 견줄 기준이 없습니다 — 정의 판을 사용하고 첫 적용을 마친 뒤부터 대조합니다.'
+              ? '초안은 실행되지 않으므로 비교할 기준 출력이 없습니다. 정의 버전을 사용하고 첫 적용을 완료한 후부터 대조합니다.'
               : schedule === '수동'
                 ? admin
-                  ? '「대조」 를 클릭하면 대상 SP 의 객체를 읽어 기준과 견줍니다 — 대상에는 아무것도 보내지 않습니다.'
+                  ? '[대조]를 클릭하면 대상 SP의 객체를 조회해 기준 출력과 비교합니다. 대상에는 아무것도 전송하지 않습니다.'
                   : '시스템 관리자가 대조하면 여기에 결과가 표시됩니다.'
-                : `일정(${schedule})에 따라 첫 적용 뒤 그 시각에 대조합니다.${
-                    admin ? ' 「대조」 로 지금 견줄 수도 있습니다.' : ''
+                : `대조 주기(${schedule})에 따라 첫 적용 후 해당 시각에 대조합니다.${
+                    admin ? ' [대조]로 즉시 비교할 수도 있습니다.' : ''
                   }`
           }
         />
@@ -461,7 +462,7 @@ export function ReconcileSection({
         <>
           {(shown.problems ?? []).length > 0 && (
             <Alert className="border-amber-500/40 bg-amber-500/5">
-              <AlertTitle>대조하지 못한 것이 있습니다</AlertTitle>
+              <AlertTitle>대조할 수 없는 항목이 있습니다</AlertTitle>
               <AlertDescription>
                 <ul className="list-disc pl-4">
                   {shown.problems.map((one) => (
@@ -474,16 +475,16 @@ export function ReconcileSection({
           {reportTruncated(shown) && (
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="text-muted-foreground">
-                갈래마다 앞의 본보기만 표시합니다 — 건수는 전부입니다.
+                유형마다 앞의 일부 항목만 표시합니다. 건수는 전체 건수입니다.
               </span>
               <Button size="xs" variant="outline" onClick={() => void loadFull()} disabled={loading}>
                 {loading && <Loader2 className="animate-spin" />}
-                전체 보고서 불러오기
+                전체 보고서 조회
               </Button>
             </div>
           )}
           {shown === full && (
-            <p className="text-muted-foreground text-xs">전체 보고서를 표시하고 있습니다.</p>
+            <p className="text-muted-foreground text-xs">전체 보고서 표시 중</p>
           )}
           <ErrorNotice error={failed} />
           <TypeTable report={shown} onTrace={onTrace} />

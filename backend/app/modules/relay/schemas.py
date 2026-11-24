@@ -38,6 +38,46 @@ class RelayMap(BaseModel):
     problems: list[str] = Field(default_factory=list)
 
 
+class OverviewItem(BaseModel):
+    """확인이 필요한 파이프라인 하나 — 상태가 문제이거나 마지막 대조가 불일치 · 대조 실패."""
+
+    slug: str
+    status: str
+    status_label: str
+    system: str = ""
+    target: str = ""
+    reason: str = ""
+    """상태 라벨 외에 볼 것 — 실패 · 지연 · 수신 검증의 사유, 계획 건수, 불일치 건수."""
+    link: str = ""
+    last_job_at: str | None = None
+
+
+class OverviewTarget(BaseModel):
+    name: str
+    server: str
+    status: str
+    """ok · unreachable · draft."""
+    status_label: str
+    version: str | None = None
+    checked_at: str | None = None
+    """대상 상태를 조회한 시각 — 타이머가 조회해 둔 값이면 그때."""
+
+
+class RelayOverview(BaseModel):
+    """운영 요약(`overview.py`) — 지도와 같은 판정. 정상인 파이프라인은 건수로만 담는다."""
+
+    generated_at: str
+    total: int
+    counts: dict[str, int]
+    """상태별 파이프라인 수 — `{ok: 40, failed: 2, …}`."""
+    labels: dict[str, str]
+    """상태의 화면 라벨 — `{failed: "실패", …}`."""
+    attention: list[OverviewItem]
+    """급한 차례 — 실패 · 정의 오류 · 중단 · 지연 · 회수 후 중지 · 적용 대기, 그다음 불일치."""
+    targets: list[OverviewTarget] = Field(default_factory=list)
+    problems: list[str] = Field(default_factory=list)
+
+
 class LineageStep(BaseModel):
     target_type: str
     target_field: str

@@ -47,7 +47,7 @@ export function ConflictBox({
   className?: string
 }) {
   const when = shownWhen(at)
-  const who = by ? `${by} 님이` : '다른 사람이'
+  const who = by ? `${by} 님이` : '다른 사용자가'
   return (
     <div
       role="alert"
@@ -59,19 +59,19 @@ export function ConflictBox({
       <p className="flex items-center gap-1.5 font-medium text-amber-800 dark:text-amber-300">
         <AlertTriangle className="size-3.5 shrink-0" />
         {who}
-        {when ? ` ${when} 에` : ''} 먼저 수정했습니다
+        {when ? ` ${when}에` : ''} 먼저 수정했습니다
       </p>
       <div className="grid gap-2 sm:grid-cols-2">
         <div className="min-w-0">
           <p className="text-muted-foreground mb-0.5">상대 {noun}</p>
           <p className="bg-background max-h-32 overflow-auto rounded border px-1.5 py-1 break-words whitespace-pre-wrap">
-            {theirs || <span className="text-muted-foreground">(비어 있음)</span>}
+            {theirs || <span className="text-muted-foreground">(내용 없음)</span>}
           </p>
         </div>
         <div className="min-w-0">
           <p className="text-muted-foreground mb-0.5">내 {noun}</p>
           <p className="bg-background max-h-32 overflow-auto rounded border px-1.5 py-1 break-words whitespace-pre-wrap">
-            {mine || <span className="text-muted-foreground">(비어 있음)</span>}
+            {mine || <span className="text-muted-foreground">(내용 없음)</span>}
           </p>
         </div>
       </div>

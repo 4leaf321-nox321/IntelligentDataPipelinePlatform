@@ -116,30 +116,30 @@ export const NAV_GROUPS: NavGroup[] = [
         icon: Network,
         to: '/relay/map',
         summary:
-          '원천 시스템 → API → 파이프라인 → 대상 SP → 타입을 열을 고정한 흐름도로 봅니다. ' +
-          '정의(파이프라인 · 레시피 · 대상 스키마)에서 매번 계산하고 손으로 그리지 않습니다.',
+          '원천 시스템 → API → 파이프라인 → 대상 SP → 타입의 흐름도. ' +
+          '정의(파이프라인, 레시피, 대상 스키마)에서 매번 계산합니다.',
       },
       {
         label: '파이프라인',
         icon: Workflow,
         to: '/relay/pipelines',
         summary:
-          '원천 + 레시피 + 대상 + 주기 — 칸 대응 표, 실행 이력(받은 건수 · 바뀐 객체 · 삭제 · ' +
-          '미해결 · 대상의 계획 링크), 지금 실행.',
+          '원천, 레시피, 대상, 실행 주기의 단위. 속성 매핑표, 실행 이력(수신 건수, 변경 객체, 삭제, ' +
+          '미해결, 대상의 계획 링크), 즉시 실행.',
       },
       {
         label: '원천 시스템',
         icon: Database,
         to: '/relay/sources',
-        summary: 'PLM · MES 같은 레거시 시스템과 그 엔드포인트 — 인증 방식(비밀은 표시하지 않음) · 연결 상태.',
+        summary: 'PLM, MES 등 레거시 시스템과 그 엔드포인트. 인증 방식(인증 정보는 표시하지 않음), 연결 상태.',
       },
       {
         label: '대상 인스턴스',
         icon: ServerCog,
         to: '/relay/targets',
         summary:
-          '받는 Standard Platform(자주검증 Datahub · 제조 데이터허브 …) — 판 · 정의 판 · ' +
-          '토큰 만료 · 마지막 연결.',
+          '중계 데이터를 수신하는 Standard Platform(자주검증 Datahub, 제조 데이터허브 등). 버전, ' +
+          '정의 버전, 토큰 만료, 마지막 연결.',
       },
       {
         // **사람이 넣는 것은 이것뿐이다.** 정의(AI 가 짓는다)에는 비밀의 이름만 있고, 값은
@@ -149,17 +149,17 @@ export const NAV_GROUPS: NavGroup[] = [
         to: '/relay/allowed-hosts',
         audience: 'system_admin',
         summary:
-          'AI 의 탐색 · 시험이 닿아도 되는 원천 · 대상 SP 주소 — 서버 설정 · 화면에서 더한 것 · ' +
-          '사용 중인 정의의 것. 재시작 없이 더하고 뺍니다.',
+          'AI의 탐색과 테스트가 접속할 수 있는 원천 및 대상 SP 주소. 서버 설정, 화면에서 추가한 주소, ' +
+          '사용 중인 정의의 주소. 재시작 없이 추가하고 삭제합니다.',
       },
       {
-        label: '비밀',
+        label: '인증 정보',
         icon: KeyRound,
         to: '/relay/secrets',
         audience: 'system_admin',
         summary:
-          '원천 · 대상의 토큰 · 비밀번호 — 정의가 쓰는 이름마다 입력됨 · 서버 설정 · 비어 있음. ' +
-          '넣은 값은 다시 보이지 않습니다.',
+          "원천과 대상의 토큰, 비밀번호. 정의가 사용하는 이름마다 '입력됨', '서버 설정', '미입력' 상태. " +
+          '입력한 값은 다시 표시하지 않습니다.',
       },
     ],
   },
@@ -204,7 +204,7 @@ export const NAV_GROUPS: NavGroup[] = [
       // **이 설치가 그릴 수 있는 그림 전부.** 없으면 화면을 얹는 사람이 차트
       // 라이브러리를 제 손으로 부르게 되고, 그때부터 축 색과 범례 규칙이 갈린다.
       {
-        label: '차트 보기',
+        label: '차트 갤러리',
         icon: ChartColumn,
         to: '/admin/charts',
         audience: 'system_admin',

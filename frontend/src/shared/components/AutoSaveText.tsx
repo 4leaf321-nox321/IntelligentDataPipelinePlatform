@@ -84,7 +84,7 @@ export function AutoSaveText({
     value,
     async (next: string, base: string) => {
       const cleaned = clean(next)
-      if (required && !cleaned.trim()) throw new Error(`${label}은(는) 비울 수 없습니다`)
+      if (required && !cleaned.trim()) throw new Error(`${label} 항목은 비울 수 없습니다`)
       await onSave(cleaned, base)
     },
     { hold: focused },
@@ -103,7 +103,7 @@ export function AutoSaveText({
         {auto.unsaved && (
           <div className="rounded border border-amber-500/50 bg-amber-500/5 p-1.5 text-xs print:hidden">
             <p className="font-medium text-amber-800 dark:text-amber-300">
-              저장하지 못한 내 글 — 이제 수정할 수 없는 칸입니다. 필요하면 복사해 둡니다.
+              저장하지 못한 내 글입니다. 이 항목은 더 이상 수정할 수 없습니다. 필요하면 복사하세요.
             </p>
             <p className="mt-1 break-words whitespace-pre-wrap select-all">{auto.draft}</p>
           </div>
@@ -163,7 +163,7 @@ export function AutoSaveText({
       )}
       {auto.stale && !auto.conflict && (
         <p className="px-1 text-[11px] text-amber-700 print:hidden dark:text-amber-400">
-          다른 사람이 이 칸을 수정했습니다 — 저장할 때 확인합니다.
+          다른 사용자가 이 항목을 수정했습니다. 저장 시 확인합니다.
         </p>
       )}
       {auto.conflict && (

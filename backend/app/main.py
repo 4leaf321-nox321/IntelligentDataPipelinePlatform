@@ -279,7 +279,7 @@ def _guard_production_secrets(settings: Settings) -> None:
         return
     if settings.jwt_secret == Settings.model_fields["jwt_secret"].default:
         raise RuntimeError(
-            "JWT_SECRET 이 기본값입니다. .env 에 난수 값을 넣고 다시 시작하세요."
+            "JWT_SECRET이 기본값입니다. .env에 난수 값을 입력하고 다시 시작하세요."
         )
 
 
@@ -308,12 +308,12 @@ def _guard_writable_paths(settings: Settings) -> None:
             probe.unlink()
         except OSError as failure:
             raise RuntimeError(
-                f"{label} 에 쓸 수 없습니다: {path} ({failure.strerror})\n"
+                f"{label}에 쓸 수 없습니다: {path} ({failure.strerror})\n"
                 f"\n"
-                f"컨테이너로 돌고 있다면 그 경로가 bind-mount 밖입니다. "
+                f"컨테이너에서 실행 중이면 이 경로가 bind-mount 밖에 있습니다. "
                 f"systemd 유닛의 --bind 대상과 이 값이 같아야 합니다 "
-                f"(이미지는 /data/logs · /data/filestore 를 기본으로 둡니다).\n"
-                f"호스트에서 돌고 있다면 그 폴더의 소유자와 권한을 확인하세요."
+                f"(이미지 기본값은 /data/logs, /data/filestore).\n"
+                f"호스트에서 실행 중이면 폴더의 소유자와 권한을 확인하세요."
             ) from failure
 
 

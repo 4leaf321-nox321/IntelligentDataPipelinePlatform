@@ -52,14 +52,14 @@ function shown(value: unknown): string {
 
 function Seen({ field, hidden }: { field: TraceField; hidden: boolean }) {
   if (!field.columns.length) return <span className="text-muted-foreground">—</span>
-  if (hidden) return <span className="text-muted-foreground">관리자만</span>
+  if (hidden) return <span className="text-muted-foreground">관리자 전용</span>
   if (!field.seen?.length) return <span className="text-muted-foreground">원천 행 없음</span>
   return (
     <ul className="space-y-0.5">
       {field.seen.map((one) => (
         <li key={one.value}>
           <span className="font-mono">{one.value === '' ? '(빈 값)' : one.value}</span>
-          <span className="text-muted-foreground"> — {one.rows.join(' · ')}행</span>
+          <span className="text-muted-foreground"> ({one.rows.join(', ')}행)</span>
         </li>
       ))}
     </ul>
@@ -79,15 +79,15 @@ function Result({ trace }: { trace: Trace }) {
           {!trace.found && <span className="text-destructive ml-2">기준 출력에 없음</span>}
         </p>
         <dl className="space-y-1">
-          <Fact label="기준">
-            {trace.run ? `${trace.run} · 적용 ${shownDateTime(trace.applied_at)}` : '아직 적용한 것 없음'}
+          <Fact label="기준 출력">
+            {trace.run ? `${trace.run} · 적용 ${shownDateTime(trace.applied_at)}` : '적용 이력 없음'}
           </Fact>
           <Fact label="원천 행">
             {trace.basis} · {trace.rows_total}행{trace.note && ` · 변환기: ${trace.note}`}
             {trace.rows_hidden && (
               <span className="text-muted-foreground">
                 {' '}
-                — 원천 행 · 원래 값은 시스템 관리자만 봅니다.
+                (원천 행과 원래 값은 시스템 관리자만 조회 가능)
               </span>
             )}
           </Fact>
@@ -97,14 +97,14 @@ function Result({ trace }: { trace: Trace }) {
               <span className={cn(trace.reconcile.state !== 'same' && 'text-destructive font-medium')}>
                 {traceStateLabel(trace.reconcile.state)}
               </span>
-              {differs.size > 0 && ` — 다른 칸: ${[...differs].join(' · ')}`}
+              {differs.size > 0 && ` · 값 불일치 속성: ${[...differs].join(' · ')}`}
               {trace.reconcile.at && (
                 <span className="text-muted-foreground"> ({shownDateTime(trace.reconcile.at)})</span>
               )}
               {trace.reconcile.stale && (
                 <span className="text-muted-foreground">
                   {' '}
-                  — 지금 기준을 적용하기 전의 대조입니다. 다시 대조하면 지금 기준으로 견줍니다.
+                  현재 기준 출력을 적용하기 전의 대조입니다. 다시 대조하면 현재 기준 출력과 비교합니다.
                 </span>
               )}
             </Fact>
@@ -127,7 +127,7 @@ function Result({ trace }: { trace: Trace }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>칸</TableHead>
+            <TableHead>속성</TableHead>
             <TableHead>기준 값</TableHead>
             <TableHead>레시피 규칙</TableHead>
             <TableHead>원천의 원래 값</TableHead>
@@ -139,7 +139,7 @@ function Result({ trace }: { trace: Trace }) {
               <TableCell className="font-mono">
                 {field.name}
                 {differs.has(field.name) && (
-                  <span className="text-destructive ml-1 font-sans text-xs">다름</span>
+                  <span className="text-destructive ml-1 font-sans text-xs">값 불일치</span>
                 )}
               </TableCell>
               <TableCell className="whitespace-normal">{shown(field.value)}</TableCell>
@@ -160,8 +160,8 @@ function Result({ trace }: { trace: Trace }) {
             원천 행{' '}
             <span className="text-muted-foreground font-normal">
               {trace.rows.length < trace.rows_total
-                ? `— ${trace.rows_total}행 중 앞의 ${trace.rows.length}행`
-                : `— ${trace.rows_total}행`}
+                ? `(${trace.rows_total}행 중 앞의 ${trace.rows.length}행)`
+                : `(${trace.rows_total}행)`}
             </span>
           </p>
           <Table>
@@ -193,7 +193,7 @@ function Result({ trace }: { trace: Trace }) {
 
       {trace.relations.length > 0 && (
         <div className="space-y-1">
-          <p className="text-sm font-medium">닿는 관계</p>
+          <p className="text-sm font-medium">연결된 관계</p>
           <ul className="space-y-0.5 text-sm">
             {trace.relations.map((one) => (
               <li key={`${one.direction}-${one.relation}-${one.other}`}>
@@ -261,9 +261,9 @@ export function ValueTraceSection({
         값의 출처
       </h2>
       <p className="text-muted-foreground text-sm">
-        대상 객체 하나를 골라, 그 값이 원천 몇 행의 어느 칸에서 어떤 레시피 규칙으로 만들어졌는지
-        조회합니다. 대조의 「다름」 · 「빠짐」 의 까닭을 가리는 데 씁니다. 대조 절의 식별자를 클릭해도
-        됩니다. 아무것도 보내지 않습니다.
+        대상 객체 하나를 선택해 그 값이 원천의 어느 행, 어느 필드에서 어떤 레시피 규칙으로 생성되었는지
+        조회합니다. 대조 결과의 '값 불일치', '누락' 원인을 확인할 때 사용합니다. 대조 항목의 식별자를
+        클릭해도 조회됩니다. 대상에 아무것도 전송하지 않습니다.
       </p>
       <form className="flex flex-wrap items-center gap-2" onSubmit={submit}>
         <select

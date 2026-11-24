@@ -36,9 +36,9 @@ def decode_text(raw: bytes) -> str:
         return raw.decode("cp949")
     except UnicodeDecodeError as caught:
         raise TabularError(
-            "글자를 읽을 수 없습니다 — UTF-8 도 CP949 도 아닙니다"
-            f"({caught.start}번째 바이트). 엑셀이면 「CSV UTF-8 (쉼표로 분리)」 로 "
-            "저장해 다시 올리세요."
+            "문자 인코딩을 읽을 수 없습니다. UTF-8과 CP949 모두 아닙니다"
+            f"({caught.start}번째 바이트). 엑셀에서는 'CSV UTF-8(쉼표로 분리)' 형식으로 "
+            "저장해 다시 업로드하세요."
         ) from None
 
 
@@ -49,10 +49,10 @@ def parse_rows(name: str, raw: bytes) -> list[dict[str, Any]]:
         try:
             data = json.loads(text)
         except json.JSONDecodeError as caught:
-            raise TabularError(f"JSON 을 읽을 수 없습니다: {caught}") from None
+            raise TabularError(f"JSON을 읽을 수 없습니다: {caught}") from None
         rows = data.get("rows") if isinstance(data, dict) else data
         if not isinstance(rows, list) or not all(isinstance(one, dict) for one in rows):
-            raise TabularError('JSON 은 객체의 배열이거나 {"rows": [...]} 여야 합니다.')
+            raise TabularError('JSON은 객체 배열 또는 {"rows": [...]} 형식이어야 합니다.')
         return rows
     # 구분자 — 첫 줄에 탭이 있으면 탭(엑셀 복사), 아니면 쉼표.
     first = text.split("\n", 1)[0]

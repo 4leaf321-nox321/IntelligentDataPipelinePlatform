@@ -70,7 +70,7 @@ export function ChangePasswordDialog({
           <DialogHeader>
             <DialogTitle>비밀번호 변경</DialogTitle>
             <DialogDescription>
-              바꾸면 다른 기기의 로그인이 모두 해제됩니다. 다시 로그인해 주세요.
+              변경하면 다른 기기의 로그인이 모두 해제됩니다. 변경 후 다시 로그인하세요.
             </DialogDescription>
           </DialogHeader>
 
@@ -115,7 +115,7 @@ export function ChangePasswordDialog({
               취소
             </Button>
             <Button type="submit" disabled={busy}>
-              {busy ? '바꾸는 중…' : '바꾸기'}
+              {busy ? '변경 중…' : '변경'}
             </Button>
           </DialogFooter>
         </form>

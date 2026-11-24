@@ -92,7 +92,9 @@ def get(db: Session, slug: str, version: int) -> RelayDefinition:
         )
     )
     if row is None:
-        raise NotFound(code("RELAY", 16), f"{slug} 의 정의 판 {version} 이 없습니다.")
+        raise NotFound(
+            code("RELAY", 16), f"{slug}에 해당 정의 버전이 없습니다(버전 {version})."
+        )
     return row
 
 
@@ -122,9 +124,9 @@ def current(db: Session) -> dict[str, RelayDefinition]:
 def describe_row(row: RelayDefinition, file: Described | None) -> Described:
     """판 하나를 비밀 없이 — 레시피는 같은 slug 의 정의 파일 것을 빌린다(있으면). 켜진 레시피
     판은 `services.catalog` 가 그 위에 얹는다."""
-    label = f"판 {row.version}" if row.status == "active" else f"초안 {row.version}"
+    label = f"버전 {row.version}" if row.status == "active" else f"초안 {row.version}"
     found = describe_body(
-        dict(row.body), path=Path(f"<정의 판:{row.pipeline_slug}>"), base=None, origin=label
+        dict(row.body), path=Path(f"<정의 버전:{row.pipeline_slug}>"), base=None, origin=label
     )
     found.slug = row.pipeline_slug
     found.draft = row.status != "active"
@@ -135,7 +137,7 @@ def describe_row(row: RelayDefinition, file: Described | None) -> Described:
         try:
             body = json.loads(file.recipe.read_text(encoding="utf-8"))
         except (OSError, ValueError) as failure:
-            found.problems.append(f"레시피를 못 읽었습니다: {failure}")
+            found.problems.append(f"레시피를 읽을 수 없습니다: {failure}")
         else:
             recipes.with_recipe(found, body, "파일")
     return found
@@ -211,11 +213,11 @@ def kinds() -> dict[str, Any]:
     for name, doc in (
         (
             "token_env",
-            "비밀(토큰 · 비밀번호)이 든 환경 변수의 이름 — 값은 정의에 적지 않는다.",
+            "인증 정보(토큰, 비밀번호)를 담은 환경 변수 이름. 값은 정의에 입력하지 않음.",
         ),
         (
             "cert_password_env",
-            "클라이언트 인증서의 키 암호가 든 환경 변수의 이름(암호가 있을 때만).",
+            "클라이언트 인증서의 키 암호를 담은 환경 변수 이름(암호가 있을 때만 입력).",
         ),
     ):
         auth.append(
@@ -256,11 +258,11 @@ def _push_inbox(slug: str) -> tuple[Path, str]:
 
     real = get_settings().relay_work_dir / slug / "inbox"
     if real.is_dir() and any(one.name.endswith(SUFFIX) for one in real.iterdir()):
-        return real, "받을 함"
+        return real, "수신함"
     trial = trial_inbox(slug)
     if trial.is_dir() and any(one.name.endswith(SUFFIX) for one in trial.iterdir()):
-        return trial, "시험 수신함(?trial=1 로 받은 것 — 실행은 읽지 않는다)"
-    return real, "받을 함"
+        return trial, "테스트 수신함(?trial=1로 수신한 데이터, 실행에는 사용하지 않음)"
+    return real, "수신함"
 
 
 def sample_records(spec: dict[str, Any], items: list[Any]) -> list[Any]:
@@ -269,10 +271,12 @@ def sample_records(spec: dict[str, Any], items: list[Any]) -> list[Any]:
     from relay_core.adapters.rest import SourceError, check_shape, records_of
 
     if len(items) > SAMPLE_ROWS_MAX:
-        raise _invalid(f"견본 행은 {SAMPLE_ROWS_MAX}개까지입니다(준 것 {len(items)}개).")
+        raise _invalid(f"샘플 데이터는 최대 {SAMPLE_ROWS_MAX}행입니다(입력 {len(items)}행).")
     kind = str(spec.get("kind") or "rest")
     if kind == "xml":
-        raise _invalid("XML 원천은 견본 행으로 시험하지 않습니다 — 원천에서 받아 보세요.")
+        raise _invalid(
+            "XML 원천은 샘플 데이터로 테스트할 수 없습니다. 원천에서 수신해 테스트하세요."
+        )
     columns = spec.get("columns")
     if columns in (None, "*", {}):
         first = next((one for one in items if isinstance(one, dict)), {})
@@ -290,7 +294,7 @@ def sample_records(spec: dict[str, Any], items: list[Any]) -> list[Any]:
                 explode=str(spec.get("explode") or ""),
             )
     except SourceError as failure:
-        raise _invalid(f"견본 행을 펴지 못했습니다: {failure}") from failure
+        raise _invalid(f"샘플 데이터를 행으로 변환할 수 없습니다: {failure}") from failure
     return out
 
 
@@ -309,7 +313,7 @@ def discover(
 
     if sample_rows is not None:
         if not isinstance(spec, dict):
-            raise _invalid("adapter 는 JSON 객체여야 합니다.")
+            raise _invalid("adapter는 JSON 객체여야 합니다.")
         guard.check_no_secrets(spec, "adapter")
         kind = str(spec.get("kind") or "rest")
         items = [one for one in sample_rows[:SAMPLE_ROWS_MAX] if isinstance(one, dict)]
@@ -317,13 +321,13 @@ def discover(
         return {
             "kind": kind,
             "ok": True,
-            "probe": f"견본 행 {len(items)}건 — 원천에서 받지 않았습니다",
+            "probe": f"샘플 데이터 {len(items)}건(원천에서 수신하지 않음)",
             "sample_rows": True,
             "found": _trim(found),
         }
 
     if not isinstance(spec, dict):
-        raise _invalid("adapter 는 JSON 객체여야 합니다.")
+        raise _invalid("adapter는 JSON 객체여야 합니다.")
     guard.check_no_secrets(spec, "adapter")
     try:
         kind, checked = check_adapter(spec, partial=True)
@@ -396,13 +400,14 @@ def _check(db: Session, slug: str, body: Any) -> tuple[dict[str, Any], list[str]
     if "recipe" in body:
         body.pop("recipe")
         problems.append(
-            "recipe 칸은 제외했습니다 — DB 의 정의는 레시피 판을 사용합니다(사용 중인 판이 "
-            "없으면 같은 slug 의 정의 파일의 레시피)."
+            "recipe 항목은 제외했습니다. DB의 정의는 레시피 버전을 사용합니다(사용 중인 "
+            "버전이 없으면 같은 slug의 정의 파일 레시피)."
         )
     unknown = sorted(set(body) - TOP_KEYS)
     if unknown:
         raise _invalid(
-            f"모르는 칸입니다: {', '.join(unknown)} (되는 것: {', '.join(sorted(TOP_KEYS))})"
+            f"알 수 없는 항목입니다: {', '.join(unknown)} "
+            f"(허용 항목: {', '.join(sorted(TOP_KEYS))})"
         )
     guard.check_no_secrets(body)
     try:
@@ -411,7 +416,7 @@ def _check(db: Session, slug: str, body: Any) -> tuple[dict[str, Any], list[str]
     except (DefinitionError, ScheduleError) as failure:
         raise _invalid(str(failure)) from failure
     if got_slug != slug:
-        raise _invalid(f"정의의 slug({got_slug})가 주소의 slug({slug})와 다릅니다.")
+        raise _invalid(f"정의의 slug({got_slug})가 주소의 slug({slug})와 일치하지 않습니다.")
     guard.check_env(body)
 
     kind, spec = check_adapter(dict(body["adapter"]))
@@ -419,25 +424,27 @@ def _check(db: Session, slug: str, body: Any) -> tuple[dict[str, Any], list[str]
     try:
         guard.check_source(kind, spec, fenced)
     except AppError as failure:
-        problems.append(f"원천: {failure.message} — 시험 · 실행 전에 해결해야 합니다.")
+        problems.append(
+            f"원천: {failure.message.rstrip('.')}. 테스트와 실행 전에 해결해야 합니다."
+        )
     try:
         guard.check_target(dict(body["target"]), fenced)
     except AppError as failure:
-        problems.append(f"대상: {failure.message} — 시험 전에 해결해야 합니다.")
+        problems.append(f"대상: {failure.message.rstrip('.')}. 테스트 전에 해결해야 합니다.")
 
     running = [one for one in services.catalog(db) if not one.draft]
     for one in (other for other in running if other.slug == slug):
         if one.source and one.source != source:
             problems.append(
-                f"source 가 지금 사용 중인 정의({one.origin})의 {one.source!r} 와 다릅니다 — "
-                "대상 타입의 잠금(managed_by)과 어긋나 적재가 거절됩니다."
+                f"source가 현재 사용 중인 정의({one.origin})의 {one.source!r}와 다릅니다. "
+                "대상 타입의 잠금(managed_by)과 일치하지 않아 적재가 거부됩니다."
             )
     targets = {one.target_server for one in running}
     server = str(dict(body["target"]).get("server") or "").rstrip("/")
     if targets and server not in targets:
         problems.append(
-            f"대상 {server} 는 지금 사용 중인 어느 정의도 보내지 않는 곳입니다 — 등록된 SP "
-            "인스턴스가 맞는지 확인하세요."
+            f"대상 {server}는 현재 사용 중인 정의의 대상이 아닙니다. 등록된 SP 인스턴스인지 "
+            "확인하세요."
         )
     return body, problems
 
@@ -467,7 +474,7 @@ def save_draft(
         actor=user,
         target_table="relay_definitions",
         target_id=row.id,
-        target_label=f"{slug} 정의 판 {row.version}",
+        target_label=f"{slug} 정의 버전 {row.version}",
         changes={"note": row.note, "client": row.client},
     )
     db.commit()
@@ -483,14 +490,14 @@ def activate(
     if getattr(request.state, "token_scopes", None) is not None:
         raise Forbidden(
             code("RELAY", 14),
-            "정의 판의 사용은 화면에서 사람이 정합니다 — 토큰(MCP)으로는 사용할 수 없습니다. "
-            "시험 결과를 화면에서 확인하고 「사용」 을 클릭하세요.",
+            "정의 버전의 사용은 사람이 화면에서만 결정합니다. 토큰(MCP)으로는 사용할 수 "
+            "없습니다. 화면에서 테스트 결과를 확인하고 [사용]을 클릭하세요.",
         )
     row = get(db, slug, version)
     if row.status == "active":
         return row
     if row.status == "discarded":
-        raise Conflict(code("RELAY", 17), f"폐기한 초안은 사용할 수 없습니다 — 판 {version}.")
+        raise Conflict(code("RELAY", 17), f"폐기한 초안은 사용할 수 없습니다(버전 {version}).")
     try:
         check_body(row.body)
     except DefinitionError as failure:
@@ -514,7 +521,7 @@ def activate(
         actor=user,
         target_table="relay_definitions",
         target_id=row.id,
-        target_label=f"{slug} 정의 판 {row.version}",
+        target_label=f"{slug} 정의 버전 {row.version}",
         changes={"was": before.version if before else None},
     )
     db.commit()
@@ -532,20 +539,22 @@ def _target_check(target: dict[str, Any], env: Any, wanted: list[str]) -> dict[s
     out: dict[str, Any] = {"server": server, "reachable": False}
     status_code, health = services.probe_http(server, "", "/api/health")
     if status_code != 200 or not isinstance(health, dict):
-        out["error"] = f"대상에 닿지 않습니다({status_code or '응답 없음'})."
+        out["error"] = f"대상에 연결할 수 없습니다({status_code or '응답 없음'})."
         return out
     out.update(reachable=True, slug=health.get("slug"), version=health.get("version"))
     name = str(target.get("token_env") or "")
     token = env.get(name, "")
     if not token:
         out["token"] = (
-            f"비밀 {name} 가 비어 있습니다 — 대상 토큰을 화면 › 중계 › 비밀 에서 넣거나 서버 "
-            "설정(.env)에 둡니다."
+            f"인증 정보 미입력: {name}. 대상 토큰을 [중계 › 인증 정보] 화면에서 입력하거나 "
+            "서버 설정(.env)에 추가하세요."
         )
         return out
     status_code, schema = services.probe_http(server, token, "/api/ontology/schema")
     if status_code != 200 or not isinstance(schema, dict):
-        out["token"] = f"토큰으로 대상의 정의를 못 읽었습니다({status_code or '응답 없음'})."
+        out["token"] = (
+            f"토큰으로 대상의 정의를 조회할 수 없습니다({status_code or '응답 없음'})."
+        )
         return out
     have = {str(one.get("slug")): one for one in schema.get("types") or []}
     out["token"] = "정상"
@@ -561,10 +570,10 @@ def _recipe_for(
     from app.modules.relay import recipes
 
     if recipe_version is not None:
-        return recipes.get(db, slug, recipe_version).body, f"레시피 판 {recipe_version}"
+        return recipes.get(db, slug, recipe_version).body, f"레시피 버전 {recipe_version}"
     row = recipes.active(db, slug)
     if row is not None:
-        return row.body, f"사용 중인 레시피 판 {row.version}"
+        return row.body, f"사용 중인 레시피 버전 {row.version}"
     root = get_settings().relay_pipelines_dir
     for path in find(root) if root.is_dir() else []:
         one = describe(path)
@@ -617,9 +626,9 @@ def trial(
         shared = sorted(set(wanted) & set(other.types))
         if shared:
             out["problems"].append(
-                f"{', '.join(shared)} 을(를) 이미 {other.slug} 가 같은 대상에 보냅니다 — "
-                "한 타입을 두 길로 채우면 서로 상대가 보낸 것을 삭제합니다. 한 "
-                "파이프라인만 사용하세요."
+                f"{', '.join(shared)} 타입은 이미 {other.slug} 파이프라인이 같은 대상에 "
+                "전송합니다. 한 타입을 두 파이프라인이 전송하면 서로의 전송 데이터를 "
+                "삭제합니다. 한 파이프라인만 사용하세요."
             )
 
     cap = get_settings().relay_trial_rows
@@ -628,7 +637,7 @@ def trial(
         # 원천에 닿지 않는다 — 비밀 · 받을 함 없이 견본으로 끝까지(정의의 모양은 위에서 봤다).
         records = sample_records(dict(body["adapter"]), list(sample_rows))
         fetched = Fetched(records=records, complete=True, full=False)
-        probe = f"견본 행 {len(sample_rows)}건 — 원천에서 받지 않았습니다(시험만)"
+        probe = f"샘플 데이터 {len(sample_rows)}건(원천에서 수신하지 않음)"
     else:
         try:
             adapter = build_adapter(
@@ -673,7 +682,9 @@ def trial(
         out["source"]["inbox"] = where
     if sample_rows is not None:
         out["source"]["sample_rows"] = True
-        out["intake"] = {"note": "견본 행이라 받기 점검(대량 삭제 · 빈 칸)은 보지 않았습니다."}
+        out["intake"] = {
+            "note": "샘플 데이터이므로 수신 검증(대량 삭제, 빈 필드)을 수행하지 않았습니다."
+        }
     else:
         out["intake"] = _intake_preview(body, slug, fetched)
     if not fetched.records and recipe_body is not None:
@@ -681,8 +692,8 @@ def trial(
         return out
     if recipe_body is None:
         out["recipe"] = {
-            "note": "레시피가 아직 없습니다 — recipe_draft_save 로 작성한 뒤 recipe_version "
-            "을 지정해 다시 시험하세요."
+            "note": "레시피가 아직 없습니다. recipe_draft_save로 작성한 후 recipe_version을 "
+            "지정해 다시 테스트하세요."
         }
         return out
     mirror = Mirror()
@@ -721,14 +732,15 @@ def _intake_preview(body: dict[str, Any], slug: str, fetched: Any) -> dict[str, 
     if not (root / "mirror.json").is_file():
         return {
             "checked": False,
-            "note": "아직 받은 미러가 없어 받기 점검은 첫 실행부터 봅니다.",
+            "note": "아직 미러가 없어 수신 검증은 첫 실행부터 적용됩니다.",
         }
     work = Workdir(get_settings().relay_work_dir, slug)
     size = work.mirror_size()
     if size > PREVIEW_MIRROR_MAX:
         return {
             "checked": False,
-            "note": f"미러가 커서({size:,}건) 시험에서는 받기 점검을 미리 보지 않았습니다.",
+            "note": f"미러가 커서({size:,}건) 테스트에서는 수신 검증을 미리 확인하지 "
+            "않았습니다.",
         }
     merge = Merge(fetched)
     for _row in merge.rows(work.mirror_rows()):
@@ -740,8 +752,8 @@ def _intake_preview(body: dict[str, Any], slug: str, fetched: Any) -> dict[str, 
         "checked": True,
         "held": found.held,
         "reasons": found.reasons(),
-        "note": "시험이 받은 행을 지금 미러와 견줬습니다 — 앞부분만 받았으면 안 온 것(부재)은 "
-        "삭제로 보지 않았습니다.",
+        "note": "테스트로 수신한 행을 현재 미러와 비교했습니다. 일부 행만 수신한 경우 "
+        "수신되지 않은 행은 삭제로 처리하지 않았습니다.",
     }
 
 
@@ -752,7 +764,7 @@ def discard(db: Session, user: User, slug: str, version: int) -> RelayDefinition
     if row.status != "draft":
         raise Conflict(
             code("RELAY", 17),
-            f"초안만 폐기할 수 있습니다 — 정의 판 {version} 은 {row.status} 입니다.",
+            f"초안만 폐기할 수 있습니다. 정의 버전 {version}의 상태는 '{row.status}'입니다.",
         )
     row.status = "discarded"
     audit.record(
@@ -761,7 +773,7 @@ def discard(db: Session, user: User, slug: str, version: int) -> RelayDefinition
         actor=user,
         target_table="relay_definitions",
         target_id=row.id,
-        target_label=f"{slug} 정의 판 {row.version}",
+        target_label=f"{slug} 정의 버전 {row.version}",
     )
     db.commit()
     db.refresh(row)

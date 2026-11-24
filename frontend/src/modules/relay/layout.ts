@@ -31,7 +31,7 @@ export const COLUMN_TITLE: Record<string, string> = {
   pipeline: '파이프라인',
   target: '대상 SP',
   type: '타입',
-  downstream: '그 너머',
+  downstream: '후속 수신처',
 }
 
 export interface Point {

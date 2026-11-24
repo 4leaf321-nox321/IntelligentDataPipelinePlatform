@@ -49,16 +49,16 @@ const fieldOf = (one: Pick<InboxSplitField, 'type_slug' | 'field'>) => `${one.ty
 
 type Mode = 'join' | 'collect'
 const MODES: { mode: Mode; label: string; title: string }[] = [
-  { mode: 'join', label: '한 글로 모으기', title: '값들을 구분자로 이어 한 글로 보냅니다' },
-  { mode: 'collect', label: '목록으로 모으기', title: '값들의 목록으로 보냅니다 — 대상 속성이 목록이어야 합니다' },
+  { mode: 'join', label: '문자열 결합', title: '값을 구분자로 결합해 하나의 문자열로 전송합니다.' },
+  { mode: 'collect', label: '목록', title: '값을 목록으로 전송합니다. 대상 속성이 목록이어야 합니다.' },
 ]
 
 function Suggestion({ got }: { got: SuggestOut }) {
   return (
     <p className={cn('text-xs', got.key ? 'text-foreground' : 'text-muted-foreground')}>
       {got.key
-        ? `GLM: ${got.key}${got.label ? ` ${got.label}` : ''} (확신 ${got.confidence.toFixed(2)}) — ${got.reason}`
-        : got.note || 'GLM 이 고르지 않았습니다.'}
+        ? `GLM 제안: ${got.key}${got.label ? ` ${got.label}` : ''} (신뢰도 ${got.confidence.toFixed(2)}). ${got.reason}`
+        : got.note || 'GLM 제안 없음'}
     </p>
   )
 }
@@ -151,7 +151,7 @@ export function UnresolvedInbox({
       <div className="space-y-2">
         <ErrorNotice error={inbox.error} />
         {inbox.loading && (
-          <p className="text-muted-foreground text-sm">읽는 중… 대상에 후보를 묻느라 몇 초 걸릴 수 있습니다.</p>
+          <p className="text-muted-foreground text-sm">불러오는 중… 대상에 후보를 조회하므로 몇 초 걸릴 수 있습니다.</p>
         )}
       </div>
     )
@@ -164,7 +164,7 @@ export function UnresolvedInbox({
         <div className="flex flex-wrap items-center gap-3">
           {csvButton}
           <span className="text-muted-foreground text-xs">
-            지금 레시피의 relay 사전을 대표 플랫폼에 별칭 등록을 요청할 목록으로 다운로드합니다.
+            현재 레시피의 relay 사전을 대표 플랫폼에 별칭 등록을 요청하는 목록(CSV)으로 다운로드합니다.
           </span>
         </div>
         <ErrorNotice error={failed} />
@@ -175,13 +175,13 @@ export function UnresolvedInbox({
   return (
     <div className="space-y-3">
       <p className="text-sm">
-        {shownDateTime(data.at)} 실행이 미해결로 멈췄습니다 — 참조 {references.length} · 값 갈림{' '}
-        {data.splits.length}. 선택한 대응은 <b>{data.recipe_label || '지금 레시피'}</b>에 더해 레시피 판
-        초안이 됩니다.
+        {shownDateTime(data.at)} 실행이 미해결로 중단되었습니다(참조 {references.length}건, 값 충돌{' '}
+        {data.splits.length}건). 선택한 키는 <b>{data.recipe_label || '현재 레시피'}</b>에 추가되어 레시피
+        버전 초안으로 저장됩니다.
       </p>
       {data.problems.length > 0 && (
         <Alert className="border-amber-500/40 bg-amber-500/5">
-          <AlertTitle>후보를 내지 못한 것이 있습니다</AlertTitle>
+          <AlertTitle>후보를 조회할 수 없는 항목이 있습니다</AlertTitle>
           <AlertDescription>
             <ul className="list-disc pl-4">
               {data.problems.map((one) => (
@@ -198,7 +198,7 @@ export function UnresolvedInbox({
             <TableRow>
               <TableHead>대상 타입</TableHead>
               <TableHead>원천 표기</TableHead>
-              <TableHead>칸 · 행</TableHead>
+              <TableHead>필드 · 행</TableHead>
               <TableHead>후보</TableHead>
               <TableHead className="w-56">선택한 키</TableHead>
             </TableRow>
@@ -214,8 +214,8 @@ export function UnresolvedInbox({
                     <span className="font-mono">{one.text}</span>
                     {one.in_dictionary && (
                       <p className="text-destructive text-xs">
-                        relay 사전에 {one.in_dictionary} 로 있는데도 미해결입니다 — 그 키가 대상에 없거나 실행이 그
-                        판보다 먼저였습니다.
+                        relay 사전에 등록된 키({one.in_dictionary})로도 해결되지 않았습니다. 해당 키가 대상에
+                        없거나, 실행 시점이 이 레시피 버전보다 이전입니다.
                       </p>
                     )}
                   </TableCell>
@@ -228,8 +228,8 @@ export function UnresolvedInbox({
                   <TableCell className="max-w-md">
                     {one.candidates.length === 0 ? (
                       <span className="text-muted-foreground text-xs">
-                        대상에서 비슷한 것을 못 찾았습니다 — 대상에 없는 것이면 원천에서 수정하거나 대표 플랫폼에
-                        먼저 만들어야 합니다.
+                        대상에서 유사한 후보를 찾을 수 없습니다. 대상에 없는 값이면 원천에서 수정하거나 대표
+                        플랫폼에 먼저 등록하세요.
                       </span>
                     ) : (
                       <div className="flex flex-wrap gap-1">
@@ -253,7 +253,7 @@ export function UnresolvedInbox({
                   <TableCell>
                     <div className="flex items-center gap-1">
                       <Input
-                        aria-label={`${one.text} 의 대상 키`}
+                        aria-label={`${one.text} 대상 키`}
                         value={picked}
                         placeholder="키 선택 · 입력"
                         className="h-8 font-mono text-xs"
@@ -263,7 +263,7 @@ export function UnresolvedInbox({
                         <Button
                           size="sm"
                           variant="ghost"
-                          title="GLM 이 후보 안에서 하나를 고릅니다(제안일 뿐입니다)"
+                          title="GLM이 후보 중 하나를 제안합니다. 결정은 사람이 합니다."
                           aria-label={`${one.text} GLM 제안`}
                           disabled={asking !== null}
                           onClick={() => void suggest(one)}
@@ -282,10 +282,10 @@ export function UnresolvedInbox({
 
       {splitFields.length > 0 && (
         <div className="space-y-1">
-          <h3 className="text-sm font-medium">값이 갈리는 칸 {splitFields.length}개 — 모으는 칸으로 바꿀 수 있습니다</h3>
+          <h3 className="text-sm font-medium">값 충돌 속성 {splitFields.length}개 — 집계 속성으로 변경 가능</h3>
           <p className="text-muted-foreground text-xs">
-            객체마다 같은 칸이 갈리면 그 칸은 행 쪽의 속성이거나 여러 값이 답인 칸입니다. 바꾸지 않으면 원천에서
-            수정해야 합니다.
+            여러 객체에서 같은 속성의 값이 충돌하면, 해당 속성은 행 단위 속성이거나 여러 값을 갖는 속성입니다.
+            집계 속성으로 변경하지 않으면 원천에서 수정해야 합니다.
           </p>
           <ul className="divide-y rounded-md border text-sm">
             {splitFields.map((one) => {
@@ -294,7 +294,7 @@ export function UnresolvedInbox({
               return (
                 <li key={slot} data-testid="inbox-split-field" className="flex flex-wrap items-center gap-2 px-3 py-2">
                   <span className="font-mono text-xs">{slot}</span>
-                  <span className="text-muted-foreground text-xs">객체 {one.entities}개에서 갈림</span>
+                  <span className="text-muted-foreground text-xs">객체 {one.entities}개에서 충돌</span>
                   <div className="ml-auto flex flex-wrap items-center gap-1">
                     {MODES.map((choice) => (
                       <Button
@@ -332,19 +332,20 @@ export function UnresolvedInbox({
       <div className="flex flex-wrap items-center gap-3">
         <Button size="sm" onClick={() => void save()} disabled={saving || picks === 0}>
           {saving ? <Loader2 className="animate-spin" /> : <Save />}
-          레시피 초안으로 저장({picks}개)
+          레시피 초안 저장({picks}개)
         </Button>
         {csvButton}
         <span className="text-muted-foreground text-xs">
-          대상에 있는 키만 저장됩니다. 저장한 초안은 아래 「레시피 판」 에서 시험하고 사용해야 실행에 쓰입니다.
+          대상에 있는 키만 저장됩니다. 저장한 초안은 아래 [레시피 버전]에서 테스트하고 사용해야 실행에
+          반영됩니다.
         </span>
       </div>
       <ErrorNotice error={failed} />
       {saved && (
         <Alert>
-          <AlertTitle>레시피 판 {saved.version} 초안을 저장했습니다</AlertTitle>
+          <AlertTitle>레시피 버전 {saved.version} 초안을 저장했습니다</AlertTitle>
           <AlertDescription>
-            아래 「레시피 판」 에서 시험하고 「사용」 을 클릭하면 다음 실행부터 그 대응으로 풉니다.
+            아래 [레시피 버전]에서 테스트하고 [사용]을 클릭하면 다음 실행부터 선택한 키로 처리합니다.
             {saved.problems.length > 0 && (
               <ul className="list-disc pl-4">
                 {saved.problems.map((one) => (
@@ -358,14 +359,14 @@ export function UnresolvedInbox({
 
       {data.splits.length > 0 && (
         <div className="space-y-1">
-          <h3 className="text-sm font-medium">값 갈림 {data.splits.length}건 — 레시피(모으는 칸)나 원천에서 수정</h3>
+          <h3 className="text-sm font-medium">값 충돌 {data.splits.length}건 — 레시피(집계 속성) 또는 원천에서 수정</h3>
           <ul className="divide-y rounded-md border text-sm">
             {data.splits.map((one) => (
               <li key={one.what} className="space-y-0.5 px-3 py-2">
                 <p className="font-mono text-xs">{one.what}</p>
                 <p className="text-muted-foreground text-xs">{one.question}</p>
                 <p className="text-xs">
-                  값: {one.options.map((value) => `「${value}」`).join(' · ')} · {one.rows}행
+                  값: {one.options.map((value) => `'${value}'`).join(', ')} · {one.rows}행
                 </p>
               </li>
             ))}

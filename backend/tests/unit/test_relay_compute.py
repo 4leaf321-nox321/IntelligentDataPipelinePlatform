@@ -62,17 +62,17 @@ def test_계산_칸은_차례대로_계산하고_못_바꾸는_값은_비운다(
 
 def test_계산_칸의_모양을_먼저_본다() -> None:
     for wrong, said in (
-        ([1], "모양"),
+        ([1], "형식"),
         ({"A": {"template": "{X}", "number": "Y"}}, "하나만"),
         ({"A": {"sum": "X"}}, "하나만"),
-        ({"A": {"number": "X", "scale": 2}}, "모르는 칸"),
+        ({"A": {"number": "X", "scale": 2}}, "지원하지 않는 항목"),
         ({"A": {"replace": "X", "pattern": "("}}, "정규식"),
         ({"A": {"replace": "X", "pattern": "^(a+)+$"}}, "중첩"),
         ({"A": {"replace": "X", "pattern": r"(\d{1,3})*x"}}, "중첩"),
         ({"A": {"replace": "X", "pattern": "a" * 201}}, "200자"),
         ({"A": {"datetime": "X", "timezone": "Mars/Base"}}, "timezone"),
         ({"A": {"number": "X", "round": 20}}, "round"),
-        ({"MODEL_ID": {"template": "{X}"}}, "이미 내는 열"),
+        ({"MODEL_ID": {"template": "{X}"}}, "이미 제공하는 열"),
     ):
         with pytest.raises(ComputeError, match=said):
             compute.check(wrong, ["MODEL_ID"])
@@ -93,7 +93,7 @@ def test_계산_칸의_모양을_먼저_본다() -> None:
         "target": {"server": "http://sp.test", "token_env": "T"},
         "computed": {"ID": {"template": "{ID}"}},
     }
-    with pytest.raises(DefinitionError, match="이미 내는 열"):
+    with pytest.raises(DefinitionError, match="이미 제공하는 열"):
         check_body(body)
 
 

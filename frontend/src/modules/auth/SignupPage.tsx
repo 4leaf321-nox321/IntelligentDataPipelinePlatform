@@ -59,9 +59,9 @@ export default function SignupPage() {
     return (
       <div className="flex min-h-svh items-center justify-center p-6">
         <div className="w-full max-w-sm space-y-4 text-center">
-          <h1 className="text-xl font-semibold">신청이 접수되었습니다</h1>
+          <h1 className="text-xl font-semibold">가입 신청 접수 완료</h1>
           <p className="text-muted-foreground text-sm">
-            관리자가 승인하면 로그인할 수 있습니다. 메일 통보는 없으니 담당자에게 직접 알려 주세요.
+            관리자가 승인하면 로그인할 수 있습니다. 메일로 통보하지 않으므로 담당자에게 직접 알리세요.
           </p>
           <Button onClick={() => navigate('/login')} className="w-full">
             로그인 화면으로
@@ -77,7 +77,7 @@ export default function SignupPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">가입 신청</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            관리자 승인 뒤에 로그인할 수 있습니다.
+            관리자 승인 후에 로그인할 수 있습니다.
           </p>
         </div>
 
@@ -133,7 +133,7 @@ export default function SignupPage() {
         <ErrorNotice error={error ?? options.error} />
 
         <Button type="submit" className="w-full" disabled={busy || !workspace}>
-          {busy ? '보내는 중…' : '신청'}
+          {busy ? '전송 중…' : '신청'}
         </Button>
 
         <p className="text-muted-foreground text-center text-sm">

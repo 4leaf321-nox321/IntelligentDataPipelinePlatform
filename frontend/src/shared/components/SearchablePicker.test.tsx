@@ -82,7 +82,7 @@ describe('SearchablePicker', () => {
     render(<SearchablePicker options={OPTIONS} value={null} onChange={vi.fn()} />)
     await open()
     await userEvent.type(screen.getByPlaceholderText('이름으로 검색'), '없는부서')
-    expect(screen.getByText('맞는 것이 없습니다')).toBeInTheDocument()
+    expect(screen.getByText('일치하는 항목 없음')).toBeInTheDocument()
   })
 
   it('전각·대소문자가 달라도 같게 본다', async () => {

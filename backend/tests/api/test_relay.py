@@ -104,7 +104,7 @@ def test_상세는_필드_계보와_비밀이_아닌_것만_보인다(
     body = got.json()
     assert body["target_token_env"] == "RELAY_T_TOKEN"  # 이름만 — 값은 어디에도 안 나간다
     kind = next(one for one in body["lineage"] if one["target_field"] == "model_kind")
-    assert kind["source_paths"] == ["KindCode"] and kind["transform"] == "값 대응 2개"
+    assert kind["source_paths"] == ["KindCode"] and kind["transform"] == "값 매핑 2개"
     assert "토큰" in body["target_schema_note"]
     missing = client.get("/api/relay/pipelines/none-such", headers=member.headers)
     assert missing.status_code == 404
@@ -130,7 +130,7 @@ def test_실행은_시스템_관리자만_작업으로_넣고_실패는_지도�
     work_until(db, uuid.UUID(job_id))
     job = client.get(f"/api/jobs/{job_id}", headers=admin.headers).json()
     assert job["kind"] == "relay_run" and job["status"] == "failed", job
-    assert "닿지 않습니다" in (job["error"] or "") or "실패" in (job["error"] or "")
+    assert "연결할 수 없습니다" in (job["error"] or "") or "실패" in (job["error"] or "")
 
     nodes = client.get("/api/relay/map", headers=admin.headers).json()["nodes"]
     (pipeline,) = [one for one in nodes if one["kind"] == "pipeline" and one["label"] == slug]

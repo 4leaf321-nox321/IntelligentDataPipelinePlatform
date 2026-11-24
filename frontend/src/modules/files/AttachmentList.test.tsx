@@ -70,7 +70,7 @@ describe('첨부 패널의 사진', () => {
   it('누르면 원본을 크게 보고 앞뒤로 넘긴다', async () => {
     attachmentApi.list.mockResolvedValue([row('a', '앞.png', true), row('b', '뒤.png', true)])
     await show()
-    await userEvent.click(await screen.findByRole('button', { name: '앞.png 크게 보기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '앞.png 확대' }))
 
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText('앞.png')).toBeTruthy()
@@ -116,7 +116,7 @@ describe('올리기', () => {
     await waitFor(() => expect(attachmentApi.upload).toHaveBeenCalledTimes(1))
     expect(attachmentApi.upload.mock.calls[0][0]).toMatchObject({ file: small })
     // 상한은 서버에 묻는다 — 못 물으면 기본값(500MB).
-    expect(await screen.findByText(/큰영상\.mp4: 한 파일은 500MB 까지입니다/)).toBeTruthy()
+    expect(await screen.findByText(/큰영상\.mp4: 파일 크기 상한\(500MB\) 초과/)).toBeTruthy()
   })
 
   it('패널을 누르고 붙여넣으면 올린다 — 화면 캡처를 바로', async () => {

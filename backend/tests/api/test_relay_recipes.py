@@ -72,7 +72,7 @@ def test_토큰으로_초안을_짓고_시험하지만_켜지는_못한다(
     result = tried.json()
     assert result["clean"] and result["rows"] == {"plm_model": 3}
     assert result["would_send"]["objects"]["plm_model"]["created"] == 3
-    assert result["against"].startswith("대상이 비었다고")
+    assert result["against"].startswith("빈 대상 기준")
 
     refused = client.post(f"/api/relay/pipelines/{slug}/recipes/1/activate", headers=mcp)
     assert refused.status_code == 403, refused.text
@@ -112,9 +112,9 @@ def test_사람이_켜면_그_판이_돌고_앞의_판은_내려간다(
     assert statuses == {1: "retired", 2: "active"}
 
     detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
-    assert detail["recipe_label"] == "판 2" and detail["relations"] == []
+    assert detail["recipe_label"] == "버전 2" and detail["relations"] == []
     kind = next(one for one in detail["lineage"] if one["target_field"] == "model_kind")
-    assert kind["transform"] == "값 대응 3개"
+    assert kind["transform"] == "값 매핑 3개"
 
     path = recipes.materialize(db, slug)
     assert path is not None and json.loads(path.read_text(encoding="utf-8")) == second
@@ -131,7 +131,7 @@ def test_어댑터가_안_내는_열을_읽는_초안은_저장하되_알린다(
     body["types"][0]["fields"]["region"] = {"column": "REGION"}
     saved = _draft(client, admin.headers, slug, body)
     assert saved.status_code == 201
-    assert saved.json()["problems"] == ["어댑터가 내지 않는 열을 읽습니다: REGION"]
+    assert saved.json()["problems"] == ["어댑터가 제공하지 않는 열을 참조합니다: REGION"]
     wrong = _draft(client, admin.headers, slug, {"format": "x"})
     assert wrong.status_code == 422
 

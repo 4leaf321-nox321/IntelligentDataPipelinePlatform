@@ -102,7 +102,7 @@ export default function PipelineDetailPage() {
         <ErrorNotice error={detail.error} />
         {detail.loading && (
           <p className="text-muted-foreground text-sm">
-            읽는 중… 대상 SP 의 정의와 견주느라 몇 초 걸릴 수 있습니다.
+            불러오는 중… 대상 SP의 정의와 비교하므로 몇 초 걸릴 수 있습니다.
           </p>
         )}
       </div>
@@ -127,27 +127,27 @@ export default function PipelineDetailPage() {
 
       {data.late && (
         <Alert variant="destructive">
-          <AlertTitle>실행이 늦습니다 — 일정대로라면 끝났어야 할 실행이 끝나지 않았습니다</AlertTitle>
+          <AlertTitle>실행 지연 — 실행 주기상 끝났어야 할 실행이 끝나지 않았습니다</AlertTitle>
           <AlertDescription>
-            {data.late} 작업 워커 · 일정 타이머의 상태는 「서버」 화면, 걸린 작업은 아래 「최근 작업」 에서
-            확인하세요.
+            {data.late} 작업 워커와 실행 주기 타이머의 상태는 [서버] 화면에서, 정체된 작업은 아래 [최근
+            작업]에서 확인하세요.
           </AlertDescription>
         </Alert>
       )}
       {data.draft && (
         <Alert className="border-dashed">
-          <AlertTitle>이 파이프라인은 아직 초안입니다 — 정의 판을 사용해야 실행됩니다</AlertTitle>
+          <AlertTitle>초안 파이프라인 — 정의 버전을 사용해야 실행됩니다</AlertTitle>
           <AlertDescription>
             {admin
-              ? 'AI(MCP)가 작성한 정의 판 초안입니다. 아래 「정의 판」 에서 시험해 원천 · 대상에 ' +
-                '닿는지 확인하고 「사용」 을 클릭하면 그때부터 「지금 실행」 이 표시됩니다.'
-              : '시스템 관리자가 정의 판을 시험하고 사용하면 그때부터 실행됩니다.'}
+              ? 'AI(MCP)가 작성한 정의 버전 초안입니다. 아래 [정의 버전]에서 테스트해 원천과 대상의 ' +
+                '연결을 확인하고 [사용]을 클릭하면 [즉시 실행]이 표시됩니다.'
+              : '시스템 관리자가 정의 버전을 테스트하고 사용하면 실행됩니다.'}
           </AlertDescription>
         </Alert>
       )}
       {data.problems.length > 0 && (
         <Alert variant="destructive">
-          <AlertTitle>정의에 문제가 있습니다 — 수정하기 전에는 실행되지 않습니다</AlertTitle>
+          <AlertTitle>정의 오류 — 수정하기 전에는 실행되지 않습니다</AlertTitle>
           <AlertDescription>
             <ul className="list-disc pl-4">
               {data.problems.map((one) => (
@@ -159,10 +159,10 @@ export default function PipelineDetailPage() {
       )}
       {data.target_schema_note && (
         <Alert className="border-amber-500/40 bg-amber-500/5">
-          <AlertTitle>대상의 정의와 견주지 못했습니다</AlertTitle>
+          <AlertTitle>대상 SP의 정의와 비교할 수 없습니다</AlertTitle>
           <AlertDescription>
-            {data.target_schema_note} 칸 대응 표의 「대상 SP 정의에 없는 칸」 표시는 그동안 비어
-            있습니다.
+            {data.target_schema_note} 그동안 속성 매핑표에 '대상 SP 정의에 없는 속성'이 표시되지
+            않습니다.
           </AlertDescription>
         </Alert>
       )}
@@ -207,7 +207,7 @@ export default function PipelineDetailPage() {
               {data.auto_apply_label}
             </span>
           </Fact>
-          <Fact label="받기 점검">
+          <Fact label="수신 검증">
             <span className={cn(data.intake_label === '미사용' && 'text-muted-foreground')}>
               {data.intake_label || '—'}
             </span>
@@ -221,28 +221,29 @@ export default function PipelineDetailPage() {
           <PipelineActions detail={data} onQueued={detail.reload} />
           {!data.draft && (
             <section className="space-y-2">
-              <h2 className="text-base font-semibold">미해결 작업함</h2>
+              <h2 className="text-base font-semibold">미해결 처리함</h2>
               <UnresolvedInbox slug={data.slug} onDrafted={() => setVersionsKey((one) => one + 1)} />
             </section>
           )}
         </>
       ) : (
         <p className="text-muted-foreground text-sm">
-          「지금 실행」 · 「적용」 은 시스템 관리자가 합니다.
+          [즉시 실행], [적용]은 시스템 관리자만 할 수 있습니다.
         </p>
       )}
 
       <section className="space-y-2">
         <h2 className="text-base font-semibold">
-          칸 대응 표
+          속성 매핑표
           {missing > 0 && (
             <span className="text-destructive ml-2 text-sm font-normal">
-              대상 SP 정의에 없는 칸 {missing}개
+              대상 SP 정의에 없는 속성 {missing}개
             </span>
           )}
         </h2>
         <p className="text-muted-foreground text-sm">
-          대상의 칸마다 어느 변환 · 어느 열을 거쳐 원천 응답의 어디서 오는지 — 레시피에서 계산합니다.
+          대상의 속성마다 어떤 변환과 열을 거쳐 원천 응답의 어느 위치에서 오는지 표시합니다. 레시피에서
+          계산합니다.
         </p>
         <LineageTable steps={data.lineage} />
       </section>
@@ -262,7 +263,7 @@ export default function PipelineDetailPage() {
 
       <section className="space-y-2">
         <h2 className="text-base font-semibold">실행 추이</h2>
-        <Suspense fallback={<p className="text-muted-foreground text-sm">그림을 불러오는 중…</p>}>
+        <Suspense fallback={<p className="text-muted-foreground text-sm">그래프를 불러오는 중…</p>}>
           <PipelineTrend slug={data.slug} />
         </Suspense>
       </section>

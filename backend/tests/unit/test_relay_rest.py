@@ -119,7 +119,7 @@ def test_4xx_는_다시_묻지_않고_5xx_는_다시_묻는다() -> None:
         calls.append(1)
         return httpx.Response(403, text="권한 없음")
 
-    with pytest.raises(SourceError, match="거절"):
+    with pytest.raises(SourceError, match="거부"):
         _adapter(refused).fetch(None)
     assert len(calls) == 1
 

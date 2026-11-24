@@ -131,7 +131,7 @@ def _head(path: Path) -> tuple[dict[str, Any], list[str]]:
     problems: list[str] = []
     manifest = pipeline._read_json(path / pipeline.MANIFEST, problems)
     if manifest is None and not (path / pipeline.MANIFEST).exists():
-        problems.append(f"{pipeline.MANIFEST} 가 없습니다 — 먼저 init 하세요")
+        problems.append(f"{pipeline.MANIFEST} 파일이 없습니다. 먼저 init을 실행하세요")
     for name in (pipeline.ONTOLOGY, pipeline.TOMBSTONES):
         body = pipeline._read_json(path / name, problems)
         if body is not None and not isinstance(body, dict):
@@ -154,7 +154,7 @@ def _batches(
         if body is None:
             continue
         if not isinstance(body, dict) or not isinstance(body.get("rows"), list):
-            problems.append(f'{folder}/{file.name}: {{"rows": [...]}} 모양이어야 합니다')
+            problems.append(f'{folder}/{file.name}: {{"rows": [...]}} 형식이어야 합니다')
             continue
         yield str(body.get("type_slug") or file.stem), body.get("workspace_slug"), body["rows"]
 
@@ -330,14 +330,14 @@ def delta(
     (`tests/unit/test_relay_core.py`)."""
     if not source.strip():
         raise ValueError(
-            "source(원천 이름 — plm · mes …)가 필요합니다. 삭제 표식은 source 묶음에만 "
-            "있습니다."
+            "source(원천 이름, 예: plm, mes)가 필요합니다. 삭제 표시는 source가 있는 번들에만 "
+            "포함됩니다."
         )
     if out.exists():
         raise FileExistsError(f"실행 폴더가 이미 있습니다: {out}")
     manifest_now, problems = _head(current)
     if problems:
-        raise ValueError(f"이번 출력을 못 읽었습니다: {problems}")
+        raise ValueError(f"이번 실행의 출력을 읽을 수 없습니다: {problems}")
     count = spill.count_for(
         max(_files(previous), _files(current)) * int(sp.pipeline.MAX_ROWS), bucket_rows
     )
@@ -347,7 +347,7 @@ def delta(
         for kind in (sp.pipeline.OBJECTS_DIR, sp.pipeline.RELATIONS_DIR):
             compared.append(_compare(kind, previous, current, folder, count, problems))
             if problems:
-                raise ValueError(f"이번 출력을 못 읽었습니다: {problems}")
+                raise ValueError(f"이번 실행의 출력을 읽을 수 없습니다: {problems}")
         objects, edges = compared
         out.mkdir(parents=True)
         objects_order = _write_sorted(

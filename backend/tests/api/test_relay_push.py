@@ -95,7 +95,7 @@ def test_실행은_받을_함을_미러에_넣은_뒤에만_지운다(
     work = Workdir(root, slug)
     fake = FakeSubmitter()
     first = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
-    assert first.status == "planned" and "받음 21건" in first.message, first.message
+    assert first.status == "planned" and "수신 21건" in first.message, first.message
     assert list((root / slug / "inbox").glob("*.json")) == []  # 미러에 들어갔다 — 지운다
     runner.apply(pipeline, work, fake)  # type: ignore[arg-type]
 

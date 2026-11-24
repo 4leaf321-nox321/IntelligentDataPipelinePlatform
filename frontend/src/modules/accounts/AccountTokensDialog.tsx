@@ -58,18 +58,18 @@ export function AccountTokensDialog({ account, onClose }: Props) {
       <Dialog open onOpenChange={(open) => !open && onClose()}>
         <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
-            <DialogTitle>{who} 의 액세스 토큰</DialogTitle>
+            <DialogTitle>{who}의 액세스 토큰</DialogTitle>
             <DialogDescription>
-              스크립트 · 연동 · AI 도구가 이 계정으로 접속할 때 사용하는 자격입니다. 폐기하면 해당
-              토큰만 사용할 수 없게 되고 계정과 다른 토큰은 그대로입니다. 계정을 정지해도 토큰은
-              유지되며, 다시 활성화하면 그대로 사용됩니다.
+              스크립트, 연동, AI 도구가 이 계정으로 접속할 때 사용하는 인증 수단입니다. 폐기하면 해당
+              토큰만 사용할 수 없고, 계정과 다른 토큰은 변경되지 않습니다. 계정을 정지해도 토큰은
+              유지되며, 다시 활성화하면 계속 사용할 수 있습니다.
             </DialogDescription>
           </DialogHeader>
           <ErrorNotice error={tokens.error} />
           {tokens.data && rows.length === 0 ? (
             <EmptyState
-              title="발급한 토큰이 없습니다"
-              hint="토큰은 본인이 내 정보 › 액세스 토큰에서 발급합니다."
+              title="발급한 토큰 없음"
+              hint="토큰은 본인이 [내 정보] › [액세스 토큰]에서 발급합니다."
             />
           ) : (
             <Table>

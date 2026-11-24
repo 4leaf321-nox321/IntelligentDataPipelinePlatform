@@ -60,7 +60,7 @@ def test_쪽_넘김의_단서() -> None:
     assert nxt["paging"] == {
         "guess": "next_url",
         "next_path": "next",
-        "evidence": "응답의 「next」 에 다음 쪽 주소가 있습니다.",
+        "evidence": "응답의 'next'에 다음 페이지 주소가 있습니다.",
     }
     cursor = shape({"data": ROWS, "meta": {"nextCursor": "abc"}}, {}, "data", 5)
     assert (

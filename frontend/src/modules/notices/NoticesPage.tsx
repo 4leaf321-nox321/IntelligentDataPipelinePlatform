@@ -65,7 +65,7 @@ export default function NoticesPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
-      <PageHeader title="공지" description="시스템 안내와 점검 일정을 여기서 전합니다." />
+      <PageHeader title="공지" description="시스템 안내와 점검 일정을 게시합니다." />
 
       {admin && (
         <div className="space-y-3 rounded-md border p-4">
@@ -99,7 +99,7 @@ export default function NoticesPage() {
                   onChange={(event) => setIsPopup(event.target.checked)}
                 />
                 {/* 팝업은 읽지 않은 사람에게 스스로 뜬다 — 급한 안내에만 쓴다. */}
-                팝업으로 띄우기
+                팝업 표시
               </label>
             </div>
             <Button onClick={submit} disabled={!title || !body}>
@@ -113,11 +113,11 @@ export default function NoticesPage() {
 
       {list.data && list.data.length === 0 ? (
         <EmptyState
-          title="공지가 없습니다"
+          title="공지 없음"
           hint={
             admin
-              ? '위에서 첫 공지를 올릴 수 있습니다.'
-              : '아직 전할 안내가 없다는 뜻입니다.'
+              ? '위에서 첫 공지를 게시할 수 있습니다.'
+              : '게시된 공지가 없습니다.'
           }
         />
       ) : (

@@ -37,11 +37,10 @@ class Pick:
 
 
 SYSTEM = (
-    "너는 데이터 중계의 참조 대조를 돕는다. 원천 시스템이 적은 표기 하나가 대상 플랫폼의 "
-    "어느 객체를 가리키는지, 주어진 후보 중에서만 고른다. 후보의 식별자 · 이름 · 별칭과 "
-    "표기를 견주고, 하나로 정해지지 않거나 맞는 것이 없으면 key 를 빈 문자열로 둔다. "
-    "짐작하지 않는다. "
-    "confidence 는 0~1, reason 은 한국어 한 문장."
+    "너는 데이터 중계의 참조 대조를 돕는다. 원천 시스템이 적은 표기 하나가 대상 플랫폼의 어느 "
+    "객체를 가리키는지, 주어진 후보 중에서만 고른다. 후보의 식별자 · 이름 · 별칭과 표기를 "
+    "비교하고, 하나로 정해지지 않거나 맞는 것이 없으면 key 를 빈 문자열로 둔다. 짐작하지 "
+    "않는다. confidence 는 0~1, reason 은 합니다체 한국어 한 문장."
 )
 
 
@@ -70,20 +69,20 @@ class Llm:
             )
         except httpx.HTTPError as failure:
             raise LlmError(
-                f"GLM 에 닿지 않습니다({self.url}): {type(failure).__name__}"
+                f"GLM에 연결할 수 없습니다({self.url}): {type(failure).__name__}"
             ) from failure
         if answer.status_code != 200:
             said = answer.text[:200]
             if self.token:
                 said = said.replace(self.token, "***")  # 받은 머리글을 되돌려 찍는 서버가 있다
-            raise LlmError(f"GLM 이 거절했습니다({answer.status_code}): {said}")
+            raise LlmError(f"GLM이 요청을 거부했습니다({answer.status_code}): {said}")
         try:
             content = answer.json()["choices"][0]["message"]["content"]
             body = json.loads(content)
         except (ValueError, KeyError, IndexError, TypeError) as failure:
-            raise LlmError(f"GLM 의 답이 정한 모양(JSON)이 아닙니다: {failure}") from failure
+            raise LlmError(f"GLM 응답이 지정한 형식(JSON)이 아닙니다: {failure}") from failure
         if not isinstance(body, dict):
-            raise LlmError("GLM 의 답이 정한 모양(JSON 객체)이 아닙니다.")
+            raise LlmError("GLM 응답이 지정한 형식(JSON 객체)이 아닙니다.")
         return body
 
     def pick(
@@ -98,7 +97,10 @@ class Llm:
         """후보 중 하나 — 후보가 없으면 묻지 않는다."""
         if not candidates:
             return Pick(
-                None, 0.0, "", note="대상에서 비슷한 후보를 못 찾아 GLM 에 묻지 않았습니다."
+                None,
+                0.0,
+                "",
+                note="대상에서 유사한 후보를 찾지 못해 GLM에 요청하지 않았습니다.",
             )
         keys = [one.key for one in candidates]
         question = {
@@ -151,21 +153,21 @@ class Llm:
                 None,
                 confidence,
                 reason,
-                note="GLM 이 고르지 않았습니다 — 맞는 후보가 없다고 봅니다.",
+                note="GLM이 후보를 선택하지 않았습니다. 일치하는 후보 없음으로 판단했습니다.",
             )
         if key not in keys:
             return Pick(
                 None,
                 confidence,
                 reason,
-                note=f"GLM 이 후보에 없는 키({key!r})를 내 버렸습니다.",
+                note=f"GLM이 후보에 없는 키({key!r})를 반환했습니다.",
             )
         if confidence < self.min_confidence:
             return Pick(
                 None,
                 confidence,
                 reason,
-                note=f"GLM 의 확신({confidence:.2f})이 기준({self.min_confidence:.2f})보다 "
-                f"낮아 고르지 않았습니다 — 참고: {key}",
+                note=f"GLM의 신뢰도({confidence:.2f})가 기준({self.min_confidence:.2f})보다 "
+                f"낮아 선택하지 않았습니다. 참고: {key}",
             )
         return Pick(key, confidence, reason)

@@ -160,7 +160,7 @@ export function PhotoCell({
                 onClick={() => pick.current?.click()}
                 disabled={upload.progress !== null}
                 aria-label={`${label} 업로드`}
-                title={`${label} — 선택하거나, 이 칸으로 끌어다 놓거나, 글을 클릭한 뒤 붙여넣기(Ctrl+V)`}
+                title={`${label}: 파일 선택, 끌어 놓기 또는 클릭 후 붙여넣기(Ctrl+V)로 업로드`}
                 className="text-muted-foreground hover:text-foreground hover:border-foreground/30 inline-flex h-7 items-center gap-1 rounded-sm border border-dashed px-1.5 text-[11px]"
               >
                 <ImagePlus className="size-3.5" />

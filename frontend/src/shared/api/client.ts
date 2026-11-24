@@ -76,7 +76,7 @@ function isEnvelope(value: unknown): value is ApiErrorBody {
  */
 function said(value: unknown): string {
   const detail = (value as { detail?: unknown } | null)?.detail
-  return typeof detail === 'string' && detail ? ` — ${detail}` : ''
+  return typeof detail === 'string' && detail ? `: ${detail}` : ''
 }
 
 /**
@@ -97,7 +97,7 @@ async function parseError(response: Response): Promise<ApiError> {
   return new ApiError(response.status, {
     error: {
       code: CLIENT_ERROR,
-      message: `서버가 예상하지 못한 응답을 보냈습니다 (HTTP ${response.status})${said(parsed)}`,
+      message: `서버에서 예상하지 못한 응답을 받았습니다(HTTP ${response.status})${said(parsed)}`,
     },
   })
 }
@@ -174,7 +174,7 @@ export async function refreshSession<T>(): Promise<T> {
     throw new ApiError(outcome.status, {
       error: {
         code: CLIENT_ERROR,
-        message: `세션을 되살리지 못했습니다 (HTTP ${outcome.status})${said(outcome.body)}`,
+        message: `세션을 갱신하지 못했습니다(HTTP ${outcome.status})${said(outcome.body)}`,
       },
     })
   }

@@ -98,28 +98,28 @@ export interface IconChoice {
 
 /** 무리. 고르개가 이 차례로 세운다 — 훑는 사람이 「이 근처」 를 짐작할 수 있게. */
 export const ICON_GROUPS = [
-  '물건',
-  '생성',
+  '물품',
+  '생산',
   '재고·물류',
-  '조직·사람',
+  '조직·인원',
   '문서·일정',
-  '그 밖에',
+  '기타',
 ] as const
 
 export type IconGroup = (typeof ICON_GROUPS)[number]
 
 export const ICON_CATALOG: Record<IconGroup, IconChoice[]> = {
-  물건: [
+  물품: [
     { name: 'Box', Icon: Box, label: '상자', keywords: '부품 품목 아이템' },
-    { name: 'Boxes', Icon: Boxes, label: '상자 여럿', keywords: '품목군 모음' },
+    { name: 'Boxes', Icon: Boxes, label: '여러 상자', keywords: '품목군 모음' },
     { name: 'Component', Icon: Component, label: '구성품', keywords: '컴포넌트 조립' },
     { name: 'Puzzle', Icon: Puzzle, label: '조각', keywords: '모듈 부분' },
     { name: 'Shapes', Icon: Shapes, label: '도형', keywords: '형상 종류' },
-    { name: 'Layers', Icon: Layers, label: '겹', keywords: '층 레이어 적층' },
+    { name: 'Layers', Icon: Layers, label: '레이어', keywords: '층 레이어 적층' },
     { name: 'Package', Icon: Package, label: '포장', keywords: '제품 출하' },
     { name: 'Car', Icon: Car, label: '차량', keywords: '자동차 완성차' },
   ],
-  생성: [
+  생산: [
     { name: 'Wrench', Icon: Wrench, label: '공구', keywords: '정비 수리 도구' },
     { name: 'Hammer', Icon: Hammer, label: '망치', keywords: '작업 제작' },
     { name: 'Cog', Icon: Cog, label: '톱니', keywords: '기계 설비 장비' },
@@ -149,14 +149,14 @@ export const ICON_CATALOG: Record<IconGroup, IconChoice[]> = {
     { name: 'ShoppingCart', Icon: ShoppingCart, label: '장바구니', keywords: '구매 발주' },
     { name: 'Banknote', Icon: Banknote, label: '지폐', keywords: '비용 원가 금액' },
     { name: 'Scale', Icon: Scale, label: '저울', keywords: '무게 균형 비교' },
-    { name: 'Tag', Icon: Tag, label: '꼬리표', keywords: '분류 라벨 코드' },
+    { name: 'Tag', Icon: Tag, label: '태그', keywords: '분류 라벨 코드' },
   ],
-  '조직·사람': [
+  '조직·인원': [
     { name: 'Building2', Icon: Building2, label: '건물', keywords: '부서 조직 회사' },
-    { name: 'Users', Icon: Users, label: '사람들', keywords: '조직 팀 멤버' },
+    { name: 'Users', Icon: Users, label: '사용자 그룹', keywords: '조직 팀 멤버' },
     { name: 'Briefcase', Icon: Briefcase, label: '가방', keywords: '업무 프로젝트 과제' },
     { name: 'Shield', Icon: Shield, label: '방패', keywords: '품질 보증 안전' },
-    { name: 'Award', Icon: Award, label: '상', keywords: '인증 등급 평가' },
+    { name: 'Award', Icon: Award, label: '상장', keywords: '인증 등급 평가' },
     { name: 'Star', Icon: Star, label: '별', keywords: '중요 등급 즐겨찾기' },
     { name: 'Key', Icon: Key, label: '열쇠', keywords: '권한 기준 라이선스' },
   ],
@@ -172,13 +172,13 @@ export const ICON_CATALOG: Record<IconGroup, IconChoice[]> = {
     { name: 'Milestone', Icon: Milestone, label: '이정표', keywords: '단계 마일스톤' },
     { name: 'Target', Icon: Target, label: '과녁', keywords: '목표 지표 KPI' },
   ],
-  '그 밖에': [
+  기타: [
     { name: 'LayoutGrid', Icon: LayoutGrid, label: '격자', keywords: '기본 일반' },
     { name: 'Database', Icon: Database, label: '데이터', keywords: '기준정보 마스터' },
     { name: 'Server', Icon: Server, label: '서버', keywords: '시스템 설비' },
-    { name: 'Network', Icon: Network, label: '망', keywords: '연결 관계 네트워크' },
+    { name: 'Network', Icon: Network, label: '네트워크', keywords: '연결 관계 네트워크' },
     { name: 'Workflow', Icon: Workflow, label: '흐름', keywords: '공정 절차 프로세스' },
-    { name: 'GitBranch', Icon: GitBranch, label: '갈래', keywords: '버전 형상 파생' },
+    { name: 'GitBranch', Icon: GitBranch, label: '분기', keywords: '버전 형상 파생' },
     { name: 'Sigma', Icon: Sigma, label: '시그마', keywords: '통계 합계 지표' },
     { name: 'MapPin', Icon: MapPin, label: '핀', keywords: '위치 장소 거점' },
     { name: 'Lightbulb', Icon: Lightbulb, label: '전구', keywords: '아이디어 제안' },

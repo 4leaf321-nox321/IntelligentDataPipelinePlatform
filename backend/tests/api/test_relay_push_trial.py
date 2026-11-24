@@ -147,7 +147,7 @@ def test_시험_수신은_초안으로_받고_실행은_읽지_않는다(
         json={"recipe_version": recipe},
         headers=admin.headers,
     ).json()
-    assert tested["source"]["rows"] == 2 and "시험 수신함" in tested["source"]["inbox"]
+    assert tested["source"]["rows"] == 2 and "테스트 수신함" in tested["source"]["inbox"]
     assert tested["recipe"]["rows"] == {"mes_model": 2}
     for _ in range(25):  # 최근 것만 남긴다
         client.post(f"{url}?trial=1", json=SAMPLE[:1], headers=good)

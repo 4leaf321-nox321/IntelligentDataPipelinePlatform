@@ -37,7 +37,7 @@ export function AttachmentThumbnail({
       type="button"
       onClick={onOpen}
       title={name}
-      aria-label={`${name} 크게 보기`}
+      aria-label={`${name} 확대`}
       style={style}
       className={cn(
         'bg-muted/40 hover:ring-primary/40 flex size-32 items-center justify-center overflow-hidden rounded-md border hover:ring-2',

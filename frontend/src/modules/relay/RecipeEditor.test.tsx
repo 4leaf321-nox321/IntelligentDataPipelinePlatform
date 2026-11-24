@@ -73,19 +73,19 @@ describe('레시피 편집', () => {
   it('사용 중인 판에서 출발해 열 · 대응을 고치고, 바뀐 칸을 보인 뒤 초안으로 저장한다', async () => {
     const { onSaved } = mount()
     await waitFor(() => expect(relayApi.recipe).toHaveBeenCalledWith('plm-tasks', 3))
-    expect(screen.getByLabelText('출발 판')).toHaveDisplayValue('사용 중인 판 3')
+    expect(screen.getByLabelText('원본 버전')).toHaveDisplayValue('사용 중인 버전 3')
     const row = within(await modelFields())
     expect(screen.getByRole('button', { name: '초안 저장' })).toBeDisabled() // 바뀐 것이 없다
 
     const column = row.getByLabelText('model_kind 열')
     await userEvent.clear(column)
     await userEvent.type(column, 'KIND_CD')
-    await userEvent.click(row.getByRole('button', { name: 'model_kind 대응 펼치기' }))
-    const raw = row.getByLabelText('대응 1 원천 값')
+    await userEvent.click(row.getByRole('button', { name: 'model_kind 값 매핑 표시' }))
+    const raw = row.getByLabelText('값 매핑 1 원천 값')
     await userEvent.clear(raw)
     await userEvent.type(raw, '01')
-    await userEvent.click(row.getByRole('button', { name: '대응 2 삭제' }))
-    expect(screen.getByTestId('recipe-changes')).toHaveTextContent('출발 판에서 바뀐 것: plm_model.model_kind')
+    await userEvent.click(row.getByRole('button', { name: '값 매핑 2 삭제' }))
+    expect(screen.getByTestId('recipe-changes')).toHaveTextContent('원본 대비 변경 사항: plm_model.model_kind')
     // 원천 열 목록을 고르게 준다(미러에서).
     expect(document.querySelector('#recipe-columns-plm-tasks option[value="KIND_CD"]')).not.toBeNull()
 
@@ -103,17 +103,17 @@ describe('레시피 편집', () => {
   it('칸을 추가 · 삭제하고, 빈 열 이름은 저장을 막는다 — 모으기 규칙은 읽기만', async () => {
     mount()
     await modelFields()
-    expect(within(screen.getByTestId('recipe-field-tags')).getByText(/본문\(JSON\)」 에서 수정합니다/)).toBeInTheDocument()
-    expect(within(screen.getByTestId('recipe-field-key')).queryByRole('button', { name: 'key 칸 삭제' })).toBeNull()
+    expect(within(screen.getByTestId('recipe-field-tags')).getByText(/\[JSON 편집\]에서 수정합니다/)).toBeInTheDocument()
+    expect(within(screen.getByTestId('recipe-field-key')).queryByRole('button', { name: 'key 속성 삭제' })).toBeNull()
 
-    await userEvent.type(screen.getByLabelText('새 칸 이름'), 'region')
-    await userEvent.click(screen.getByRole('button', { name: '칸 추가' }))
-    expect(screen.getByText('plm_model.region: 열 이름이 비었습니다.')).toBeInTheDocument()
+    await userEvent.type(screen.getByLabelText('새 속성 이름'), 'region')
+    await userEvent.click(screen.getByRole('button', { name: '속성 추가' }))
+    expect(screen.getByText('plm_model.region: 열 이름을 입력하세요.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '초안 저장' })).toBeDisabled()
     await userEvent.type(within(screen.getByTestId('recipe-field-region')).getByLabelText('region 열'), 'REGION')
-    await userEvent.click(screen.getByRole('button', { name: 'task 칸 삭제' }))
+    await userEvent.click(screen.getByRole('button', { name: 'task 속성 삭제' }))
     expect(screen.getByTestId('recipe-changes')).toHaveTextContent(
-      'plm_model.task(칸 삭제) · plm_model.region(칸 추가)',
+      'plm_model.task(속성 삭제) · plm_model.region(속성 추가)',
     )
     expect(screen.getByRole('button', { name: '초안 저장' })).toBeEnabled()
   })
@@ -121,13 +121,13 @@ describe('레시피 편집', () => {
   it('본문(JSON) — 읽히지 않으면 저장하지 않고 까닭을 말한다', async () => {
     mount()
     await screen.findByTestId('recipe-field-key')
-    await userEvent.click(screen.getByRole('button', { name: '본문(JSON)' }))
-    const text = screen.getByLabelText('레시피 본문')
+    await userEvent.click(screen.getByRole('button', { name: 'JSON 편집' }))
+    const text = screen.getByLabelText('레시피 원문')
     expect((text as HTMLTextAreaElement).value).toContain('"plm_model"')
     await userEvent.clear(text)
     await userEvent.type(text, '{{"format": ')
     await userEvent.click(screen.getByRole('button', { name: '초안 저장' }))
-    expect(screen.getByText(/본문을 JSON 으로 읽지 못했습니다/)).toBeInTheDocument()
+    expect(screen.getByText(/원문의 JSON 형식이 올바르지 않습니다/)).toBeInTheDocument()
     expect(relayApi.saveRecipe).not.toHaveBeenCalled()
   })
 
@@ -136,10 +136,10 @@ describe('레시피 편집', () => {
     mount([version({ version: 2, status: 'draft', activated_at: null, note: 'AI 초안' })])
     await waitFor(() => expect(relayApi.recipeFile).toHaveBeenCalledWith('plm-tasks'))
     expect(await screen.findByText(/정의 파일에 레시피가 없습니다/)).toBeInTheDocument()
-    await userEvent.selectOptions(screen.getByLabelText('출발 판'), '2')
+    await userEvent.selectOptions(screen.getByLabelText('원본 버전'), '2')
     await userEvent.click(screen.getByRole('button', { name: '불러오기' }))
     await waitFor(() => expect(relayApi.recipe).toHaveBeenCalledWith('plm-tasks', 2))
     expect(await screen.findByTestId('recipe-field-key')).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: '판 2(초안 · AI 초안)' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: '버전 2(초안 · AI 초안)' })).toBeInTheDocument()
   })
 })

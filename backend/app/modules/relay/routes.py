@@ -18,7 +18,15 @@ from app.database import get_db
 from app.modules.accounts.models import User
 from app.modules.jobs import services as job_services
 from app.modules.relay import allow as relay_allow
-from app.modules.relay import definitions, inbound, recipes, services, typeplan, unresolved
+from app.modules.relay import (
+    definitions,
+    inbound,
+    overview,
+    recipes,
+    services,
+    typeplan,
+    unresolved,
+)
 from app.modules.relay import jobs as relay_jobs  # noqa: F401 — import 가 곧 작업 종류 등록
 from app.modules.relay import scaffold as scaffolding
 from app.modules.relay import secrets as relay_secrets
@@ -39,6 +47,7 @@ from app.modules.relay.schemas import (
     RecipeSaved,
     RecipeTestIn,
     RelayMap,
+    RelayOverview,
     ScaffoldIn,
     SecretIn,
     SecretOut,
@@ -78,8 +87,20 @@ class QueuedOut(BaseModel):
 
 
 @router.get("/map", response_model=RelayMap)
-def relay_map(_: User = Depends(current_user), db: Session = Depends(get_db)) -> RelayMap:
-    return services.build_map(db)
+def relay_map(
+    probe: bool = Query(False, description="대상 상태를 저장값 대신 지금 조회한다."),
+    _: User = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> RelayMap:
+    return services.build_map(db, probe=probe)
+
+
+@router.get("/overview", response_model=RelayOverview)
+def relay_overview(
+    _: User = Depends(current_user), db: Session = Depends(get_db)
+) -> RelayOverview:
+    """운영 요약 — 상태별 건수 · 확인 필요 목록 · 대상 상태(MCP `relay_overview`)."""
+    return overview.build(db)
 
 
 @router.get("/pipelines/{slug}", response_model=PipelineDetail)
@@ -94,7 +115,7 @@ def _queue(db: Session, user: User, kind: str, params: dict[str, Any]) -> Queued
     if found.draft:
         raise Conflict(
             code("RELAY", 15),
-            f"{found.slug} 의 정의가 아직 초안입니다 — 정의 판을 사용해야 실행됩니다.",
+            f"{found.slug}의 정의가 아직 초안입니다. 정의 버전을 사용해야 실행됩니다.",
         )
     job = job_services.enqueue(db, kind=kind, params=params, user=user, workspace_id=None)
     db.commit()
@@ -129,15 +150,15 @@ def _accept(slug: str, request: Request, user: User) -> dict[str, Any]:
     if getattr(request.state, "token_scopes", None) is not None:
         raise Forbidden(
             code("RELAY", 23),
-            "받기 점검의 확인은 화면에서 사람이 합니다 — 토큰(MCP)으로는 확인할 수 없습니다. "
-            "멈춘 까닭을 화면에서 확인하고 「확인 후 진행」 을 클릭하세요.",
+            "수신 검증의 확인 후 진행은 사람이 화면에서만 할 수 있습니다. 토큰(MCP)으로는 "
+            "진행할 수 없습니다. 화면에서 중단 사유를 확인하고 [확인 후 진행]을 클릭하세요.",
         )
     held = (services.read_state(slug) or {}).get("held")
     accept = intake.Accept.of(held)
     if accept is None:
         raise Conflict(
             code("RELAY", 24),
-            f"{slug} 은 받기 점검에서 멈춘 것이 없습니다 — 「지금 실행」 을 클릭하세요.",
+            f"{slug}은 수신 검증으로 중단된 실행이 없습니다. [즉시 실행]을 클릭하세요.",
         )
     return {
         "deleted": accept.deleted,
@@ -160,8 +181,8 @@ def pipeline_apply(
     if getattr(request.state, "token_scopes", None) is not None:
         raise Forbidden(
             code("RELAY", 20),
-            "계획의 적용은 화면에서 사람이 합니다 — 토큰(MCP)으로는 적용할 수 없습니다. "
-            "계획을 화면에서 확인하고 「적용」 을 클릭하세요.",
+            "계획 적용은 사람이 화면에서만 할 수 있습니다. 토큰(MCP)으로는 적용할 수 "
+            "없습니다. 화면에서 계획을 확인하고 [적용]을 클릭하세요.",
         )
     return _queue(db, user, services.APPLY_KIND, {"slug": slug})
 
@@ -225,13 +246,13 @@ def pipeline_retract(
     state = services.read_state(slug) or {}
     if not state.get("applied_run") and not state.get("pending"):
         raise Conflict(
-            code("RELAY", 44), f"{slug} 은 대상에 적용한 것이 없어 걷어낼 것이 없습니다."
+            code("RELAY", 44), f"{slug}은 대상에 적용한 데이터가 없어 회수할 수 없습니다."
         )
     if state.get("stopped") and state.get("pending"):
         raise Conflict(
             code("RELAY", 44),
-            f"{slug} 은 걷어내기 계획이 이미 적용을 기다립니다 — 그 계획을 적용하거나, 「다시 "
-            "켜기」 로 거둔 뒤 새로 고르세요.",
+            f"{slug}은 회수 계획이 이미 적용 대기 중입니다. 해당 계획을 적용하거나, [재개]로 "
+            "계획을 취소한 후 다시 선택하세요.",
         )
     by_token = getattr(request.state, "token_scopes", None) is not None
     who = f"{user.display_name} (MCP)" if by_token else user.display_name
@@ -269,8 +290,8 @@ def pipeline_resume(
     if getattr(request.state, "token_scopes", None) is not None:
         raise Forbidden(
             code("RELAY", 42),
-            "다시 켜기는 화면에서 사람이 합니다 — 토큰(MCP)으로는 켤 수 없습니다. 원천에서 "
-            "걷어낸 행을 지웠는지 · 레시피를 고쳤는지 확인한 뒤 화면에서 「다시 켜기」 를 "
+            "재개는 사람이 화면에서만 할 수 있습니다. 토큰(MCP)으로는 재개할 수 없습니다. "
+            "원천에서 회수한 행을 삭제했는지, 레시피를 수정했는지 확인한 후 화면에서 [재개]를 "
             "클릭하세요.",
         )
     found = services.by_slug(slug, db)
@@ -279,7 +300,7 @@ def pipeline_resume(
     ):
         raise Conflict(
             code("RELAY", 43),
-            f"{slug} 의 작업이 대기 중이거나 도는 중입니다 — 끝난 뒤 다시 켜세요.",
+            f"{slug}의 작업이 대기 중이거나 실행 중입니다. 작업이 끝난 후 재개하세요.",
         )
     token = services.secrets_env().get(found.target_token_env, "")
 
@@ -319,7 +340,7 @@ def pipeline_reconcile_report(
     services.by_slug(slug, db)
     report = services.read_report(slug)
     if report is None:
-        raise NotFound(code("RELAY", 18), f"{slug} 은 아직 대조한 적이 없습니다.")
+        raise NotFound(code("RELAY", 18), f"{slug}은 아직 대조하지 않았습니다.")
     return report
 
 
@@ -535,7 +556,7 @@ def source_sample(
         "rows": [{"key": one.key, **dict(one.values)} for one in rows],
         "note": ""
         if rows
-        else "아직 받은 것이 없습니다 — 먼저 「지금 실행」 으로 원천을 받으세요.",
+        else "아직 수신 데이터가 없습니다. 먼저 [즉시 실행]으로 원천 데이터를 수신하세요.",
     }
 
 
@@ -596,7 +617,7 @@ def type_draft(body: TypeDraftIn, _: User = Depends(require_system_admin)) -> di
     from relay_core.typedraft import draft
 
     if len(body.columns) > 300:
-        raise AppError(code("RELAY", 29), "열이 너무 많습니다(300개까지).", status=422)
+        raise AppError(code("RELAY", 29), "열이 너무 많습니다(최대 300개).", status=422)
     try:
         return draft(
             type_slug=body.type_slug,

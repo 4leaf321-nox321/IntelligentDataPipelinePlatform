@@ -204,7 +204,7 @@ async function mount(entry = '/relay/pipelines/plm-tasks') {
       </Routes>
     </MemoryRouter>,
   )
-  await screen.findByText('칸 대응 표')
+  await screen.findByText('속성 매핑표')
 }
 
 describe('파이프라인 상세', () => {
@@ -225,15 +225,15 @@ describe('파이프라인 상세', () => {
     expect(screen.getByText('식별자')).toBeInTheDocument()
     const missing = screen.getByText('owner_dept').closest('tr')!
     expect(missing).toHaveAttribute('data-missing', 'true')
-    expect(within(missing).getByText('대상 SP 정의에 없는 칸')).toBeInTheDocument()
-    expect(screen.getByText('대상 SP 정의에 없는 칸 1개')).toBeInTheDocument()
+    expect(within(missing).getByText('대상 SP 정의에 없는 속성')).toBeInTheDocument()
+    expect(screen.getByText('대상 SP 정의에 없는 속성 1개')).toBeInTheDocument()
 
     // 비밀은 안 나온다 — 환경 변수 이름만.
     expect(screen.getByText('HUB_TOKEN')).toBeInTheDocument()
     // 이력의 건수 한 줄 · 작업 화면 링크 · 대상 SP 의 계획 링크.
     expect(screen.getByText('생성 3 · 변경 1 · 삭제 2')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '작업 화면' })).toHaveAttribute('href', '/jobs?job=job-1')
-    expect(screen.getByRole('link', { name: /대상 SP 에서 계획 보기/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /대상 SP에서 계획 확인/ })).toHaveAttribute(
       'href',
       'http://hub/jobs?job=plan-1',
     )
@@ -242,11 +242,11 @@ describe('파이프라인 상세', () => {
   it('시스템 관리자가 아니면 실행 · 적용 · 레시피 판이 안 선다', async () => {
     auth.admin = false
     await mount()
-    expect(screen.queryByRole('button', { name: /지금 실행/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /즉시 실행/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /적용/ })).not.toBeInTheDocument()
-    expect(screen.queryByText('레시피 판')).not.toBeInTheDocument()
+    expect(screen.queryByText('레시피 버전')).not.toBeInTheDocument()
     expect(relayApi.recipes).not.toHaveBeenCalled()
-    expect(screen.queryByText('정의 판')).not.toBeInTheDocument()
+    expect(screen.queryByText('정의 버전')).not.toBeInTheDocument()
     expect(relayApi.definitions).not.toHaveBeenCalled()
   })
 
@@ -254,12 +254,12 @@ describe('파이프라인 상세', () => {
     relayApi.run.mockResolvedValue({ job_id: 'job-9', kind: 'relay_run' })
     await mount()
 
-    await userEvent.click(screen.getByLabelText(/사람이 수정한 칸도 PLM 값으로 덮기\(overwrite\)/))
-    await userEvent.click(screen.getByRole('button', { name: /지금 실행/ }))
+    await userEvent.click(screen.getByLabelText(/사람이 수정한 속성도 PLM 값으로 덮어쓰기\(overwrite\)/))
+    await userEvent.click(screen.getByRole('button', { name: /즉시 실행/ }))
 
     await waitFor(() => expect(relayApi.run).toHaveBeenCalledWith('plm-tasks', 'overwrite'))
     expect(await screen.findByText('실행 작업을 등록했습니다')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '작업 화면에서 진행 보기' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '작업 화면에서 진행 상황 확인' })).toHaveAttribute(
       'href',
       '/jobs?job=job-9',
     )
@@ -272,7 +272,7 @@ describe('파이프라인 상세', () => {
     )
     await mount()
     expect(screen.getByRole('button', { name: /적용/ })).toBeDisabled()
-    expect(screen.getByText(/지금 계획에는 오류가 있어 적용할 수 없습니다/)).toBeInTheDocument()
+    expect(screen.getByText(/현재 계획에 오류가 있어 적용할 수 없습니다/)).toBeInTheDocument()
   })
 
   it('나눠 보내는 계획 — 조각을 보이고, 뒤 조각에서 멈췄으면 적용이 그 조각부터 잇는다', async () => {
@@ -285,8 +285,8 @@ describe('파이프라인 상세', () => {
     relayApi.apply.mockResolvedValue({ job_id: 'job-7', kind: 'relay_apply' })
     await mount()
 
-    expect(screen.getByText('조각 2/3')).toBeInTheDocument()
-    expect(screen.getByText(/앞 조각 1개는 적용됐습니다/)).toBeInTheDocument()
+    expect(screen.getByText('분할 번들 2/3')).toBeInTheDocument()
+    expect(screen.getByText(/앞의 분할 번들 1개는 적용되었습니다/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /적용/ }))
     await waitFor(() => expect(relayApi.apply).toHaveBeenCalledWith('plm-tasks'))
   })
@@ -331,7 +331,7 @@ describe('파이프라인 상세', () => {
     const items = Array.from(list.children) as HTMLElement[]
     expect(items).toHaveLength(3)
     expect(within(items[0]).getByText('자동 적용')).toBeInTheDocument()
-    expect(within(items[1]).getByText('자동 적용 안 함')).toBeInTheDocument()
+    expect(within(items[1]).getByText('자동 적용 보류')).toBeInTheDocument()
     expect(within(items[1]).getByText('사람이 적용한 것이 1번 — 3번 뒤부터 자동입니다')).toBeInTheDocument()
     expect(within(items[1]).getByText('삭제 2건이 있습니다')).toBeInTheDocument()
     // 사람의 적용에는 `by` 가 없다 — 그냥 「적용」.
@@ -359,41 +359,41 @@ describe('파이프라인 상세 · 레시피 판', () => {
 
   it('판을 새것부터 늘어놓고, 지금 도는 것을 말한다', async () => {
     await mount()
-    expect(await screen.findByText('판 2')).toBeInTheDocument()
-    expect(screen.getByText('판 1')).toBeInTheDocument()
+    expect(await screen.findByText('버전 2')).toBeInTheDocument()
+    expect(screen.getByText('버전 1')).toBeInTheDocument()
     expect(screen.getByText('마감일 칸 추가')).toBeInTheDocument()
-    expect(screen.getByText('정의 파일의 레시피(사용 중인 판 없음)')).toBeInTheDocument()
+    expect(screen.getByText('정의 파일의 레시피(사용 중인 버전 없음)')).toBeInTheDocument()
     // 켜진 판에는 「켜기」 가 없다.
-    expect(screen.getByRole('button', { name: '판 2 사용' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '판 1 사용' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '버전 2 사용' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '버전 1 사용' })).not.toBeInTheDocument()
   })
 
   it('시험 — 사용하면 보낼 것은 움직이는 타입만 싣는다', async () => {
     relayApi.testRecipe.mockResolvedValue(TRIAL)
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '판 2 시험' }))
+    await userEvent.click(await screen.findByRole('button', { name: '버전 2 테스트' }))
 
     await waitFor(() => expect(relayApi.testRecipe).toHaveBeenCalledWith('plm-tasks', 2))
-    expect(await screen.findByText('판 2 시험')).toBeInTheDocument()
-    expect(screen.getAllByText('깨끗함').length).toBeGreaterThan(0)
+    expect(await screen.findByText('레시피 버전 2 테스트')).toBeInTheDocument()
+    expect(screen.getAllByText('통과').length).toBeGreaterThan(0)
     // 대조 칸도 같은 말(지난번 적용된 출력)을 쓴다 — 견준 것 한 줄에서 찾는다.
-    expect(screen.getByText(/견준 것: 지난번 적용된 출력/)).toBeInTheDocument()
-    const sendTable = screen.getByText('사용하면 보낼 것').parentElement!
+    expect(screen.getByText(/비교 기준: 지난번 적용된 출력/)).toBeInTheDocument()
+    const sendTable = screen.getByText('사용 시 전송 예정').parentElement!
     expect(within(sendTable).getByText('plm_task')).toBeInTheDocument()
     expect(within(sendTable).queryByText('plm_project')).not.toBeInTheDocument()
-    expect(screen.getByText('변환 보고 펼치기')).toBeInTheDocument()
+    expect(screen.getByText('변환 보고서')).toBeInTheDocument()
   })
 
   it('사용 — 확인 창을 거쳐 켜고, 판 목록과 상세를 다시 읽는다', async () => {
     relayApi.testRecipe.mockResolvedValue(TRIAL)
     relayApi.activateRecipe.mockResolvedValue({ ...VERSIONS[0], status: 'active' })
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '판 2 사용' }))
+    await userEvent.click(await screen.findByRole('button', { name: '버전 2 사용' }))
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('판 2 을 사용합니다')).toBeInTheDocument()
+    expect(within(dialog).getByText('레시피 버전 2 사용')).toBeInTheDocument()
     // 이 화면에서 시험하지 않았으면 그렇다고 먼저 말한다.
-    expect(within(dialog).getByText(/아직 이 화면에서 시험하지 않았습니다/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/아직 이 화면에서 테스트하지 않았습니다/)).toBeInTheDocument()
     expect(relayApi.activateRecipe).not.toHaveBeenCalled()
 
     await userEvent.click(within(dialog).getByRole('button', { name: '사용' }))
@@ -405,14 +405,14 @@ describe('파이프라인 상세 · 레시피 판', () => {
   it('폐기 — 초안에만 서고, 확인 창을 거쳐 버리고 판 목록을 다시 읽는다', async () => {
     relayApi.discardRecipe.mockResolvedValue({ ...VERSIONS[0], status: 'discarded' })
     await mount()
-    expect(await screen.findByRole('button', { name: '판 2 폐기' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '판 1 폐기' })).not.toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '버전 2 폐기' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '버전 1 폐기' })).not.toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: '판 2 폐기' }))
+    await userEvent.click(screen.getByRole('button', { name: '버전 2 폐기' }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('판 2 을 폐기합니다')).toBeInTheDocument()
+    expect(within(dialog).getByText('레시피 버전 2 폐기')).toBeInTheDocument()
     expect(
-      within(dialog).getByText(/초안 판 2 을 폐기합니다 — 복원할 수 없습니다. 판 번호는 다시 사용하지 않습니다./),
+      within(dialog).getByText(/초안\(버전 2\)을 폐기합니다\. 복원할 수 없습니다\. 버전 번호는 다시 사용하지 않습니다\./),
     ).toBeInTheDocument()
     expect(relayApi.discardRecipe).not.toHaveBeenCalled()
 
@@ -423,10 +423,10 @@ describe('파이프라인 상세 · 레시피 판', () => {
     await waitFor(() => expect(relayApi.recipes).toHaveBeenCalledTimes(2))
     const row = (await screen.findByText('폐기')).closest('tr')!
     expect(row).toHaveClass('text-muted-foreground')
-    expect(screen.queryByRole('button', { name: '판 2 시험' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '판 2 사용' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '판 2 폐기' })).not.toBeInTheDocument()
-    expect(within(row).getByRole('button', { name: '판 2 본문 보기' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '버전 2 테스트' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '버전 2 사용' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '버전 2 폐기' })).not.toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: '버전 2 원문 조회' })).toBeInTheDocument()
     // 켜진 판이 그대로 돌므로 상세는 다시 읽지 않는다.
     expect(relayApi.pipeline).toHaveBeenCalledTimes(1)
   })
@@ -438,7 +438,7 @@ describe('파이프라인 상세 · 레시피 판', () => {
       }),
     )
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '판 2 폐기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '버전 2 폐기' }))
     const dialog = await screen.findByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: '폐기' }))
 
@@ -551,7 +551,7 @@ const DRAFT_DETAIL: Partial<PipelineDetail> = {
   jobs: [],
 }
 
-const panel = () => screen.getByRole('heading', { name: '정의 판' }).closest('section')!
+const panel = () => screen.getByRole('heading', { name: '정의 버전' }).closest('section')!
 
 describe('파이프라인 상세 · 정의 판', () => {
   beforeEach(() => {
@@ -565,35 +565,35 @@ describe('파이프라인 상세 · 정의 판', () => {
 
   it('판을 새것부터 늘어놓고, 지금 도는 것 · 요약을 말한다', async () => {
     await mount()
-    expect(await screen.findByText('판 4')).toBeInTheDocument()
+    expect(await screen.findByText('버전 4')).toBeInTheDocument()
     const section = within(panel())
-    expect(section.getByText('판 3')).toBeInTheDocument()
+    expect(section.getByText('버전 3')).toBeInTheDocument()
     expect(section.getByText('쪽 넘기기 고침')).toBeInTheDocument()
     expect(section.getAllByText('rest GET /tasks → 자주검증 Datahub · source plm')).toHaveLength(2)
-    expect(section.getByText('정의 파일(사용 중인 판 없음)')).toBeInTheDocument()
+    expect(section.getByText('정의 파일(사용 중인 버전 없음)')).toBeInTheDocument()
     // 켜진 판에는 「켜기」 가 없다.
-    expect(section.getByRole('button', { name: '정의 판 4 사용' })).toBeInTheDocument()
-    expect(section.queryByRole('button', { name: '정의 판 3 사용' })).not.toBeInTheDocument()
+    expect(section.getByRole('button', { name: '정의 버전 4 사용' })).toBeInTheDocument()
+    expect(section.queryByRole('button', { name: '정의 버전 3 사용' })).not.toBeInTheDocument()
     // 시험에 쓸 레시피는 레시피 판 목록에서 고른다.
-    const picker = section.getByLabelText('시험에 사용할 레시피')
-    expect(within(picker).getByRole('option', { name: '레시피 판 2 · 초안' })).toBeInTheDocument()
+    const picker = section.getByLabelText('테스트에 사용할 레시피')
+    expect(within(picker).getByRole('option', { name: '레시피 버전 2 · 초안' })).toBeInTheDocument()
   })
 
   it('시험 — 원천 · 대상 · 레시피를 차례로, 대상에 없는 타입은 빨갛게', async () => {
     relayApi.testDefinition.mockResolvedValue(DEFINITION_TRIAL)
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 4 시험' }))
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 4 테스트' }))
 
     await waitFor(() => expect(relayApi.testDefinition).toHaveBeenCalledWith('plm-tasks', 4, {}))
-    expect(await screen.findByText('정의 판 4 시험')).toBeInTheDocument()
+    expect(await screen.findByText('정의 버전 4 테스트')).toBeInTheDocument()
     const section = within(panel())
     // 대상에 없는 타입이 있으면 막힘.
-    expect(section.getAllByText('막힘').length).toBeGreaterThan(0)
+    expect(section.getAllByText('실패').length).toBeGreaterThan(0)
     // 원천 — 받은 줄 · 열 · 늘 빈 열 · 보기 표.
-    expect(section.getByText('받음')).toBeInTheDocument()
-    expect(section.getByText(/받은 줄 9 · 삭제 표시 1/)).toBeInTheDocument()
+    expect(section.getByText('수신 성공')).toBeInTheDocument()
+    expect(section.getByText(/수신 행 9 · 삭제 표시 1/)).toBeInTheDocument()
     expect(section.getByText('code · due · dept')).toBeInTheDocument()
-    expect(section.getByText(/받은 줄에서 늘 빈 열 1개/)).toBeInTheDocument()
+    expect(section.getByText(/모든 수신 행에서 값이 비어 있는 열 1개/)).toBeInTheDocument()
     expect(section.getByText('T-2')).toBeInTheDocument()
     // 대상 — 토큰 · 없는 타입(빨강) · 있는 타입.
     expect(section.getByText('연결됨')).toBeInTheDocument()
@@ -604,14 +604,14 @@ describe('파이프라인 상세 · 정의 판', () => {
     expect(section.getByText('plm_task(관리: plm)')).toBeInTheDocument()
     // 레시피 — 레시피 판 시험과 같은 그림, 무엇을 썼나가 제목이다.
     expect(section.getByText('레시피 — 사용 중인 레시피 판 1')).toBeInTheDocument()
-    expect(section.getByText('사용하면 보낼 것')).toBeInTheDocument()
+    expect(section.getByText('사용 시 전송 예정')).toBeInTheDocument()
   })
 
   it('시험에 쓸 레시피를 고르면 그 판으로 바꿔 본다', async () => {
     relayApi.testDefinition.mockResolvedValue(CLEAN_TRIAL)
     await mount()
-    await userEvent.selectOptions(await screen.findByLabelText('시험에 사용할 레시피'), '2')
-    await userEvent.click(screen.getByRole('button', { name: '정의 판 4 시험' }))
+    await userEvent.selectOptions(await screen.findByLabelText('테스트에 사용할 레시피'), '2')
+    await userEvent.click(screen.getByRole('button', { name: '정의 버전 4 테스트' }))
     await waitFor(() =>
       expect(relayApi.testDefinition).toHaveBeenCalledWith('plm-tasks', 4, { recipe_version: 2 }),
     )
@@ -625,28 +625,28 @@ describe('파이프라인 상세 · 정의 판', () => {
       source: { ok: false, error: '원천이 401 을 돌려주었습니다' },
     } satisfies DefinitionTrial)
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 4 시험' }))
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 4 테스트' }))
 
     const section = within(panel())
     expect(await section.findByText('원천이 401 을 돌려주었습니다')).toBeInTheDocument()
-    expect(section.getByText('못 받음')).toBeInTheDocument()
-    expect(section.getByText('닿지 않음')).toBeInTheDocument()
-    expect(section.getByText('원천을 못 받아 레시피로 바꿔 보지 못했습니다.')).toBeInTheDocument()
-    expect(section.getAllByText('막힘').length).toBeGreaterThan(0)
+    expect(section.getByText('수신 실패')).toBeInTheDocument()
+    expect(section.getByText('연결 불가')).toBeInTheDocument()
+    expect(section.getByText('원천 수신에 실패해 레시피 변환을 테스트하지 않았습니다.')).toBeInTheDocument()
+    expect(section.getAllByText('실패').length).toBeGreaterThan(0)
   })
 
   it('사용 — 확인 창이 시험 결과와 파일 대신 돈다는 것을 말하고, 판 목록과 상세를 다시 읽는다', async () => {
     relayApi.testDefinition.mockResolvedValue(CLEAN_TRIAL)
     relayApi.activateDefinition.mockResolvedValue({ ...DEFINITIONS[0], status: 'active' })
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 4 시험' }))
-    await screen.findByText('정의 판 4 시험')
-    await userEvent.click(screen.getByRole('button', { name: '정의 판 4 사용' }))
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 4 테스트' }))
+    await screen.findByText('정의 버전 4 테스트')
+    await userEvent.click(screen.getByRole('button', { name: '정의 버전 4 사용' }))
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('정의 판 4 을 사용합니다')).toBeInTheDocument()
-    expect(within(dialog).getByText(/같은 slug 의 정의 파일이 있으면 그 파일 대신입니다/)).toBeInTheDocument()
-    expect(within(dialog).getByText(/시험은 깨끗했습니다 — 원천 9줄을 사용 중인 레시피 판 1/)).toBeInTheDocument()
+    expect(within(dialog).getByText('정의 버전 4 사용')).toBeInTheDocument()
+    expect(within(dialog).getByText(/같은 slug의 정의 파일이 있으면 파일 대신 이 버전을 사용합니다/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/테스트를 통과했습니다\. 원천 9행을 변환했습니다\(레시피: 사용 중인 레시피 판 1\)/)).toBeInTheDocument()
     expect(relayApi.activateDefinition).not.toHaveBeenCalled()
 
     // 본문을 다 읽어야 누를 수 있다 — 자동 적용이 꺼진 판이라 그 말은 없다.
@@ -663,42 +663,42 @@ describe('파이프라인 상세 · 정의 판', () => {
   it('시험 — 원천이 커서 앞부분만 받았으면 그렇다고 말하고 「사용하면 보낼 것」 을 세지 않는다', async () => {
     relayApi.testDefinition.mockResolvedValue(CAPPED_TRIAL)
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 4 시험' }))
-    await screen.findByText('정의 판 4 시험')
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 4 테스트' }))
+    await screen.findByText('정의 버전 4 테스트')
 
     const section = within(panel())
-    const note = section.getByText(/원천이 커서 앞 50줄만 받아 봤습니다/)
+    const note = section.getByText(/원천 데이터가 많아 처음 50행만 수신했습니다/)
     expect(note).toHaveClass('text-amber-700')
-    expect(note).toHaveTextContent('덜 받은 채 견주면 나머지가 다 삭제로 보입니다')
+    expect(note).toHaveTextContent('일부만 비교하면 나머지가 모두 삭제로 집계되므로')
     // 상한 때문이지 쪽을 못 받은 것이 아니다 — 그 말은 안 낸다.
-    expect(section.queryByText(/마지막 쪽까지 못 받았습니다/)).not.toBeInTheDocument()
+    expect(section.queryByText(/마지막 페이지까지 수신되지 않았습니다/)).not.toBeInTheDocument()
     // 보낼 것 표 대신 왜 안 셌나를 싣는다. 막는 것은 아니다.
     expect(section.getByText('레시피 — 사용 중인 레시피 판 1')).toBeInTheDocument()
-    expect(section.queryByText('사용하면 보낼 것')).not.toBeInTheDocument()
+    expect(section.queryByText('사용 시 전송 예정')).not.toBeInTheDocument()
     expect(section.getByText('앞부분만 받아 「사용하면 보낼 것」 은 세지 않았습니다.')).toBeInTheDocument()
-    expect(section.getAllByText('깨끗함').length).toBeGreaterThan(0)
+    expect(section.getAllByText('통과').length).toBeGreaterThan(0)
 
     // 켜기 확인 창도 「사용하면 보낼 것: …」 대신 앞부분만 받았다고 말한다.
-    await userEvent.click(screen.getByRole('button', { name: '정의 판 4 사용' }))
+    await userEvent.click(screen.getByRole('button', { name: '정의 버전 4 사용' }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(/원천 앞 50줄을 사용 중인 레시피 판 1/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/원천의 처음 50행을 변환했습니다\(레시피: 사용 중인 레시피 판 1\)/)).toBeInTheDocument()
     expect(
-      within(dialog).getByText(/원천이 커서 앞부분만 받아 「사용하면 보낼 것」 은 세지 않았습니다/),
+      within(dialog).getByText(/원천 데이터가 많아 일부만 수신했으므로 '사용 시 전송 예정'은 집계하지 않았습니다/),
     ).toBeInTheDocument()
-    expect(within(dialog).queryByText(/사용하면 보낼 것:/)).not.toBeInTheDocument()
+    expect(within(dialog).queryByText(/사용 시 전송 예정:/)).not.toBeInTheDocument()
   })
 
   it('폐기 — 초안에만 서고, 확인 창을 거쳐 버리고 판 목록을 다시 읽는다', async () => {
     relayApi.discardDefinition.mockResolvedValue({ ...DEFINITIONS[0], status: 'discarded' })
     await mount()
     const section = within(panel())
-    expect(await section.findByRole('button', { name: '정의 판 4 폐기' })).toBeInTheDocument()
-    expect(section.queryByRole('button', { name: '정의 판 3 폐기' })).not.toBeInTheDocument()
+    expect(await section.findByRole('button', { name: '정의 버전 4 폐기' })).toBeInTheDocument()
+    expect(section.queryByRole('button', { name: '정의 버전 3 폐기' })).not.toBeInTheDocument()
 
-    await userEvent.click(section.getByRole('button', { name: '정의 판 4 폐기' }))
+    await userEvent.click(section.getByRole('button', { name: '정의 버전 4 폐기' }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('정의 판 4 을 폐기합니다')).toBeInTheDocument()
-    expect(within(dialog).getByText(/초안 판 4 을 폐기합니다 — 복원할 수 없습니다/)).toBeInTheDocument()
+    expect(within(dialog).getByText('정의 버전 4 폐기')).toBeInTheDocument()
+    expect(within(dialog).getByText(/초안\(버전 4\)을 폐기합니다\. 복원할 수 없습니다/)).toBeInTheDocument()
     // 정의 파일이 도는 파이프라인 — 사라진다는 말은 없다.
     expect(within(dialog).queryByText(/마지막 초안입니다/)).not.toBeInTheDocument()
 
@@ -717,16 +717,16 @@ describe('파이프라인 상세 · 정의 판', () => {
     await mount()
 
     const section = within(panel())
-    const row = (await section.findByText('판 4')).closest('tr')!
+    const row = (await section.findByText('버전 4')).closest('tr')!
     expect(within(row).getByText('폐기')).toBeInTheDocument()
     expect(row).toHaveClass('text-muted-foreground')
-    expect(within(row).queryByRole('button', { name: '정의 판 4 시험' })).not.toBeInTheDocument()
-    expect(within(row).queryByRole('button', { name: '정의 판 4 사용' })).not.toBeInTheDocument()
-    expect(within(row).queryByRole('button', { name: '정의 판 4 폐기' })).not.toBeInTheDocument()
-    expect(within(row).getByRole('button', { name: '정의 판 4 본문 보기' })).toBeInTheDocument()
-    const picker = section.getByLabelText('시험에 사용할 레시피')
-    expect(within(picker).queryByRole('option', { name: /레시피 판 2/ })).not.toBeInTheDocument()
-    expect(within(picker).getByRole('option', { name: '레시피 판 1 · 사용 중' })).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: '정의 버전 4 테스트' })).not.toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: '정의 버전 4 사용' })).not.toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: '정의 버전 4 폐기' })).not.toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: '정의 버전 4 원문 조회' })).toBeInTheDocument()
+    const picker = section.getByLabelText('테스트에 사용할 레시피')
+    expect(within(picker).queryByRole('option', { name: /레시피 버전 2/ })).not.toBeInTheDocument()
+    expect(within(picker).getByRole('option', { name: '레시피 버전 1 · 사용 중' })).toBeInTheDocument()
   })
 
   it('폐기 — 새 파이프라인의 마지막 초안이면 사라진다고 말하고, 버린 뒤 목록으로 돌아간다', async () => {
@@ -734,7 +734,7 @@ describe('파이프라인 상세 · 정의 판', () => {
     relayApi.definitions.mockResolvedValue([DEFINITIONS[0]])
     relayApi.discardDefinition.mockResolvedValue({ ...DEFINITIONS[0], status: 'discarded' })
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 4 폐기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 4 폐기' }))
 
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).getByText(/이 파이프라인의 마지막 초안입니다/)).toBeInTheDocument()
@@ -752,7 +752,7 @@ describe('파이프라인 상세 · 정의 판', () => {
     relayApi.definitions.mockResolvedValue([{ ...DEFINITIONS[0], version: 5 }, DEFINITIONS[0]])
     relayApi.discardDefinition.mockResolvedValue({ ...DEFINITIONS[0], version: 5, status: 'discarded' })
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 5 폐기' }))
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 5 폐기' }))
 
     const dialog = await screen.findByRole('dialog')
     expect(within(dialog).queryByText(/마지막 초안입니다/)).not.toBeInTheDocument()
@@ -768,22 +768,22 @@ describe('파이프라인 상세 · 정의 판', () => {
     let answer: (value: unknown) => void = () => {}
     relayApi.definition.mockReturnValue(new Promise((resolve) => (answer = resolve)))
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 4 사용' }))
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 4 사용' }))
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(/판의 본문을 읽는 중/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/자동 적용 사용 여부 확인 중/)).toBeInTheDocument()
     expect(within(dialog).getByRole('button', { name: '사용' })).toBeDisabled()
 
     answer(bodyOf({ auto_apply: { after_manual: 5, max_changes: 200 } }))
     expect(
       await within(dialog).findByText(
-        '이 판은 자동 적용을 사용합니다 — 타이머의 실행이 기준을 넘은 계획을 사람 없이 적용합니다.',
+        '이 버전은 자동 적용을 사용합니다. 실행 주기에 따른 실행이 기준을 충족한 계획을 사람의 확인 없이 적용합니다.',
       ),
     ).toBeInTheDocument()
     // 적힌 것은 그대로, 빠진 칸(allow_gone)은 기본으로.
-    expect(within(dialog).getByText('사람이 적용한 것이 5번 된 뒤부터')).toBeInTheDocument()
-    expect(within(dialog).getByText(/생성 \+ 변경이 200건 이하일 때/)).toBeInTheDocument()
-    expect(within(dialog).getByText('삭제(사용 중지 · 관계 해제)가 없을 때만')).toBeInTheDocument()
+    expect(within(dialog).getByText('사람의 적용 5회 이후')).toBeInTheDocument()
+    expect(within(dialog).getByText(/생성 \+ 변경 200건 이하/)).toBeInTheDocument()
+    expect(within(dialog).getByText('삭제(사용 중지 · 관계 해제)가 없는 계획만 적용')).toBeInTheDocument()
     expect(
       within(dialog).getByText('auto_apply: {"after_manual":5,"max_changes":200}'),
     ).toBeInTheDocument()
@@ -793,20 +793,20 @@ describe('파이프라인 상세 · 정의 판', () => {
   it('사용 — auto_apply 가 true 면 기본 기준(사람 적용 3번 뒤 · 500건 이하 · 삭제 없을 때만)', async () => {
     relayApi.definition.mockResolvedValue(bodyOf({ auto_apply: true }))
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 4 사용' }))
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 4 사용' }))
 
     const dialog = await screen.findByRole('dialog')
     expect(await within(dialog).findByText(/자동 적용을 사용합니다/)).toBeInTheDocument()
-    expect(within(dialog).getByText('사람이 적용한 것이 3번 된 뒤부터')).toBeInTheDocument()
-    expect(within(dialog).getByText(/생성 \+ 변경이 500건 이하일 때/)).toBeInTheDocument()
-    expect(within(dialog).getByText('삭제(사용 중지 · 관계 해제)가 없을 때만')).toBeInTheDocument()
+    expect(within(dialog).getByText('사람의 적용 3회 이후')).toBeInTheDocument()
+    expect(within(dialog).getByText(/생성 \+ 변경 500건 이하/)).toBeInTheDocument()
+    expect(within(dialog).getByText('삭제(사용 중지 · 관계 해제)가 없는 계획만 적용')).toBeInTheDocument()
     expect(within(dialog).getByText('auto_apply: true')).toBeInTheDocument()
   })
 
   it('사용 — auto_apply 가 false 면 자동 적용을 말하지 않는다', async () => {
     relayApi.definition.mockResolvedValue(bodyOf({ auto_apply: false }))
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 4 사용' }))
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 4 사용' }))
 
     const dialog = await screen.findByRole('dialog')
     await waitFor(() => expect(within(dialog).getByRole('button', { name: '사용' })).toBeEnabled())
@@ -815,9 +815,9 @@ describe('파이프라인 상세 · 정의 판', () => {
 
   it('사용 — 시험하지 않았으면 그렇다고 먼저 말한다', async () => {
     await mount()
-    await userEvent.click(await screen.findByRole('button', { name: '정의 판 4 사용' }))
+    await userEvent.click(await screen.findByRole('button', { name: '정의 버전 4 사용' }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(/아직 이 화면에서 시험하지 않았습니다/)).toBeInTheDocument()
+    expect(within(dialog).getByText(/아직 이 화면에서 테스트하지 않았습니다/)).toBeInTheDocument()
   })
 
   it('초안 — 아직 안 돈다고 말하고, 실행 · 적용 단추가 없다', async () => {
@@ -826,16 +826,16 @@ describe('파이프라인 상세 · 정의 판', () => {
     await mount()
 
     expect(
-      screen.getByText('이 파이프라인은 아직 초안입니다 — 정의 판을 사용해야 실행됩니다'),
+      screen.getByText('초안 파이프라인 — 정의 버전을 사용해야 실행됩니다'),
     ).toBeInTheDocument()
     expect(screen.getByText('초안(미사용)')).toBeInTheDocument()
     expect(screen.getByText('초안 4')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /지금 실행/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /즉시 실행/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /적용/ })).not.toBeInTheDocument()
     expect(screen.getByText(/초안은 실행되지 않습니다/)).toBeInTheDocument()
     // 켜는 길은 정의 판에 있다.
-    expect(await screen.findByRole('button', { name: '정의 판 4 사용' })).toBeInTheDocument()
-    expect(within(panel()).getByText(/초안 4 — 사용 중인 판이 없어 실행되지 않습니다/)).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: '정의 버전 4 사용' })).toBeInTheDocument()
+    expect(within(panel()).getByText(/초안 4\(사용 중인 버전이 없어 실행되지 않음\)/)).toBeInTheDocument()
   })
 })
 
@@ -855,9 +855,9 @@ describe('파이프라인 상세 · 대조', () => {
   it('대조한 적이 없으면 그렇다고 말하고, 일정을 적는다', async () => {
     await mount()
     const box = within(section())
-    expect(box.getByText('아직 대조한 적이 없습니다')).toBeInTheDocument()
+    expect(box.getByText('대조 이력 없음')).toBeInTheDocument()
     expect(box.getByText('수동')).toHaveClass('text-muted-foreground')
-    expect(box.getByText(/「대조」 를 클릭하면 대상 SP 의 객체를 읽어 기준과 견줍니다/)).toBeInTheDocument()
+    expect(box.getByText(/\[대조\]를 클릭하면 대상 SP의 객체를 조회해 기준 출력과 비교합니다/)).toBeInTheDocument()
     // 어긋남이 없으므로 보정 계획 단추는 서지 않는다.
     expect(box.getByRole('button', { name: '대조' })).toBeEnabled()
     expect(box.queryByRole('button', { name: /보정 계획 생성/ })).not.toBeInTheDocument()
@@ -872,8 +872,8 @@ describe('파이프라인 상세 · 대조', () => {
     await mount()
     const box = within(section())
     expect(box.getByText('7일마다 03:00')).not.toHaveClass('text-muted-foreground')
-    expect(box.getByText(/대상과 어긋남 29건/)).toBeInTheDocument()
-    expect(box.getByText('어긋남')).toBeInTheDocument()
+    expect(box.getByText(/대상 불일치 29건/)).toBeInTheDocument()
+    expect(box.getByText('불일치')).toBeInTheDocument()
 
     // 건수 — 기준 객체 · 빠짐 · 안 씀 · 다름 · 대상에만 · 확인 못 한 참조.
     const task = within(screen.getByTestId('reconcile-type-plm_task'))
@@ -886,43 +886,43 @@ describe('파이프라인 상세 · 대조', () => {
 
     // 본보기 — 다름은 식별자 → 다른 칸.
     expect(screen.queryByText('T001')).not.toBeInTheDocument()
-    await userEvent.click(box.getByRole('button', { name: 'plm_task 본보기 펼치기' }))
+    await userEvent.click(box.getByRole('button', { name: 'plm_task 항목 표시' }))
     expect(screen.getByText('T001')).toBeInTheDocument()
     expect(screen.getByText('T020')).toBeInTheDocument()
     expect(screen.queryByText('T021')).not.toBeInTheDocument()
-    expect(screen.getByText('— 앞의 20건만 표시')).toBeInTheDocument()
-    expect(screen.getByText('T200').parentElement).toHaveTextContent('T200 — label · due')
-    await userEvent.click(box.getByRole('button', { name: 'plm_project 본보기 펼치기' }))
+    expect(screen.getByText('(앞의 20건만 표시)')).toBeInTheDocument()
+    expect(screen.getByText('T200').parentElement).toHaveTextContent('T200: label · due')
+    await userEvent.click(box.getByRole('button', { name: 'plm_project 항목 표시' }))
     expect(screen.getByText(/보정 계획에 포함하지 않으며 사람이 판단합니다/)).toBeInTheDocument()
 
     // 전체 보고서 — 불러오면 잘린 본보기가 다 서고 단추는 사라진다.
-    await userEvent.click(box.getByRole('button', { name: '전체 보고서 불러오기' }))
+    await userEvent.click(box.getByRole('button', { name: '전체 보고서 조회' }))
     await waitFor(() => expect(relayApi.reconcileReport).toHaveBeenCalledWith('plm-tasks'))
     expect(await screen.findByText('T025')).toBeInTheDocument()
-    expect(screen.queryByText('— 앞의 20건만 표시')).not.toBeInTheDocument()
-    expect(box.getByText('전체 보고서를 표시하고 있습니다.')).toBeInTheDocument()
-    expect(box.queryByRole('button', { name: '전체 보고서 불러오기' })).not.toBeInTheDocument()
+    expect(screen.queryByText('(앞의 20건만 표시)')).not.toBeInTheDocument()
+    expect(box.getByText('전체 보고서 표시 중')).toBeInTheDocument()
+    expect(box.queryByRole('button', { name: '전체 보고서 조회' })).not.toBeInTheDocument()
   })
 
   it('대상 읽기 — 내보내기로 읽은 보고서', async () => {
     auth.admin = false
     relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile({ via: '내보내기' }) }))
     await mount()
-    expect(within(section()).getByText('묶음 내보내기 한 번')).toBeInTheDocument()
+    expect(within(section()).getByText('번들 내보내기(1회)')).toBeInTheDocument()
   })
 
   it('대상 읽기 — 목록으로 읽은 보고서', async () => {
     auth.admin = false
     relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile({ via: '목록' }) }))
     await mount()
-    expect(within(section()).getByText('목록(200개씩 쪽마다 — 느림)')).toBeInTheDocument()
+    expect(within(section()).getByText('목록 API(페이지당 200개, 느림)')).toBeInTheDocument()
   })
 
   it('대상 읽기 — 코어로 읽은 보고서', async () => {
     auth.admin = false
     relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile({ via: '코어' }) }))
     await mount()
-    expect(within(section()).getByText('코어 API(커서로 2,000개씩)')).toBeInTheDocument()
+    expect(within(section()).getByText('코어 API(커서, 2,000개 단위)')).toBeInTheDocument()
   })
 
   it('시스템 관리자가 아니면 대조 · 보정 계획 단추가 안 선다', async () => {
@@ -932,7 +932,7 @@ describe('파이프라인 상세 · 대조', () => {
     const box = within(section())
     expect(box.queryByRole('button', { name: '대조' })).not.toBeInTheDocument()
     expect(box.queryByRole('button', { name: /보정 계획 생성/ })).not.toBeInTheDocument()
-    expect(box.getByText('「대조」 · 「보정 계획 생성」 은 시스템 관리자가 합니다.')).toBeInTheDocument()
+    expect(box.getByText('[대조], [보정 계획 생성]은 시스템 관리자만 할 수 있습니다.')).toBeInTheDocument()
   })
 
   it('대조 — plan 없이 넣고, 작업 화면 링크를 남기고, 다시 읽는다', async () => {
@@ -941,7 +941,7 @@ describe('파이프라인 상세 · 대조', () => {
     await userEvent.click(within(section()).getByRole('button', { name: '대조' }))
     await waitFor(() => expect(relayApi.reconcile).toHaveBeenCalledWith('plm-tasks', false))
     expect(await screen.findByText('대조 작업을 등록했습니다')).toBeInTheDocument()
-    expect(within(section()).getByRole('link', { name: '작업 화면에서 진행 보기' })).toHaveAttribute(
+    expect(within(section()).getByRole('link', { name: '작업 화면에서 진행 상황 확인' })).toHaveAttribute(
       'href',
       '/jobs?job=job-r1',
     )
@@ -954,7 +954,7 @@ describe('파이프라인 상세 · 대조', () => {
     await mount()
     const box = within(section())
     expect(box.getByRole('button', { name: /보정 계획 생성/ })).toBeDisabled()
-    expect(box.getByText(/적용을 기다리는 계획이 있어 보정 계획을 생성할 수 없습니다/)).toBeInTheDocument()
+    expect(box.getByText(/적용 대기 중인 계획이 있어 보정 계획을 생성할 수 없습니다/)).toBeInTheDocument()
   })
 
   it('보정 계획 — 확인 창이 갈래마다 무엇을 하는지 말하고, plan 으로 넣는다', async () => {
@@ -966,14 +966,14 @@ describe('파이프라인 상세 · 대조', () => {
     await userEvent.click(button)
 
     const dialog = within(await screen.findByRole('dialog'))
-    expect(dialog.getByText('보정 계획을 생성합니다')).toBeInTheDocument()
-    expect(dialog.getByText(/대상 SP 의 검토함에 미리 보기로 등록합니다/)).toBeInTheDocument()
-    expect(dialog.getByText('빠짐 25건 — 기준 그대로 다시 추가')).toBeInTheDocument()
-    expect(dialog.getByText('안 씀 1건 — 다시 「사용」 으로 표시')).toBeInTheDocument()
-    expect(dialog.getByText('다름 1건 — 기준 값으로 수정')).toBeInTheDocument()
-    expect(dialog.getByText('대상에만 1건 — 사용 중지(이 원천이 관리하는 타입)')).toBeInTheDocument()
+    expect(dialog.getByText('보정 계획 생성')).toBeInTheDocument()
+    expect(dialog.getByText(/대상 SP의 검토함에 미리 보기로 등록합니다/)).toBeInTheDocument()
+    expect(dialog.getByText('누락 25건: 기준 출력대로 다시 추가')).toBeInTheDocument()
+    expect(dialog.getByText("사용 중지 1건: 다시 '사용'으로 표시")).toBeInTheDocument()
+    expect(dialog.getByText('값 불일치 1건: 기준 출력 값으로 수정')).toBeInTheDocument()
+    expect(dialog.getByText('대상에만 존재 1건: 사용 중지(이 원천이 관리하는 타입)')).toBeInTheDocument()
     expect(
-      dialog.getByText('대상에만 1건 — 포함하지 않음(이 원천이 관리하지 않는 타입 — 사람이 판단)'),
+      dialog.getByText('대상에만 존재 1건: 포함하지 않음(이 원천이 관리하지 않는 타입, 사람이 판단)'),
     ).toBeInTheDocument()
     expect(relayApi.reconcile).not.toHaveBeenCalled()
 
@@ -990,7 +990,7 @@ describe('파이프라인 상세 · 대조', () => {
     await mount()
     const box = within(section())
     expect(box.getByRole('button', { name: /보정 계획 생성/ })).toBeDisabled()
-    expect(box.getByText(/보정 계획에 실을 것이 없습니다 — 사람이 판단합니다/)).toBeInTheDocument()
+    expect(box.getByText(/보정 계획에 포함할 항목이 없습니다\. 사람이 판단합니다/)).toBeInTheDocument()
   })
 
   it('보정 계획 — 대조하지 못한 것이 있으면 막고, 그 까닭을 늘어놓는다', async () => {
@@ -999,11 +999,11 @@ describe('파이프라인 상세 · 대조', () => {
     relayApi.pipeline.mockResolvedValue(detail({ reconcile: report, state: NO_PENDING }))
     await mount()
     const box = within(section())
-    expect(box.getByText('대조 못 함')).toBeInTheDocument()
+    expect(box.getByText('대조 실패')).toBeInTheDocument()
     expect(box.getByText('대상에 타입이 없습니다: plm_task')).toBeInTheDocument()
     expect(box.getByText('대상에 없는 타입')).toBeInTheDocument()
     expect(box.getByRole('button', { name: /보정 계획 생성/ })).toBeDisabled()
-    expect(box.getByText(/마지막 대조를 마치지 못해 보정 계획을 생성할 수 없습니다/)).toBeInTheDocument()
+    expect(box.getByText(/마지막 대조가 완료되지 않아 보정 계획을 생성할 수 없습니다/)).toBeInTheDocument()
   })
 
   it('이력 · 작업 · 대기 계획 — 대조는 「대조」, 대조가 올린 계획은 「보정 계획」', async () => {
@@ -1056,9 +1056,9 @@ describe('파이프라인 상세 · 대조', () => {
     expect(within(items[0]).getByText('보정 계획')).toBeInTheDocument()
     expect(within(items[0]).getByText('생성 1 · 변경 1 · 삭제 0')).toBeInTheDocument()
     expect(within(items[1]).getByText('대조')).toBeInTheDocument()
-    expect(within(items[1]).getByText('어긋남')).toHaveClass('bg-amber-500/10')
+    expect(within(items[1]).getByText('불일치')).toHaveClass('bg-amber-500/10')
     expect(within(items[1]).getByText('대상과 어긋남 2건(빠짐 1 · 다름 1) — 기준 객체 9건.')).toBeInTheDocument()
-    expect(within(items[2]).getByText('대상과 같음')).toHaveClass('bg-muted')
+    expect(within(items[2]).getByText('일치')).toHaveClass('bg-muted')
     expect(within(items[3]).getByText('계획 생성')).toBeInTheDocument()
 
     const jobs = screen.getByRole('heading', { name: '최근 작업' }).closest('section')!
@@ -1069,7 +1069,7 @@ describe('파이프라인 상세 · 대조', () => {
     // 대기 계획이 보정 계획이면 그렇게 적고, 보정 계획을 또 올리지 않는다.
     expect(screen.getByText('적용 대기 계획').closest('div')).toHaveTextContent('보정 계획')
     expect(within(section()).getByRole('button', { name: /보정 계획 생성/ })).toBeDisabled()
-    expect(within(section()).getByText(/보정 계획이 이미 적용을 기다리고 있습니다/)).toBeInTheDocument()
+    expect(within(section()).getByText(/보정 계획이 이미 적용 대기 중입니다/)).toBeInTheDocument()
   })
 
   it('초안에는 대조 단추가 없다', async () => {
@@ -1078,7 +1078,7 @@ describe('파이프라인 상세 · 대조', () => {
     await mount()
     const box = within(section())
     expect(box.queryByRole('button', { name: '대조' })).not.toBeInTheDocument()
-    expect(box.getByText(/초안은 실행되지 않아 견줄 기준이 없습니다/)).toBeInTheDocument()
+    expect(box.getByText(/초안은 실행되지 않으므로 비교할 기준 출력이 없습니다/)).toBeInTheDocument()
   })
 })
 
@@ -1121,21 +1121,21 @@ describe('파이프라인 상세 · 값의 출처', () => {
 
   it('대조 본보기의 식별자를 클릭하면 그 값의 출처를 조회한다 — 다른 칸 · 규칙 · 원천 값 · 관계', async () => {
     await mount()
-    await userEvent.click(screen.getByRole('button', { name: 'plm_task 본보기 펼치기' }))
+    await userEvent.click(screen.getByRole('button', { name: 'plm_task 항목 표시' }))
     await userEvent.click(screen.getByRole('button', { name: 'plm_task T200 출처 조회' }))
     await waitFor(() => expect(relayApi.trace).toHaveBeenCalledWith('plm-tasks', 'plm_task', 'T200'))
 
     const box = within(await screen.findByTestId('value-trace-result'))
     expect(within(area()).getByLabelText('식별자')).toHaveValue('T200')
-    expect(box.getByText(/다른 칸: label · due/)).toBeInTheDocument()
+    expect(box.getByText(/값 불일치 속성: label · due/)).toBeInTheDocument()
     const due = within(box.getByTestId('trace-field-due'))
-    expect(due.getByText('다름')).toBeInTheDocument()
+    expect(due.getByText('값 불일치')).toBeInTheDocument()
     expect(due.getByText('열 DUE · 날짜로')).toBeInTheDocument()
     expect(due.getByText('2026.8.1')).toBeInTheDocument() // 원천의 원래 값 — 규칙이 날짜로 바꿨다
-    expect(within(box.getByTestId('trace-field-key')).queryByText('다름')).not.toBeInTheDocument()
+    expect(within(box.getByTestId('trace-field-key')).queryByText('값 불일치')).not.toBeInTheDocument()
     expect(box.getByText(/기준 실행의 원천 표 · 2행 · 변환기: 2행에서 모음/)).toBeInTheDocument()
     expect(box.getByText('M-0001')).toBeInTheDocument()
-    expect(box.queryByText(/지금 기준을 적용하기 전의 대조입니다/)).not.toBeInTheDocument()
+    expect(box.queryByText(/현재 기준 출력을 적용하기 전의 대조입니다/)).not.toBeInTheDocument()
   })
 
   it('주소의 trace_type · trace_key 로 바로 그 값의 출처를 조회한다 — SP 이력의 「원천에서 추적」', async () => {
@@ -1151,8 +1151,8 @@ describe('파이프라인 상세 · 값의 출처', () => {
     const box = within(area())
     await userEvent.type(box.getByLabelText('식별자'), 'T200')
     await userEvent.click(box.getByRole('button', { name: '출처 조회' }))
-    expect(await box.findByText(/지금 기준을 적용하기 전의 대조입니다/)).toBeInTheDocument()
-    expect(box.getByText('대상과 같음')).toBeInTheDocument()
+    expect(await box.findByText(/현재 기준 출력을 적용하기 전의 대조입니다/)).toBeInTheDocument()
+    expect(box.getByText('일치')).toBeInTheDocument()
   })
 
   it('원천 행을 서버가 뺐으면(관리자 아님) 그렇다고 말한다', async () => {
@@ -1162,8 +1162,8 @@ describe('파이프라인 상세 · 값의 출처', () => {
     const box = within(area())
     await userEvent.type(box.getByLabelText('식별자'), 'T200')
     await userEvent.click(box.getByRole('button', { name: '출처 조회' }))
-    expect(await box.findByText(/원천 행 · 원래 값은 시스템 관리자만 봅니다/)).toBeInTheDocument()
-    expect(within(box.getByTestId('trace-field-due')).getByText('관리자만')).toBeInTheDocument()
+    expect(await box.findByText(/원천 행과 원래 값은 시스템 관리자만 조회 가능/)).toBeInTheDocument()
+    expect(within(box.getByTestId('trace-field-due')).getByText('관리자 전용')).toBeInTheDocument()
     expect(box.queryByText('2026.8.1')).not.toBeInTheDocument()
   })
 
@@ -1218,9 +1218,9 @@ describe('받기 점검 · 늦음 · 실행 추이', () => {
     relayApi.run.mockResolvedValue({ job_id: 'job-7', kind: 'relay_run' })
     await mount()
 
-    expect(screen.getByText(/받기 점검에서 멈췄습니다/)).toBeInTheDocument()
+    expect(screen.getByText(/수신 검증으로 중단되었습니다/)).toBeInTheDocument()
     expect(screen.getAllByText(HELD.reasons[0]).length).toBeGreaterThan(0)
-    expect(screen.getByText('받기 점검 멈춤')).toBeInTheDocument() // 이력의 이름
+    expect(screen.getByText('수신 검증 중단')).toBeInTheDocument() // 이력의 이름
 
     await userEvent.click(screen.getByRole('button', { name: /확인 후 진행/ }))
     const dialog = await screen.findByRole('dialog')
@@ -1248,7 +1248,7 @@ describe('받기 점검 · 늦음 · 실행 추이', () => {
       }),
     )
     await mount()
-    expect(screen.getByText(/실행이 늦습니다/)).toBeInTheDocument()
+    expect(screen.getByText(/실행 지연/)).toBeInTheDocument()
     expect(screen.getByText(/5시간째 끝나지 않았습니다/)).toBeInTheDocument()
     expect(screen.getAllByText(statusLabel('relay_pipeline', 'late')).length).toBeGreaterThan(0)
   })
@@ -1279,9 +1279,9 @@ describe('받기 점검 · 늦음 · 실행 추이', () => {
       ],
     })
     await mount()
-    expect(await screen.findByText(/최근 3번 — 실패 1 · 멈춤 1\(받기 점검 1\)/)).toBeInTheDocument()
-    expect(screen.getByText('받기 단계에서')).toBeInTheDocument()
-    expect(screen.getAllByText('받기 점검 멈춤').length).toBeGreaterThan(0)
+    expect(await screen.findByText(/최근 3회 · 실패 1 · 중단 1\(수신 검증 1\)/)).toBeInTheDocument()
+    expect(screen.getByText('받기 단계')).toBeInTheDocument()
+    expect(screen.getAllByText('수신 검증 중단').length).toBeGreaterThan(0)
     expect(relayApi.trend).toHaveBeenCalledWith('plm-tasks')
   })
 })
@@ -1333,13 +1333,13 @@ describe('미해결 작업함', () => {
     const row = await screen.findByTestId('inbox-reference')
     expect(within(row).getByText('서울시험소')).toBeInTheDocument()
     expect(within(row).getByText(/2행/)).toBeInTheDocument()
-    const save = screen.getByRole('button', { name: /레시피 초안으로 저장\(0개\)/ })
+    const save = screen.getByRole('button', { name: /레시피 초안 저장\(0개\)/ })
     expect(save).toBeDisabled()
 
     await userEvent.click(within(row).getByRole('button', { name: /S-SEOUL/ }))
-    expect(within(row).getByLabelText('서울시험소 의 대상 키')).toHaveValue('S-SEOUL')
+    expect(within(row).getByLabelText('서울시험소 대상 키')).toHaveValue('S-SEOUL')
     const recipesBefore = relayApi.recipes.mock.calls.length
-    await userEvent.click(screen.getByRole('button', { name: /레시피 초안으로 저장\(1개\)/ }))
+    await userEvent.click(screen.getByRole('button', { name: /레시피 초안 저장\(1개\)/ }))
 
     await waitFor(() =>
       expect(relayApi.draftAliases).toHaveBeenCalledWith(
@@ -1348,11 +1348,11 @@ describe('미해결 작업함', () => {
         [],
       ),
     )
-    expect(await screen.findByText('레시피 판 3 초안을 저장했습니다')).toBeInTheDocument()
+    expect(await screen.findByText('레시피 버전 3 초안을 저장했습니다')).toBeInTheDocument()
     await waitFor(() => expect(relayApi.recipes.mock.calls.length).toBeGreaterThan(recipesBefore))
     // 값 갈림은 고를 키가 없다 — 무엇을 수정할지만.
-    expect(screen.getByText(/값 갈림 1건/)).toBeInTheDocument()
-    expect(screen.getByText(/「가」 · 「나」/)).toBeInTheDocument()
+    expect(screen.getByText(/값 충돌 1건 — 레시피/)).toBeInTheDocument()
+    expect(screen.getByText(/'가', '나'/)).toBeInTheDocument()
   })
 
   it('GLM 제안은 설정했을 때만 — 고른 키를 채우고 까닭을 보인다', async () => {
@@ -1370,8 +1370,8 @@ describe('미해결 작업함', () => {
     await waitFor(() =>
       expect(relayApi.suggest).toHaveBeenCalledWith('plm-tasks', 't_site', '서울시험소', 'SITE'),
     )
-    expect(await within(row).findByText(/GLM: S-SEOUL 서울 시험소 \(확신 0.95\)/)).toBeInTheDocument()
-    expect(within(row).getByLabelText('서울시험소 의 대상 키')).toHaveValue('S-SEOUL')
+    expect(await within(row).findByText(/GLM 제안: S-SEOUL 서울 시험소 \(신뢰도 0.95\)/)).toBeInTheDocument()
+    expect(within(row).getByLabelText('서울시험소 대상 키')).toHaveValue('S-SEOUL')
   })
 
   it('값이 갈리는 칸을 모으는 칸으로 — 대응과 함께 한 초안에, 다시 누르면 취소', async () => {
@@ -1387,19 +1387,19 @@ describe('미해결 작업함', () => {
     await mount()
     const rows = await screen.findAllByTestId('inbox-split-field')
     expect(rows).toHaveLength(2)
-    expect(within(rows[0]).getByText('객체 3개에서 갈림')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /레시피 초안으로 저장\(0개\)/ })).toBeDisabled()
+    expect(within(rows[0]).getByText('객체 3개에서 충돌')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /레시피 초안 저장\(0개\)/ })).toBeDisabled()
 
-    await userEvent.click(within(rows[0]).getByRole('button', { name: 'plm_task.label 한 글로 모으기' }))
+    await userEvent.click(within(rows[0]).getByRole('button', { name: 'plm_task.label 문자열 결합' }))
     const separator = within(rows[0]).getByLabelText('plm_task.label 구분자')
     await userEvent.clear(separator)
     await userEvent.type(separator, ' / ')
-    const collect = within(rows[1]).getByRole('button', { name: 'plm_task.owner 목록으로 모으기' })
+    const collect = within(rows[1]).getByRole('button', { name: 'plm_task.owner 목록' })
     await userEvent.click(collect)
     await userEvent.click(collect) // 다시 누르면 취소
     await userEvent.click(collect)
     expect(collect).toHaveAttribute('aria-pressed', 'true')
-    await userEvent.click(screen.getByRole('button', { name: /레시피 초안으로 저장\(2개\)/ }))
+    await userEvent.click(screen.getByRole('button', { name: /레시피 초안 저장\(2개\)/ }))
     await waitFor(() =>
       expect(relayApi.draftAliases).toHaveBeenCalledWith(
         'plm-tasks',
@@ -1410,7 +1410,7 @@ describe('미해결 작업함', () => {
         ],
       ),
     )
-    expect(await screen.findByText('레시피 판 4 초안을 저장했습니다')).toBeInTheDocument()
+    expect(await screen.findByText('레시피 버전 4 초안을 저장했습니다')).toBeInTheDocument()
   })
 
   it('멈춘 실행이 없으면 까닭과 별칭 요청 목록 다운로드만', async () => {
@@ -1424,7 +1424,7 @@ describe('미해결 작업함', () => {
   it('관리자가 아니면 작업함을 읽지 않는다', async () => {
     auth.admin = false
     await mount()
-    expect(screen.queryByText('미해결 작업함')).not.toBeInTheDocument()
+    expect(screen.queryByText('미해결 처리함')).not.toBeInTheDocument()
     expect(relayApi.unresolved).not.toHaveBeenCalled()
   })
 })
@@ -1442,13 +1442,13 @@ describe('보낸 것 걷어내기', () => {
       detail({ state: { ...detail().state, applied_run: 'runs/20261103T090000000000Z' } }),
     )
     await mount()
-    expect(screen.getByRole('button', { name: /보낸 것 걷어내기/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /전송 데이터 회수/ })).toBeDisabled()
   })
 
   it('대상에 넣은 것이 없으면 걷어내기 단추가 없다', async () => {
     relayApi.pipeline.mockResolvedValue(detail())
     await mount()
-    expect(screen.queryByRole('button', { name: /보낸 것 걷어내기/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /전송 데이터 회수/ })).not.toBeInTheDocument()
   })
 
   it('식별자를 줄 · 쉼표로 받아 그 타입의 것만 보낸다', async () => {
@@ -1460,17 +1460,17 @@ describe('보낸 것 걷어내기', () => {
     )
     relayApi.retract.mockResolvedValue({ job_id: 'job-9', kind: 'relay_retract' })
     await mount()
-    await userEvent.click(screen.getByRole('button', { name: /보낸 것 걷어내기/ }))
+    await userEvent.click(screen.getByRole('button', { name: /전송 데이터 회수/ }))
     const dialog = await screen.findByRole('dialog')
-    const send = within(dialog).getByRole('button', { name: '걷어내기 계획 올리기' })
+    const send = within(dialog).getByRole('button', { name: '회수 계획 생성' })
     expect(send).toBeDisabled() // 아직 고른 것이 없다
-    await userEvent.type(within(dialog).getByLabelText('걷어낼 식별자'), 'T-1, T-2{enter}T-1')
+    await userEvent.type(within(dialog).getByLabelText('회수할 식별자'), 'T-1, T-2{enter}T-1')
     expect(within(dialog).getByText('2개')).toBeInTheDocument()
     await userEvent.click(send)
     await waitFor(() =>
       expect(relayApi.retract).toHaveBeenCalledWith('plm-tasks', { keys: { plm_task: ['T-1', 'T-2'] } }),
     )
-    expect(await screen.findByText('걷어내기 작업을 등록했습니다')).toBeInTheDocument()
+    expect(await screen.findByText('전송 데이터 회수 작업을 등록했습니다')).toBeInTheDocument()
   })
 
   it('걷어내고 멈추면 「지금 실행」 대신 「다시 켜기」 — 확인 창이 대기 중인 계획을 거둔다고 말한다', async () => {
@@ -1495,19 +1495,19 @@ describe('보낸 것 걷어내기', () => {
     )
     relayApi.resume.mockResolvedValue({ message: '다시 켰습니다 — 다음 실행부터 돕니다.' })
     await mount()
-    expect(screen.getByRole('button', { name: /지금 실행/ })).toBeDisabled()
-    expect(screen.getByText(/보낸 것을 걷어내고 멈췄습니다 — 식별자 2개/)).toBeInTheDocument()
-    expect(screen.getAllByText('걷어내기 계획').length).toBeGreaterThan(0) // 대기 계획 · 이력의 이름
-    await userEvent.click(screen.getByRole('button', { name: /다시 켜기/ }))
+    expect(screen.getByRole('button', { name: /즉시 실행/ })).toBeDisabled()
+    expect(screen.getByText(/전송 데이터를 회수하고 파이프라인을 중지했습니다\. 회수 대상: 식별자 2개/)).toBeInTheDocument()
+    expect(screen.getAllByText('회수 계획').length).toBeGreaterThan(0) // 대기 계획 · 이력의 이름
+    await userEvent.click(screen.getByRole('button', { name: /재개/ }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText(/그 계획을 거둡니다/)).toBeInTheDocument()
-    await userEvent.click(within(dialog).getByRole('button', { name: '다시 켜기' }))
+    expect(within(dialog).getByText(/해당 계획을 취소합니다/)).toBeInTheDocument()
+    await userEvent.click(within(dialog).getByRole('button', { name: '재개' }))
     await waitFor(() => expect(relayApi.resume).toHaveBeenCalledWith('plm-tasks'))
     expect(await screen.findByText(/다시 켰습니다/)).toBeInTheDocument()
   })
 
   it('상태 배지의 이름', () => {
-    expect(statusLabel('relay_pipeline', 'stopped')).toBe('걷어내고 멈춤')
+    expect(statusLabel('relay_pipeline', 'stopped')).toBe('회수 후 중지')
   })
 
   it('대상이 지우기를 받으면 지우기와 「앞서 걷어낸 것」 을 고를 수 있다', async () => {
@@ -1522,11 +1522,11 @@ describe('보낸 것 걷어내기', () => {
     )
     relayApi.retract.mockResolvedValue({ job_id: 'job-10', kind: 'relay_retract' })
     await mount()
-    await userEvent.click(screen.getByRole('button', { name: /보낸 것 걷어내기/ }))
+    await userEvent.click(screen.getByRole('button', { name: /전송 데이터 회수/ }))
     const dialog = await screen.findByRole('dialog')
-    await userEvent.click(within(dialog).getByLabelText(/^지우기/))
-    await userEvent.type(within(dialog).getByLabelText('걷어낼 식별자'), 'T-1')
-    await userEvent.click(within(dialog).getByRole('button', { name: '걷어내기 계획 올리기' }))
+    await userEvent.click(within(dialog).getByLabelText(/^삭제/))
+    await userEvent.type(within(dialog).getByLabelText('회수할 식별자'), 'T-1')
+    await userEvent.click(within(dialog).getByRole('button', { name: '회수 계획 생성' }))
     await waitFor(() =>
       expect(relayApi.retract).toHaveBeenCalledWith('plm-tasks', { action: 'delete', keys: { plm_task: ['T-1'] } }),
     )
@@ -1544,11 +1544,11 @@ describe('보낸 것 걷어내기', () => {
     )
     relayApi.retract.mockResolvedValue({ job_id: 'job-11', kind: 'relay_retract' })
     await mount()
-    await userEvent.click(screen.getByRole('button', { name: /보낸 것 걷어내기/ }))
+    await userEvent.click(screen.getByRole('button', { name: /전송 데이터 회수/ }))
     const dialog = await screen.findByRole('dialog')
-    await userEvent.click(within(dialog).getByLabelText(/앞서 사용 중지로 걷어낸 것 지우기/))
+    await userEvent.click(within(dialog).getByLabelText(/이전에 사용 중지로 회수한 객체 삭제/))
     expect(within(dialog).getByLabelText(/^사용 중지/)).toBeDisabled()
-    await userEvent.click(within(dialog).getByRole('button', { name: '걷어내기 계획 올리기' }))
+    await userEvent.click(within(dialog).getByRole('button', { name: '회수 계획 생성' }))
     await waitFor(() =>
       expect(relayApi.retract).toHaveBeenCalledWith('plm-tasks', { previous: true, action: 'delete' }),
     )
@@ -1559,10 +1559,10 @@ describe('보낸 것 걷어내기', () => {
       detail({ status: 'ok', state: { ...detail().state, applied_run: 'runs/x', pending: null }, retracted: 4 }),
     )
     await mount()
-    await userEvent.click(screen.getByRole('button', { name: /보낸 것 걷어내기/ }))
+    await userEvent.click(screen.getByRole('button', { name: /전송 데이터 회수/ }))
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByLabelText(/^지우기/)).toBeDisabled()
-    expect(within(dialog).getByText(/v0\.4\.100\) 는 지우기를 받지 않습니다/)).toBeInTheDocument()
-    expect(within(dialog).queryByLabelText(/앞서 사용 중지로 걷어낸 것/)).not.toBeInTheDocument()
+    expect(within(dialog).getByLabelText(/^삭제/)).toBeDisabled()
+    expect(within(dialog).getByText(/SP 0\.4\.101 이상 지원\(현재 대상 v0\.4\.100\)/)).toBeInTheDocument()
+    expect(within(dialog).queryByLabelText(/이전에 사용 중지로 회수한 객체/)).not.toBeInTheDocument()
   })
 })

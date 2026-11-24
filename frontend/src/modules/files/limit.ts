@@ -53,5 +53,5 @@ export function shownLimit(bytes: number): string {
 export function tooLargeMessage(files: File[], limit: number): string | null {
   const big = files.filter((one) => one.size > limit)
   if (big.length === 0) return null
-  return `한 파일은 ${shownLimit(limit)} 까지입니다 — ${big.map((one) => one.name).join(', ')}`
+  return `파일 크기 상한(${shownLimit(limit)}) 초과: ${big.map((one) => one.name).join(', ')}`
 }

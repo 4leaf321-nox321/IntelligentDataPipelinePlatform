@@ -89,7 +89,7 @@ def ordered_tree(db: Session) -> list[tuple[Workspace, int, str]]:
     reached = {node.id for node, _, _ in out}
     for row in rows:
         if row.id not in reached:
-            out.append((row, 0, f"{row.name} (연결 끊김)"))
+            out.append((row, 0, f"{row.name}(상위 연결 오류)"))
     return out
 
 
@@ -202,7 +202,7 @@ def create(
     parent_slug: str | None,
 ) -> Workspace:
     if db.scalar(select(Workspace).where(Workspace.slug == slug)) is not None:
-        raise Conflict(code("WORKSPACES", 4), f"이미 있는 부서 주소입니다: {slug}")
+        raise Conflict(code("WORKSPACES", 4), f"이미 사용 중인 부서 주소입니다: {slug}")
 
     parent = workspace_by_slug(db, parent_slug) if parent_slug else None
     # 형제 끝에 붙인다. 순서는 사람이 나중에 바꾼다.
@@ -279,7 +279,7 @@ def move(
         if parent.id in _descendant_ids(db, workspace.id):
             raise AppError(
                 code("WORKSPACES", 5),
-                "자기 자신이나 하위 부서 아래로는 옮길 수 없습니다.",
+                "부서를 자신 또는 하위 부서 아래로 이동할 수 없습니다.",
                 status=400,
             )
         parent_id = parent.id
@@ -411,8 +411,8 @@ def delete(db: Session, *, slug: str, actor: User) -> None:
     if running is not None:
         raise Conflict(
             code("WORKSPACES", 17),
-            "이 부서의 자료 이동이 아직 끝나지 않았습니다 — 「작업」 화면에서 끝난 것을 "
-            "확인한 뒤에 삭제하세요.",
+            "이 부서의 자료 이동이 아직 완료되지 않았습니다. [작업] 화면에서 완료를 "
+            "확인한 후 삭제하세요.",
             details={"job_id": str(running.id)},
         )
     blocking = [one for one in references(db, slug=slug) if one.blocks_delete]
@@ -420,7 +420,7 @@ def delete(db: Session, *, slug: str, actor: User) -> None:
         detail = ", ".join(f"{one.label} {one.count}건" for one in blocking)
         raise Conflict(
             code("WORKSPACES", 6),
-            f"이 부서를 가리키는 것이 남아 있습니다({detail}). 먼저 옮기거나 정리하세요.",
+            f"이 부서를 참조하는 자료가 남아 있습니다({detail}). 먼저 이동하거나 정리하세요.",
         )
     audit.record(
         db,
@@ -515,15 +515,15 @@ def _reassign_parts(
     source = workspace_by_slug(db, slug)
     target = workspace_by_slug(db, target_slug)
     if source.id == target.id:
-        raise AppError(code("WORKSPACES", 14), "같은 부서로는 옮길 수 없습니다.", status=400)
+        raise AppError(code("WORKSPACES", 14), "같은 부서로는 이동할 수 없습니다.", status=400)
     available = _contents(db, source.id)
     known = {one.kind for one in available}
     unknown = [one for one in kinds if one not in known]
     if unknown:
         raise AppError(
             code("WORKSPACES", 15),
-            f"옮길 수 없는 종류입니다: {', '.join(unknown)}. "
-            f"이 설치가 아는 것: {', '.join(one.kind for one in available)}",
+            f"이동할 수 없는 종류입니다: {', '.join(unknown)}"
+            f"(이동 가능: {', '.join(one.kind for one in available)})",
             status=422,
         )
     return source, target, [one for one in available if one.kind in kinds]
@@ -595,10 +595,10 @@ def _reassign_out(
         for one in items
         if (one["moved"] if applied else one["count"])
     )
-    head = "적용 — 이동" if applied else "계획 — 이동할 것"
+    head = "이동 완료" if applied else "이동 예정"
     summary = f"{head}: {shown or '없음'} ({source.name} → {target.name})"
     if blockers:
-        summary += f" · 막힘 {len(blockers)}"
+        summary += f" · 차단 {len(blockers)}"
     return {
         "reassign": True,
         "applied": applied,
@@ -662,8 +662,8 @@ def reassign(
     if fingerprint and mark != fingerprint:
         raise Conflict(
             code("JOBS", 20),
-            "미리 본 것과 달라졌습니다 — 그 사이에 원본 부서의 자료가 바뀌었습니다. 아무것도 "
-            "옮기지 않았으니 다시 미리 보고 적용하세요.",
+            "미리 보기 이후 원본 부서의 자료가 변경되었습니다. 이동한 자료는 없습니다. "
+            "미리 보기를 다시 생성한 후 적용하세요.",
         )
     if blockers:
         raise Conflict(code("WORKSPACES", 16), " / ".join(blockers))
@@ -771,11 +771,11 @@ def _member_out(db: Session, member: WorkspaceMember) -> MemberOut:
 
 def add_member(db: Session, *, workspace: Workspace, email: str, role: str) -> MemberOut:
     if role not in ROLES:
-        raise AppError(code("WORKSPACES", 8), f"모르는 역할입니다: {role}", status=400)
+        raise AppError(code("WORKSPACES", 8), f"지원하지 않는 역할입니다: {role}", status=400)
 
     user = db.scalar(select(User).where(User.email == email.strip().lower()))
     if user is None:
-        raise NotFound(code("WORKSPACES", 9), f"그 아이디의 계정이 없습니다: {email}")
+        raise NotFound(code("WORKSPACES", 9), f"해당 아이디의 계정이 없습니다: {email}")
 
     existing = membership_of(db, workspace_id=workspace.id, user_id=user.id)
     if existing is not None:
@@ -806,7 +806,7 @@ def manager_count(db: Session, workspace_id: uuid.UUID) -> int:
 
 def set_role(db: Session, *, workspace: Workspace, user_id: uuid.UUID, role: str) -> MemberOut:
     if role not in ROLES:
-        raise AppError(code("WORKSPACES", 8), f"모르는 역할입니다: {role}", status=400)
+        raise AppError(code("WORKSPACES", 8), f"지원하지 않는 역할입니다: {role}", status=400)
 
     member = membership_of(db, workspace_id=workspace.id, user_id=user_id)
     if member is None:
@@ -817,7 +817,7 @@ def set_role(db: Session, *, workspace: Workspace, user_id: uuid.UUID, role: str
     if member.role == "manager" and role != "manager" and manager_count(db, workspace.id) <= 1:
         raise Conflict(
             code("WORKSPACES", 12),
-            "부서의 마지막 관리자입니다. 다른 사람을 관리자로 올린 뒤에 바꾸세요.",
+            "부서의 마지막 관리자입니다. 다른 멤버를 관리자로 지정한 후 역할을 변경하세요.",
         )
 
     member.role = role
@@ -833,7 +833,7 @@ def remove_member(db: Session, *, workspace: Workspace, user_id: uuid.UUID) -> N
     if member.role == "manager" and manager_count(db, workspace.id) <= 1:
         raise Conflict(
             code("WORKSPACES", 12),
-            "부서의 마지막 관리자입니다. 다른 사람을 관리자로 올린 뒤에 빼세요.",
+            "부서의 마지막 관리자입니다. 다른 멤버를 관리자로 지정한 후 제외하세요.",
         )
     db.delete(member)
     db.commit()
@@ -1034,7 +1034,7 @@ def plan_import(db: Session, rows: list[dict[str, Any]]) -> ImportPlan:
                     slug=slug,
                     action="skip",
                     label=name or slug,
-                    message="개인 공간은 부서가 아니라 건너뜁니다",
+                    message="개인 공간은 부서가 아니므로 건너뜁니다",
                 )
             )
             continue
@@ -1045,7 +1045,7 @@ def plan_import(db: Session, rows: list[dict[str, Any]]) -> ImportPlan:
                     slug=slug,
                     action="error",
                     label=name or "",
-                    message="slug 는 소문자·숫자·하이픈 2~50자여야 합니다",
+                    message="slug는 소문자, 숫자, 하이픈 2~50자여야 합니다",
                 )
             )
             continue
@@ -1056,7 +1056,7 @@ def plan_import(db: Session, rows: list[dict[str, Any]]) -> ImportPlan:
                     slug=slug,
                     action="error",
                     label=name or slug,
-                    message=f"같은 slug 가 {seen[slug]}행에도 있습니다",
+                    message=f"같은 slug가 {seen[slug]}행에도 있습니다",
                 )
             )
             continue
@@ -1081,7 +1081,7 @@ def plan_import(db: Session, rows: list[dict[str, Any]]) -> ImportPlan:
                     slug=slug,
                     action="error",
                     label=name or slug,
-                    message="자기 자신을 상위로 둘 수 없습니다",
+                    message="자신을 상위 부서로 지정할 수 없습니다",
                 )
             )
             continue
@@ -1093,7 +1093,7 @@ def plan_import(db: Session, rows: list[dict[str, Any]]) -> ImportPlan:
                     slug=slug,
                     action="error",
                     label=name or slug,
-                    message=f"status 는 active 나 archived 여야 합니다: {status}",
+                    message=f"status는 active 또는 archived여야 합니다: {status}",
                 )
             )
             continue
@@ -1105,7 +1105,7 @@ def plan_import(db: Session, rows: list[dict[str, Any]]) -> ImportPlan:
                         row=index,
                         slug=slug,
                         action="error",
-                        message="새 부서에는 name 이 있어야 합니다",
+                        message="새 부서에는 name이 있어야 합니다",
                     )
                 )
                 continue
@@ -1173,7 +1173,7 @@ def apply_import(db: Session, rows: list[dict[str, Any]], *, actor: User) -> Imp
                 target_id=workspace.id,
                 target_label=workspace.name,
                 workspace_id=workspace.id,
-                reason="붙여 넣어 추가",
+                reason="붙여넣기 추가",
             )
             continue
         workspace = by_slug[slug]
@@ -1202,7 +1202,7 @@ def apply_import(db: Session, rows: list[dict[str, Any]], *, actor: User) -> Imp
             target_label=workspace.name,
             workspace_id=workspace.id,
             changes=audit.diff(before, after),
-            reason="붙여 넣어 추가",
+            reason="붙여넣기 추가",
         )
     # 2) 상위를 잇는다 — 같은 표 안의 것이 이제 다 있다.
     for index, row in enumerate(rows, start=1):
@@ -1230,7 +1230,7 @@ def apply_import(db: Session, rows: list[dict[str, Any]], *, actor: User) -> Imp
         actor=actor,
         target_table="workspaces",
         target_id=None,
-        target_label="붙여 넣어 추가",
+        target_label="붙여넣기 추가",
         changes={"rows": len(rows), **plan.counts},
     )
     db.commit()

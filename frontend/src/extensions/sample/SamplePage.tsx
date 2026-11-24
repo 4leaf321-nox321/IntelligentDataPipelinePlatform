@@ -13,11 +13,11 @@ export default function SamplePage() {
   if (ping.error) return <ErrorNotice error={ping.error} />
   return (
     <div className="space-y-4">
-      <PageHeader title="본보기 확장" description="이 설치에서 켠 확장의 자리입니다." />
+      <PageHeader title="예시 확장" description="이 설치에서 사용 중인 확장의 화면입니다." />
       {ping.data && (
         <p className="text-muted-foreground text-sm">
-          서버의 <span className="font-mono">{ping.data.extension}</span> 확장이{' '}
-          <span className="font-mono">{ping.data.user}</span> 에게 응답했습니다.
+          서버의 <span className="font-mono">{ping.data.extension}</span> 확장 응답 수신(사용자:{' '}
+          <span className="font-mono">{ping.data.user}</span>)
         </p>
       )}
     </div>

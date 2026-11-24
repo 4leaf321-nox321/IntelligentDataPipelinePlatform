@@ -59,7 +59,7 @@ describe('계정의 소속 변경', () => {
     const onSaved = await open()
     await userEvent.click(screen.getByRole('combobox'))
     await userEvent.click(await screen.findByRole('button', { name: /재료시험팀/ }))
-    await userEvent.click(screen.getByRole('button', { name: '본사 소속 빼기' }))
+    await userEvent.click(screen.getByRole('button', { name: '본사 소속 제외' }))
     await userEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() =>
@@ -74,7 +74,7 @@ describe('계정의 소속 변경', () => {
 
   it('소속을 다 빼면 저장할 수 없다', async () => {
     await open()
-    await userEvent.click(screen.getByRole('button', { name: '본사 소속 빼기' }))
+    await userEvent.click(screen.getByRole('button', { name: '본사 소속 제외' }))
     expect(screen.getByRole('button', { name: '저장' })).toBeDisabled()
     expect(screen.getByText(/소속 없는 계정은/)).toBeInTheDocument()
   })

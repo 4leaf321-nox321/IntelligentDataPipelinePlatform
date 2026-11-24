@@ -88,10 +88,10 @@ describe('정의 편집의 규칙', () => {
   it('저장 전에 — slug 는 못 바꾸고, 비밀은 어디에도 못 적는다', () => {
     const secrets = ['dsn', 'password', 'secret', 'token']
     expect(blockers(BASE, 'mes-lots', secrets)).toEqual([])
-    expect(blockers({ ...BASE, slug: 'other' }, 'mes-lots', secrets)[0]).toMatch(/slug 는 바꿀 수 없습니다/)
+    expect(blockers({ ...BASE, slug: 'other' }, 'mes-lots', secrets)[0]).toMatch(/slug는 변경할 수 없습니다/)
     const leaked = withAt(BASE, ['adapter', 'auth', 'token'], 's3cret')
     expect(blockers(leaked, 'mes-lots', secrets)).toEqual([
-      'adapter.auth.token: 비밀은 정의에 적지 않습니다 — 환경 변수의 이름(token_env)만 적으세요.',
+      'adapter.auth.token: 인증 정보의 값은 정의에 입력할 수 없습니다. 환경 변수 이름(token_env)만 입력하세요.',
     ])
     const keyless = withAt(BASE, ['adapter', 'key'], undefined)
     expect(blockers(keyless, 'mes-lots', secrets)).toEqual(['adapter.key(식별자)가 필요합니다.'])

@@ -56,13 +56,13 @@ def _file(raw: bytes) -> Any:
     try:
         import pyarrow.parquet as pq
     except ImportError as failure:  # pragma: no cover - 이미지에는 있다
-        raise SourceError("Parquet 을 읽을 pyarrow 가 없습니다.") from failure
+        raise SourceError("Parquet을 읽을 pyarrow가 설치되어 있지 않습니다.") from failure
     if not looks_like(raw):
-        raise SourceError("Parquet 파일이 아닙니다(앞뒤의 PAR1 이 없음).")
+        raise SourceError("Parquet 파일이 아닙니다(앞뒤의 PAR1 없음).")
     try:
         return pq.ParquetFile(io.BytesIO(raw))
     except Exception as failure:  # pyarrow 의 오류는 여러 갈래다
-        raise SourceError(f"Parquet 을 읽지 못했습니다: {failure}") from None
+        raise SourceError(f"Parquet을 읽을 수 없습니다: {failure}") from None
 
 
 def count(raw: bytes) -> int:
@@ -89,4 +89,6 @@ def rows(raw: bytes, *, limit: int | None = None) -> Iterator[dict[str, Any]]:
     except SourceError:
         raise
     except Exception as failure:
-        raise SourceError(f"Parquet 을 읽다 멈췄습니다({seen}행 뒤): {failure}") from None
+        raise SourceError(
+            f"Parquet을 읽는 중 중단되었습니다({seen}행 이후): {failure}"
+        ) from None

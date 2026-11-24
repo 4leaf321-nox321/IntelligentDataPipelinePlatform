@@ -64,7 +64,7 @@ export default function NotificationsPage() {
     <div className="mx-auto max-w-3xl space-y-6">
       <PageHeader
         title="알림"
-        description="가입 승인, 교정 만료처럼 나에게 온 일들입니다."
+        description="가입 신청, 실행 실패처럼 나에게 전달된 알림입니다."
         actions={
           <Button
             variant="outline"
@@ -79,7 +79,7 @@ export default function NotificationsPage() {
       <ErrorNotice error={error ?? list.error} />
 
       {list.data && list.data.length === 0 ? (
-        <EmptyState title="알림이 없습니다" />
+        <EmptyState title="알림 없음" />
       ) : (
         <ul className="space-y-2">
           {(list.data ?? []).map((one) => (
@@ -101,7 +101,7 @@ export default function NotificationsPage() {
                       className="mt-1 inline-block text-xs underline"
                       onClick={() => readOne(one)}
                     >
-                      보러 가기
+                      이동
                     </Link>
                   )}
                 </div>

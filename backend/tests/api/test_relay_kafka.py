@@ -63,7 +63,7 @@ def test_실행은_미러에_넣은_뒤에만_확정한다(
     fake = FakeSubmitter()
 
     first = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
-    assert first.status == "planned" and "받음 20건" in first.message, first.message
+    assert first.status == "planned" and "수신 20건" in first.message, first.message
     assert "Kafka 메시지 20건." in first.message
     assert broker.committed == {("relay-mes-lot", 0): 10, ("relay-mes-lot", 1): 10}
     assert broker.confs[0]["sasl.password"] == "kafka-pw"

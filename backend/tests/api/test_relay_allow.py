@@ -60,7 +60,7 @@ def test_허용_주소는_사람만_화면에서_재시작_없이(
         json={"adapter": {"kind": "rest", "base_url": f"http://{HUB}", "path": "/x"}},
         headers=mcp,
     )
-    assert found.status_code == 403 and "「원천」" in found.text
+    assert found.status_code == 403 and "[원천]" in found.text
     cleared = client.put("/api/relay/allowed-hosts", json={}, headers=admin.headers)
     assert cleared.json()["target"]["screen"] == []
     assert _check_target(db) == 403

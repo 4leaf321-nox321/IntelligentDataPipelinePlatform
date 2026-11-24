@@ -141,7 +141,7 @@ def store_upload(
     본문의 크기) 옮기기 전에 거절한다. 큰 것은 공용 저장소의 작업 폴더로 간다(`files`)."""
     spec = kinds.get(kind)
     if spec is None:
-        raise AppError(code("JOBS", 3), f"모르는 작업 종류입니다: {kind}", status=422)
+        raise AppError(code("JOBS", 3), f"지원하지 않는 작업 종류입니다: {kind}", status=422)
     cap = upload_cap(spec)
     if size is not None and size > cap:
         raise files.too_big(size, cap, label=spec.label)
@@ -177,14 +177,14 @@ def enqueue(
     if spec is None:
         raise AppError(
             code("JOBS", 3),
-            f"모르는 작업 종류입니다: {kind}. 되는 것: {', '.join(kinds.names())}",
+            f"지원하지 않는 작업 종류입니다: {kind}(사용 가능: {', '.join(kinds.names())})",
             status=422,
         )
     if spec.needs_file and input_file is None:
         raise AppError(code("JOBS", 4), f"{spec.label}에는 파일이 필요합니다.", status=422)
     if user is None and not spec.allow_system:
         raise AppError(
-            code("JOBS", 14), f"{spec.label}은(는) 시킨 사람이 있어야 합니다.", status=422
+            code("JOBS", 14), f"{spec.label}은(는) 요청자가 있어야 합니다.", status=422
         )
     row = Job(
         kind=kind,
@@ -267,7 +267,7 @@ def request_cancel(db: Session, user: User, job: Job) -> Job:
        (2026-10-08). 이제 아직 대기일 때만 끝내고, 그 사이 집혔으면 표시를 남긴다.
     """
     if not user.is_system_admin and job.requested_by_id != user.id:
-        raise Forbidden(code("JOBS", 6), "시킨 사람만 취소할 수 있습니다.")
+        raise Forbidden(code("JOBS", 6), "요청자만 취소할 수 있습니다.")
     if job.status in TERMINAL:
         raise Conflict(code("JOBS", 7), "이미 끝난 작업입니다.")
     stopped = db.execute(
@@ -333,25 +333,26 @@ def make_apply(db: Session, user: User, plan_job: Job) -> Job:
     if plan_job.status != "done" or not plan_job.result:
         raise Conflict(code("JOBS", 9), "계획이 끝난 작업만 적용할 수 있습니다.")
     if plan_job.params.get("apply"):
-        raise Conflict(code("JOBS", 10), "이미 적용 작업입니다.")
+        raise Conflict(code("JOBS", 10), "적용 작업은 다시 적용할 수 없습니다.")
     # **같은 계획을 두 번 넣지 않는다** — 화면 · 정제 도구 · MCP 어디서 눌렀든.
     done = apply_child(db, plan_job.id)
     if done is not None:
         raise Conflict(
             code("JOBS", 22),
-            "이 계획은 이미 적용했습니다(또는 적용 중입니다) — 「작업」 화면에서 그 적용 "
-            "작업을 보세요. 다시 넣으려면 새로 미리 보세요.",
+            "이미 적용했거나 적용 중인 계획입니다. [작업] 화면에서 해당 적용 작업을 "
+            "확인하세요. 다시 적용하려면 미리 보기를 새로 생성하세요.",
             details={"applied_by": str(done.id)},
         )
     result = plan_job.result
     if result.get("errors") or (result.get("counts") or {}).get("error"):
         raise Conflict(
-            code("JOBS", 11), "오류가 있는 계획은 적용하지 않습니다. 고쳐서 다시 올리세요."
+            code("JOBS", 11),
+            "오류가 있는 계획은 적용할 수 없습니다. 오류를 수정한 후 다시 업로드하세요.",
         )
     if not user.is_system_admin and plan_job.requested_by_id != user.id:
-        raise Forbidden(code("JOBS", 12), "계획을 본 사람이 적용합니다.")
+        raise Forbidden(code("JOBS", 12), "계획을 확인한 사람만 적용할 수 있습니다.")
     if spec.needs_file and plan_job.input_file_id is None:
-        raise Conflict(code("JOBS", 13), "파일이 이미 지워졌습니다. 다시 올리세요.")
+        raise Conflict(code("JOBS", 13), "파일이 이미 삭제되었습니다. 다시 업로드하세요.")
     # 파일이 없는 두 단계 작업도 있다(묶음 되돌리기 — 인자가 판 번호 하나뿐이다). 내용은 안
     # 읽는다 — 적용 작업에 같은 파일을 잇기만 한다(DB 에 든 것은 수십 MB 다).
     input_file = (
@@ -517,21 +518,23 @@ def recover_stale(db: Session) -> int:
             # 워커를 죽인 것이 이 작업 자체일 수 있다 — 다시 돌리면 또 죽는다(ADR 0049).
             job.status = "failed"
             job.error = (
-                f"워커가 이 작업을 하다 멈췄습니다(마지막 워커 {job.worker_id}) — 메모리를 다 "
-                "써 강제 종료됐을 수 있습니다. 이 종류는 다시 돌리지 않습니다."
+                f"작업 실행 중 워커가 중단되었습니다(마지막 워커 {job.worker_id}). "
+                "메모리 부족으로 강제 종료되었을 수 있습니다. "
+                "이 종류의 작업은 다시 실행하지 않습니다."
             )
             job.finished_at = datetime.now(UTC)
         elif job.attempts >= settings.worker_max_attempts:
             job.status = "failed"
             job.error = (
-                f"워커가 {job.attempts}번 시도했지만 끝내지 못했습니다"
-                f"(마지막 워커 {job.worker_id}). 파일이 너무 크거나 워커가 계속 죽는 것입니다."
+                f"워커가 {job.attempts}회 시도했지만 작업을 완료하지 못했습니다"
+                f"(마지막 워커 {job.worker_id}). "
+                "파일이 너무 크거나 워커가 반복해서 종료되고 있습니다."
             )
             job.finished_at = datetime.now(UTC)
         else:
             job.status = "queued"
             job.worker_id = None
-            job.progress = {"stage": "되돌림", "done": 0, "total": 0}
+            job.progress = {"stage": "재시도 대기", "done": 0, "total": 0}
         log.warning("멎은 작업 되살림: %s (%s → %s)", job.id, job.kind, job.status)
     if stale:
         wake(db)
@@ -634,7 +637,7 @@ def _why_cannot_run_as(user: User) -> str | None:
         return "삭제되어"
     if user.status == "suspended":
         return "정지되어"
-    return "로그인할 수 없는 상태라"
+    return "로그인할 수 없는 상태여서"
 
 
 def run(job: Job, *, worker_id: str) -> Outcome:
@@ -713,7 +716,7 @@ def _run(job: Job, *, worker_id: str) -> Outcome:
     """
     spec = kinds.get(job.kind)
     if spec is None:
-        return Outcome("failed", error=f"모르는 작업 종류입니다: {job.kind}")
+        return Outcome("failed", error=f"지원하지 않는 작업 종류입니다: {job.kind}")
 
     def progress(stage: str, done: int, total: int) -> None:
         if report_progress(job.id, worker_id, stage, done, total):
@@ -725,7 +728,7 @@ def _run(job: Job, *, worker_id: str) -> Outcome:
             user = db.get(User, job.requested_by_id) if job.requested_by_id else None
             if user is None and not spec.allow_system:
                 raise AppError(
-                    code("JOBS", 14), "시킨 사람의 계정이 없어졌습니다.", status=409
+                    code("JOBS", 14), "요청자의 계정을 찾을 수 없습니다.", status=409
                 )
             why = _why_cannot_run_as(user) if user is not None else None
             if user is not None and why is not None:
@@ -734,19 +737,21 @@ def _run(job: Job, *, worker_id: str) -> Outcome:
                 # 없음)은 해당 없다.
                 raise AppError(
                     code("JOBS", 27),
-                    f"시킨 사람({user.display_name})의 계정이 {why} 돌리지 않습니다 — "
-                    "필요하면 다른 사람이 다시 넣으세요.",
+                    f"요청자({user.display_name})의 계정이 {why} 실행하지 않습니다. "
+                    "필요하면 다른 사용자가 다시 요청하세요.",
                     status=409,
                 )
             if spec.admin_only and user is not None and not user.is_system_admin:
                 # 넣는 길이 몇이든 여기서 한 번 더 — 전용 경로를 건너뛰어 들어온 것을 막는다.
                 raise Forbidden(
-                    code("JOBS", 24), f"{spec.label}은(는) 시스템 관리자만 돌립니다."
+                    code("JOBS", 24), f"{spec.label}은(는) 시스템 관리자만 실행할 수 있습니다."
                 )
             input_file = db.get(JobFile, job.input_file_id) if job.input_file_id else None
             if spec.needs_file and input_file is None:
                 raise AppError(
-                    code("JOBS", 13), "파일이 이미 지워졌습니다. 다시 올리세요.", status=409
+                    code("JOBS", 13),
+                    "파일이 이미 삭제되었습니다. 다시 업로드하세요.",
+                    status=409,
                 )
             work = kinds.Work(
                 db=db,
@@ -875,7 +880,7 @@ def announce(db: Session, job: Job) -> None:
             db,
             user_id=job.requested_by_id,
             kind=notifications.JOB_FAILED,
-            title=f"{label}이(가) 실패했습니다",
+            title=f"{label} 실패",
             body=(job.error or "")[:500] or None,
             link="/jobs",
         )
@@ -884,27 +889,28 @@ def announce(db: Session, job: Job) -> None:
     counts = result.get("counts") or {}
     if result.get("applied"):
         body = (
-            f"새로 {counts.get('create', 0)} · 고침 {counts.get('update', 0)}건을 넣었습니다."
+            f"생성 {counts.get('create', 0)} · 변경 {counts.get('update', 0)}건을 "
+            "적용했습니다."
             if counts
             else None
         )
-        title = f"{label} — 적용이 끝났습니다"
+        title = f"{label} 적용 완료"
     elif counts:
         # 계획을 「작업」 화면에서 적용하는 것은 **두 단계 종류**뿐이다 — 데이터 소스 동기화의
         # 계획은 그 화면의 「동기화」 를 다시 눌러 적용한다(작업 화면에는 적용이 없다).
         where = (
-            "작업 화면에서 계획을 읽고 적용하세요."
+            "[작업] 화면에서 계획을 확인하고 적용하세요."
             if spec is not None and spec.two_step
-            else "그 화면에서 계획을 읽고 적용으로 다시 돌리세요."
+            else "해당 화면에서 계획을 확인한 후 다시 실행해 적용하세요."
         )
         body = (
-            f"새로 {counts.get('create', 0)} · 고침 {counts.get('update', 0)} · "
-            f"오류 {counts.get('error', 0)}건. **아직 아무것도 안 들어갔습니다** — {where}"
+            f"생성 {counts.get('create', 0)} · 변경 {counts.get('update', 0)} · "
+            f"오류 {counts.get('error', 0)}건. **아직 반영되지 않았습니다.** {where}"
         )
-        title = f"{label} — 계획이 끝났습니다"
+        title = f"{label} 계획 완료"
     else:
         body = None
-        title = f"{label}이(가) 끝났습니다"
+        title = f"{label} 완료"
     notifications.notify(
         db,
         user_id=job.requested_by_id,
@@ -1053,7 +1059,7 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
         items.append(
             extensions.MaintenanceItem(
                 key="job_awaiting_apply",
-                label="읽고 적용하기를 기다리는 계획",
+                label="적용 대기 계획",
                 count=waiting,
                 link="/jobs",
             )
@@ -1080,7 +1086,7 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
         items.append(
             extensions.MaintenanceItem(
                 key="worker_down",
-                label="작업 워커가 살아 있지 않습니다 — 가져오기와 웹훅이 멎어 있습니다",
+                label="작업 워커 미동작(대기 중인 작업 실행 불가)",
                 count=1,
                 link="/jobs",
                 severity="warning",
@@ -1124,9 +1130,9 @@ def stats(db: Session) -> list[extensions.StatItem]:
     mb = 1024 * 1024
     return [
         extensions.StatItem(label="작업", count=int(jobs)),
-        extensions.StatItem(label="작업 워커(살아 있는)", count=alive_workers(db)),
+        extensions.StatItem(label="작업 워커(동작 중)", count=alive_workers(db)),
         extensions.StatItem(
-            label=f"작업 파일 (DB {int(in_db) // mb}MB · 저장소 {int(on_disk) // mb}MB)",
+            label=f"작업 파일(DB {int(in_db) // mb}MB · 저장소 {int(on_disk) // mb}MB)",
             count=int(files_count),
         ),
     ]

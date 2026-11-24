@@ -138,7 +138,7 @@ def test_보정_계획을_적용하면_다시_견줘_어긋남이_풀린다(
     target.items["plm_model"] = SAME  # 사람이 대상에서 적용했다
     applied = _job(client, db, admin, path)
     assert applied["result"]["status"] == "applied", applied
-    assert "다시 대조: 대상과 같습니다" in applied["result"]["summary"]
+    assert "재대조: 대상과 일치합니다" in applied["result"]["summary"]
     home = client.get("/api/server/maintenance", headers=admin.headers).json()
     assert not any(one["key"] == "relay_drift" for one in home)
 

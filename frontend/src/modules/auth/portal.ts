@@ -159,7 +159,7 @@ export function ssoMessage(reason: string): { tone: SsoTone; text: string } {
     case 'pending':
       return {
         tone: 'info',
-        text: '가입 승인을 기다립니다. HWAX 포털로 확인된 신원으로 가입 신청이 접수되어 있습니다 — 관리자가 승인하면 HWAX 포털에서 다시 열거나 「HWAX 포털로 로그인」 으로 로그인할 수 있습니다.',
+        text: '가입 승인 대기 중입니다. HWAX 포털에서 확인된 신원으로 가입 신청이 접수되었습니다. 관리자가 승인하면 HWAX 포털에서 다시 접속하거나 [HWAX 포털로 로그인]으로 로그인할 수 있습니다.',
       }
     case 'suspended':
       return { tone: 'error', text: '정지된 계정입니다. 관리자에게 문의하세요.' }
@@ -168,42 +168,42 @@ export function ssoMessage(reason: string): { tone: SsoTone; text: string } {
     case 'expired':
       return {
         tone: 'error',
-        text: 'HWAX 포털의 로그인 정보가 유효 시간을 벗어났습니다. HWAX 포털에서 다시 여세요 — 계속되면 서버 시각이 어긋났을 수 있으니 관리자에게 알려 주세요.',
+        text: 'HWAX 포털의 로그인 정보가 유효 시간을 벗어났습니다. HWAX 포털에서 다시 접속하세요. 문제가 계속되면 서버 시각이 맞지 않을 수 있으므로 관리자에게 문의하세요.',
       }
     case 'unavailable':
       return {
         tone: 'error',
-        text: '이 서버가 HWAX 포털의 공개 키를 받지 못해 포털 로그인을 확인할 수 없습니다. 아이디 · 비밀번호로 로그인하거나, 관리자에게 알려 주세요.',
+        text: '서버가 HWAX 포털의 공개 키를 수신하지 못해 포털 로그인을 확인할 수 없습니다. 아이디와 비밀번호로 로그인하거나 관리자에게 문의하세요.',
       }
     case 'admin_sub':
       return {
         tone: 'error',
-        text: '이 계정은 아이디가 포털의 메일 주소와 달라 포털 로그인으로 연결하지 않습니다(시스템 관리자 계정). 아이디 · 비밀번호로 로그인하세요.',
+        text: '이 계정은 아이디가 포털의 메일 주소와 달라 포털 로그인과 연결되지 않습니다(시스템 관리자 계정). 아이디와 비밀번호로 로그인하세요.',
       }
     case 'portal-login':
       return {
         tone: 'info',
-        text: 'HWAX 포털 로그인이 끝났습니다. HWAX 포털에 다시 로그인한 뒤 여세요 — 또는 이 플랫폼의 아이디 · 비밀번호로 로그인하세요.',
+        text: 'HWAX 포털 로그인 세션이 종료되었습니다. HWAX 포털에 다시 로그인한 후 접속하거나, 이 플랫폼의 아이디와 비밀번호로 로그인하세요.',
       }
     case 'no-tile':
       return {
         tone: 'error',
-        text: 'HWAX 포털이 이 플랫폼의 로그인 정보를 주지 않았습니다 — 포털에 이 플랫폼이 등록되지 않았거나 사용 권한이 없습니다. 관리자에게 알려 주세요.',
+        text: 'HWAX 포털에서 이 플랫폼의 로그인 정보를 전달받지 못했습니다. 포털에 이 플랫폼이 등록되지 않았거나 사용 권한이 없습니다. 관리자에게 문의하세요.',
       }
     case 'network':
       return {
         tone: 'error',
-        text: 'HWAX 포털 로그인 중 연결이 끊겼습니다. 잠시 뒤 다시 시도하거나 아이디 · 비밀번호로 로그인하세요.',
+        text: 'HWAX 포털 로그인 중 네트워크 연결이 끊어졌습니다. 잠시 후 다시 시도하거나 아이디와 비밀번호로 로그인하세요.',
       }
     case 'invalid':
       return {
         tone: 'error',
-        text: 'HWAX 포털의 로그인 정보를 확인하지 못했습니다. HWAX 포털에서 다시 여세요 — 한 번 사용한 로그인 정보는 다시 받지 않습니다.',
+        text: 'HWAX 포털의 로그인 정보를 확인하지 못했습니다. 한 번 사용한 로그인 정보는 다시 사용할 수 없으므로 HWAX 포털에서 다시 접속하세요.',
       }
     default:
       return {
         tone: 'error',
-        text: `HWAX 포털 로그인에 실패했습니다(${reason}). HWAX 포털에서 다시 열고, 계속되면 관리자에게 알려 주세요.`,
+        text: `HWAX 포털 로그인에 실패했습니다(${reason}). HWAX 포털에서 다시 접속하고, 문제가 계속되면 관리자에게 문의하세요.`,
       }
   }
 }

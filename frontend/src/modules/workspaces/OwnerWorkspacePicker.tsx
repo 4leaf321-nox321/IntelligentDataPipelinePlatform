@@ -76,8 +76,8 @@ export function OwnerWorkspacePicker({ value, onChange, id, className, usage }: 
       loading={admin && everyone === null}
       ariaLabel="소유 부서"
       placeholder="부서를 선택하세요"
-      searchPlaceholder="부서 이름이나 주소로 검색"
-      emptyText={usage === 'log' ? '소속 부서가 없습니다' : '관리하는 부서가 없습니다'}
+      searchPlaceholder="부서 이름 또는 주소로 검색"
+      emptyText={usage === 'log' ? '소속 부서 없음' : '관리 부서 없음'}
     />
   )
 }

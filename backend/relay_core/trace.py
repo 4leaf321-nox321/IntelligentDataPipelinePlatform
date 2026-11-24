@@ -97,28 +97,28 @@ def _rule(spec: dict[str, Any], types: dict[str, dict[str, Any]]) -> tuple[str, 
             inner, columns = _rule(spec[mode], types)
             if mode == "join":
                 glue = spec.get("separator") or "; "
-                return f"여러 행을 이어 붙임({glue}) — {inner}", columns
-            return f"여러 행에서 모음 — {inner}", columns
+                return f"집계(문자열 결합, 구분자 '{glue}'): {inner}", columns
+            return f"집계(목록): {inner}", columns
     if "value" in spec:
-        return f"고정값 「{spec['value']}」", []
+        return f"고정값 '{spec['value']}'", []
     if "key_of" in spec:
         target = types.get(str(spec["key_of"]))
         columns = _rule(target["key"], types)[1] if target else []
-        return f"{spec['key_of']} 의 식별자", columns
+        return f"{spec['key_of']}의 식별자", columns
     if "parser" in spec:
-        return f"해석기 {spec['parser']} 의 {spec.get('slot')}", []
+        return f"해석기 {spec['parser']}의 {spec.get('slot')}", []
     column = str(spec.get("column") or "")
     parts = [f"열 {column}"]
     if spec.get("upper"):
-        parts.append("대문자로")
+        parts.append("대문자 변환")
     if spec.get("blank"):
-        parts.append("빈 값으로 볼 것 " + " · ".join(str(one) for one in spec["blank"]))
+        parts.append("빈 값 처리 " + " · ".join(str(one) for one in spec["blank"]))
     if spec.get("map"):
-        parts.append("대응 " + _short_map(spec["map"]))
+        parts.append("값 매핑 " + _short_map(spec["map"]))
     if spec.get("date"):
-        parts.append("날짜로")
+        parts.append("날짜 변환")
     if spec.get("match"):
-        parts.append(f"대상 {spec['match'].get('keys')} 의 식별자와 대조")
+        parts.append(f"대상 {spec['match'].get('keys')}의 식별자와 대조")
     return " · ".join(parts), [column] if column else []
 
 
@@ -247,14 +247,14 @@ def _recipe(work: Workdir, stamp: str, recipe_now: Recipe, out: Trace) -> dict[s
     if saved and saved.is_file():
         file, out.recipe_basis = saved, "기준 실행의 레시피"
     elif now_given:
-        file, out.recipe_basis = recipe_now, "지금 레시피"
+        file, out.recipe_basis = recipe_now, "현재 레시피"
         if stamp:
             out.problems.append(
-                "기준 실행의 레시피 사본이 없어 지금 레시피로 읽었습니다 — 그 뒤 레시피 판이 "
-                "바뀌었으면 규칙이 기준과 다를 수 있습니다."
+                "기준 실행의 레시피 사본이 없어 현재 레시피로 조회했습니다. 이후 레시피 "
+                "버전이 변경되었다면 규칙이 기준 출력과 다를 수 있습니다."
             )
     else:
-        raise TraceError("레시피가 없습니다 — 레시피 판을 작성하고 사용하세요.")
+        raise TraceError("레시피가 없습니다. 레시피 버전을 작성하고 사용하세요.")
     if isinstance(file, dict):
         return file
     assert isinstance(file, Path)
@@ -270,11 +270,11 @@ def _source_table(
     if source and source.is_file():
         out.basis = "기준 실행의 원천 표"
         return _read_rows(source)
-    out.basis = "지금 미러"
+    out.basis = "현재 미러"
     if stamp:
         out.problems.append(
-            "기준 실행의 원천 표가 없어 지금 미러에서 찾았습니다 — 그 뒤 원천이 바뀐 값일 수 "
-            "있습니다."
+            "기준 실행의 원천 표가 없어 현재 미러에서 조회했습니다. 이후 원천에서 변경된 값일 "
+            "수 있습니다."
         )
     return _mirror_table(work)
 
@@ -295,7 +295,7 @@ def trace(work: Workdir, recipe_now: Recipe, type_slug: str, key: str) -> Trace:
     if spec is None:
         made = " · ".join(types) or "없음"
         raise TraceError(
-            f"레시피에 타입 {type_slug} 이 없습니다 — 레시피가 만드는 타입: {made}"
+            f"레시피에 없는 타입입니다: {type_slug}. 레시피가 생성하는 타입: {made}"
         )
 
     baseline = _baseline_row(run, type_slug, key) if run else None
@@ -305,13 +305,11 @@ def trace(work: Workdir, recipe_now: Recipe, type_slug: str, key: str) -> Trace:
         out.note = str(baseline.get("_note") or "")
     elif run:
         out.problems.append(
-            "기준 출력에 이 식별자가 없습니다 — 아직 적용되지 않았거나, 레시피가 미해결로 "
-            "제외했거나, 대상에만 있는 객체입니다."
+            "기준 출력에 이 식별자가 없습니다. 아직 적용되지 않았거나, 레시피가 미해결로 "
+            "제외했거나, 대상에만 존재하는 객체입니다."
         )
     else:
-        out.problems.append(
-            "아직 적용한 것이 없습니다 — 기준 출력 없이 지금 미러에서 찾습니다."
-        )
+        out.problems.append("적용한 계획이 없어 기준 출력 없이 현재 미러에서 조회합니다.")
 
     # 1행은 머리글 — 변환기의 `_source.row` 와 같은 셈이다.
     numbered = list(enumerate(_source_table(work, stamp, baseline, out), start=2))
@@ -323,14 +321,12 @@ def trace(work: Workdir, recipe_now: Recipe, type_slug: str, key: str) -> Trace:
         first = int((baseline or {}).get("_source", {}).get("row") or 0)
         matched = [(n, row) for n, row in numbered if n == first]
         out.problems.append(
-            "이 타입의 식별자는 참조 대조 · 해석기 · 날짜로 정해져 원천 행을 다 찾을 수 "
-            "없습니다 — 변환기가 적어 둔 첫 행만 보입니다."
+            "이 타입의 식별자는 참조 대조, 해석기, 날짜 변환으로 정해져 원천 행을 모두 찾을 "
+            "수 없습니다. 변환기가 기록한 첫 행만 표시합니다."
         )
     out.rows_total = len(matched)
     if not matched and not out.found:
-        raise TraceError(
-            f"{type_slug} 의 {key} 를 기준 출력에서도 원천 표에서도 찾지 못했습니다."
-        )
+        raise TraceError(f"기준 출력과 원천 표에 없는 식별자입니다: {type_slug} {key}")
 
     rules = [("key", spec["key"]), ("label", spec.get("label"))]
     rules += list((spec.get("fields") or {}).items())

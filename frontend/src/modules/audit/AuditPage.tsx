@@ -70,22 +70,22 @@ export default function AuditPage() {
     <div className="space-y-6">
       <PageHeader
         title="변경 이력"
-        description="되돌릴 수 없거나 권한이 실린 변경만 남습니다. 여기서는 수정할 수 없습니다."
+        description="되돌릴 수 없는 변경과 권한 관련 변경만 기록합니다. 기록은 수정할 수 없습니다."
       />
 
       <ErrorNotice error={page.error} />
 
       {page.data && page.data.items.length === 0 ? (
-        <EmptyState title="기록이 없습니다" hint="아직 남길 만한 변경이 없었습니다." />
+        <EmptyState title="기록 없음" hint="기록 대상 변경이 아직 없습니다." />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>시각</TableHead>
-              <TableHead>한 일</TableHead>
-              <TableHead>누가</TableHead>
-              <TableHead>대상</TableHead>
-              <TableHead>바뀐 것</TableHead>
+              <TableHead>동작</TableHead>
+              <TableHead>사용자</TableHead>
+              <TableHead>변경 대상</TableHead>
+              <TableHead>변경 사항</TableHead>
               <TableHead>요청 ID</TableHead>
             </TableRow>
           </TableHeader>

@@ -47,15 +47,15 @@ export function trialCapped(trial: DefinitionTrial): number | null {
 export function trialBlocks(trial: DefinitionTrial): string[] {
   const out: string[] = []
   if ((trial.problems ?? []).length > 0) out.push(`정의의 문제 ${trial.problems.length}건`)
-  if (!trial.source?.ok) out.push('원천을 못 받았습니다')
+  if (!trial.source?.ok) out.push('원천 수신 실패')
   const target = trial.target
-  if (!target?.reachable) out.push('대상에 닿지 않습니다')
-  else if (target.token !== '정상') out.push('대상 토큰으로 정의를 못 읽었습니다')
+  if (!target?.reachable) out.push('대상 연결 불가')
+  else if (target.token !== '정상') out.push('대상 토큰으로 정의 조회 실패')
   else if ((target.types_missing ?? []).length > 0)
     out.push(`대상 SP 정의에 없는 타입 ${target.types_missing!.length}개`)
   const recipe = triedRecipe(trial)
-  if (recipe?.error) out.push('레시피 변환이 멈췄습니다')
-  else if (recipe && !recipe.clean) out.push('레시피에 미해결이 남았습니다')
+  if (recipe?.error) out.push('레시피 변환 중단')
+  else if (recipe && !recipe.clean) out.push('레시피 미해결 있음')
   return out
 }
 
@@ -81,8 +81,8 @@ function SampleTable({ rows }: { rows: Record<string, unknown>[] }) {
   return (
     <div className="space-y-1">
       <p className="text-muted-foreground text-xs">
-        앞의 {rows.length}줄
-        {columns.length > picked.length && ` — 열은 앞의 ${picked.length}개만(전체는 위 목록)`}
+        처음 {rows.length}행
+        {columns.length > picked.length && `, 열은 처음 ${picked.length}개만 표시(전체 열은 위 목록)`}
       </p>
       <Table>
         <TableHeader>
@@ -123,13 +123,13 @@ function SourcePart({ source }: { source: DefinitionSourceCheck | undefined }) {
       </div>
       {!source.ok ? (
         <Alert variant="destructive">
-          <AlertTitle>원천을 못 받았습니다</AlertTitle>
+          <AlertTitle>원천 수신 실패</AlertTitle>
           <AlertDescription>{source.error}</AlertDescription>
         </Alert>
       ) : (
         <>
           <p className="text-sm">
-            받은 줄 {source.rows.toLocaleString()} · 삭제 표시 {source.deleted.toLocaleString()}
+            수신 행 {source.rows.toLocaleString()} · 삭제 표시 {source.deleted.toLocaleString()}
             {source.watermark && (
               <>
                 {' '}
@@ -139,31 +139,31 @@ function SourcePart({ source }: { source: DefinitionSourceCheck | undefined }) {
           </p>
           {source.capped ? (
             <p className="text-sm text-amber-700 dark:text-amber-400">
-              원천이 커서 앞 {source.capped.toLocaleString()}줄만 받아 봤습니다 —
-              「사용하면 보낼 것」 은 세지 않았습니다(덜 받은 채 견주면 나머지가 다 삭제로 보입니다).
+              원천 데이터가 많아 처음 {source.capped.toLocaleString()}행만 수신했습니다. 일부만 비교하면
+              나머지가 모두 삭제로 집계되므로 '사용 시 전송 예정'은 집계하지 않았습니다.
             </p>
           ) : (
             !source.complete && (
               <p className="text-sm text-amber-700 dark:text-amber-400">
-                마지막 쪽까지 못 받았습니다 — 실행이면 워터마크를 저장하지 않고, 받지 못한 것을
-                삭제된 것으로 보지도 않습니다.
+                마지막 페이지까지 수신되지 않았습니다. 실행 시에는 워터마크를 저장하지 않고,
+                수신되지 않은 행을 삭제로 처리하지 않습니다.
               </p>
             )
           )}
           {source.rows === 0 ? (
             <p className="text-sm text-amber-700 dark:text-amber-400">
-              받은 줄이 없습니다 — 원천이 비었거나 정의의 거르기(조건 · 경로)가 좁습니다.
+              수신 행이 없습니다. 원천에 데이터가 없거나 정의의 필터(조건, 경로)가 너무 좁습니다.
             </p>
           ) : (
             <>
               <p className="text-sm">
-                <span className="text-muted-foreground">열 {source.columns.length}개 — </span>
+                <span className="text-muted-foreground">열 {source.columns.length}개: </span>
                 <span className="font-mono text-xs">{source.columns.join(' · ')}</span>
               </p>
               {source.always_empty.length > 0 && (
                 <p className="text-sm text-amber-700 dark:text-amber-400">
-                  받은 줄에서 늘 빈 열 {source.always_empty.length}개 — 열 이름이 원천과 맞는지
-                  보세요:{' '}
+                  모든 수신 행에서 값이 비어 있는 열 {source.always_empty.length}개. 열 이름이 원천과
+                  일치하는지 확인하세요:{' '}
                   <span className="font-mono text-xs">{source.always_empty.join(' · ')}</span>
                 </p>
               )}
@@ -197,19 +197,19 @@ function TargetPart({ target }: { target: DefinitionTargetCheck | undefined }) {
       {target.error && <p className="text-destructive text-sm">{target.error}</p>}
       {target.token !== undefined && (
         <p className="text-sm">
-          <span className="text-muted-foreground">토큰 — </span>
+          <span className="text-muted-foreground">토큰: </span>
           {target.token === '정상' ? '정상' : <span className="text-destructive">{target.token}</span>}
         </p>
       )}
       {missing.length > 0 && (
         <p className="text-destructive text-sm">
-          대상 SP 정의에 없는 타입 {missing.length}개 — 대상에 먼저 있어야 보낼 수 있습니다:{' '}
+          대상 SP 정의에 없는 타입 {missing.length}개. 대상에 타입을 등록해야 전송할 수 있습니다:{' '}
           <span className="font-mono text-xs">{missing.join(', ')}</span>
         </p>
       )}
       {present.length > 0 && (
         <p className="text-sm">
-          <span className="text-muted-foreground">대상에 있는 타입 — </span>
+          <span className="text-muted-foreground">대상에 있는 타입: </span>
           <span className="font-mono text-xs">
             {present
               .map((one) => (managedBy[one] ? `${one}(관리: ${managedBy[one]})` : one))
@@ -227,14 +227,14 @@ export function DefinitionTrialView({ trial }: { trial: DefinitionTrial }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="font-medium">정의 판 {trial.version} 시험</span>
+        <span className="font-medium">정의 버전 {trial.version} 테스트</span>
         <StatusBadge kind="relay_trial" value={trialVerdict(trial)} />
-        <span className="text-muted-foreground text-xs">대상에는 아무것도 보내지 않았습니다.</span>
+        <span className="text-muted-foreground text-xs">대상에는 아무것도 전송하지 않았습니다.</span>
       </div>
 
       {problems.length > 0 && (
         <Alert variant="destructive">
-          <AlertTitle>정의의 문제 {problems.length}건 — 수정하기 전에는 실행되지 않습니다</AlertTitle>
+          <AlertTitle>정의의 문제 {problems.length}건 — 수정 전에는 실행되지 않음</AlertTitle>
           <AlertDescription>
             <ul className="list-disc pl-4">
               {problems.map((one) => (
@@ -248,7 +248,7 @@ export function DefinitionTrialView({ trial }: { trial: DefinitionTrial }) {
       <SourcePart source={trial.source} />
       {trial.intake?.held && (
         <Alert className="border-amber-500/50 bg-amber-500/5">
-          <AlertTitle>이 정의로 받으면 받기 점검에서 멈춥니다</AlertTitle>
+          <AlertTitle>이 정의로 수신하면 수신 검증에서 실행 중단</AlertTitle>
           <AlertDescription>
             <ul className="list-disc pl-4">
               {(trial.intake.reasons ?? []).map((one) => (
@@ -261,7 +261,7 @@ export function DefinitionTrialView({ trial }: { trial: DefinitionTrial }) {
       )}
       {trial.intake && !trial.intake.held && (
         <p className="text-muted-foreground text-xs">
-          받기 점검: {trial.intake.checked ? '걸리는 것이 없습니다 — ' : ''}
+          수신 검증: {trial.intake.checked ? '해당 항목 없음. ' : ''}
           {trial.intake.note}
         </p>
       )}
@@ -273,15 +273,15 @@ export function DefinitionTrialView({ trial }: { trial: DefinitionTrial }) {
         </div>
       ) : trial.recipe ? (
         <p className="border-t pt-3 text-sm text-amber-700 dark:text-amber-400">
-          레시피가 아직 없습니다 — 사용해도 레시피 판을 사용하기 전에는 실행되지 않습니다.
-          AI(MCP)가 레시피 판 초안을 작성하면 그 판을 「시험에 사용할 레시피」 에서 선택해 다시
-          시험하세요.
+          레시피가 아직 없습니다. 이 정의를 사용해도 레시피 버전을 사용하기 전에는 실행되지 않습니다.
+          AI(MCP)가 레시피 버전 초안을 작성하면 [테스트에 사용할 레시피]에서 그 버전을 선택해 다시
+          테스트하세요.
         </p>
       ) : (
         trial.source &&
         !trial.source.ok && (
           <p className="text-muted-foreground border-t pt-3 text-sm">
-            원천을 못 받아 레시피로 바꿔 보지 못했습니다.
+            원천 수신에 실패해 레시피 변환을 테스트하지 않았습니다.
           </p>
         )
       )}

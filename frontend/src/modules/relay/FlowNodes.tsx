@@ -55,8 +55,8 @@ export function RelayNodeCard({ data }: NodeProps<RelayFlowNode>) {
   const title = [
     node.label,
     node.sub,
-    pending?.late ? `늦음 — ${pending.late}` : '',
-    ...(pending?.held ?? []).map((reason) => `받기 점검 멈춤 — ${reason}`),
+    pending?.late ? `지연: ${pending.late}` : '',
+    ...(pending?.held ?? []).map((reason) => `수신 검증 중단: ${reason}`),
     driftTitle(node),
   ]
     .filter(Boolean)
@@ -70,6 +70,8 @@ export function RelayNodeCard({ data }: NodeProps<RelayFlowNode>) {
         'bg-card text-card-foreground pointer-events-auto relative flex h-full w-full flex-col justify-between rounded-md border px-2.5 py-1.5 shadow-xs',
         BORDER[toneOf(node)],
         node.kind === 'pipeline' && 'hover:bg-muted/50 border-2',
+        // 원천 시스템 · 대상은 클릭하면 그 경로만 표시한다(지도의 초점 보기).
+        (node.kind === 'system' || node.kind === 'target') && 'hover:bg-muted/50 cursor-pointer',
         // 초안은 아직 안 돈다 — 선처럼 테두리도 점선으로.
         node.kind === 'pipeline' && node.status === 'draft' && 'border-dashed',
         beyond && 'bg-muted/30 text-muted-foreground border-dashed shadow-none',
@@ -103,7 +105,7 @@ export function RelayNodeCard({ data }: NodeProps<RelayFlowNode>) {
             rel="noreferrer"
             className="relative z-10 inline-flex items-center gap-0.5 text-xs underline"
           >
-            계획 보기
+            계획 확인
             <ExternalLink className="size-3" />
           </a>
         )}

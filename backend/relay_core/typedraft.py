@@ -45,22 +45,23 @@ def check_group(group: Mapping[str, Any]) -> dict[str, Any]:
     """새 사이드바 묶음의 모양 — 잘못이면 `ValueError`(SP 가 거절하기 전에)."""
     unknown = sorted(set(group) - GROUP_KEYS)
     if unknown:
-        raise ValueError(f"묶음: 모르는 칸입니다: {', '.join(unknown)}")
+        raise ValueError(f"사이드바 그룹: 지원하지 않는 항목입니다: {', '.join(unknown)}")
     slug = str(group.get("slug") or "")
     if not _GROUP_SLUG.match(slug):
         raise ValueError(
-            "묶음 slug 는 소문자로 시작하는 소문자 · 숫자 · '_' · '-' 60자 이내입니다: "
-            f"{slug!r}"
+            "사이드바 그룹 slug는 소문자로 시작하는 소문자, 숫자, '_', '-' 60자 이내여야 "
+            f"합니다: {slug!r}"
         )
     label = str(group.get("label") or "").strip()
     if not label or len(label) > 100:
-        raise ValueError(f"묶음 {slug}: 이름(label)이 있어야 합니다(100자 이내).")
+        raise ValueError(f"사이드바 그룹 {slug}: 이름(label)이 필요합니다(100자 이내).")
     if "audience" in group and group["audience"] not in _AUDIENCES:
         raise ValueError(
-            f"묶음 {slug}: audience 는 {' · '.join(sorted(_AUDIENCES))} 중 하나입니다."
+            f"사이드바 그룹 {slug}: audience는 {' · '.join(sorted(_AUDIENCES))} 중 하나여야 "
+            "합니다."
         )
     if "color" in group and not _COLOR.match(str(group["color"])):
-        raise ValueError(f"묶음 {slug}: color 는 #rrggbb 입니다.")
+        raise ValueError(f"사이드바 그룹 {slug}: color는 #rrggbb 형식이어야 합니다.")
     return {**dict(group), "slug": slug, "label": label}
 
 
@@ -88,7 +89,7 @@ def suggest_group(
             "slug": best,
             "label": str(known[best].get("label") or best),
             "new": False,
-            "why": f"원천 {source} 의 타입 {counts[best]}개가 든 묶음",
+            "why": f"원천 {source}의 타입 {counts[best]}개가 속한 그룹",
         }
     names = {one.lower() for one in (source, system) if one}
     for slug, one in known.items():
@@ -97,7 +98,7 @@ def suggest_group(
                 "slug": slug,
                 "label": str(one.get("label") or slug),
                 "new": False,
-                "why": "이름이 원천과 같은 묶음",
+                "why": "이름이 원천과 같은 그룹",
             }
     slug = re.sub(r"[^a-z0-9_-]", "_", (source or "relay").lower())
     if not slug[:1].isalpha():
@@ -106,7 +107,7 @@ def suggest_group(
         "slug": slug[:60],
         "label": system or (source or "relay").upper(),
         "new": True,
-        "why": "맞는 묶음이 없어 새로 — 원천의 이름으로",
+        "why": "해당 그룹이 없어 원천 이름으로 새 그룹 생성",
     }
 
 
@@ -156,13 +157,13 @@ def draft(
     첫 판. `nav_group` 은 사이드바 묶음 — 있는 묶음의 slug 또는 새 묶음(정의의 `groups` 로)."""
     if not _SLUG.match(type_slug):
         raise ValueError(
-            "타입 slug 는 소문자로 시작하는 소문자 · 숫자 · '_' 60자 이내입니다: "
+            "타입 slug는 소문자로 시작하는 소문자, 숫자, '_' 60자 이내여야 합니다: "
             f"{type_slug!r}"
         )
     if key_column not in columns:
-        raise ValueError(f"식별자 열({key_column})이 표본에 없습니다.")
+        raise ValueError(f"식별자 열({key_column})이 샘플 데이터에 없습니다.")
     if label_column and label_column not in columns:
-        raise ValueError(f"이름 열({label_column})이 표본에 없습니다.")
+        raise ValueError(f"이름 열({label_column})이 샘플 데이터에 없습니다.")
     taken: set[str] = set()
     properties: list[dict[str, Any]] = []
     fields: dict[str, Any] = {}
@@ -175,15 +176,16 @@ def draft(
         fields[key] = (
             {"column": column, "date": True} if kind == "date" else {"column": column}
         )
-    where = f"{system} 에서" if system else "원천에서"
+    where = f"{system}에서" if system else "원천에서"
     ontology = {
         "types": [
             {
                 "slug": type_slug,
                 "label": label or type_slug,
                 "key_policy": "required",
-                "description": f"{where} 데이터 중계(datarelay)가 받는다 — relay 가 지은 "
-                "초안: 칸 이름 · 데이터 타입 · 고를 값(enum) · 참조(object_ref)를 확인하세요.",
+                "description": f"{where} 데이터 중계(datarelay)로 수신하는 타입입니다. "
+                "relay가 작성한 초안이므로 속성 이름, 데이터 타입, 선택 값(enum), "
+                "참조(object_ref)를 확인하세요.",
                 "properties": properties,
             }
         ]
@@ -194,7 +196,7 @@ def draft(
         ontology["types"][0]["nav_group_slug"] = group["slug"]
     elif nav_group:
         if not _GROUP_SLUG.match(str(nav_group)):
-            raise ValueError(f"묶음 slug 의 꼴이 아닙니다: {nav_group!r}")
+            raise ValueError(f"사이드바 그룹 slug 형식이 아닙니다: {nav_group!r}")
         ontology["types"][0]["nav_group_slug"] = str(nav_group)
     recipe = {
         "format": "sp-table/1",

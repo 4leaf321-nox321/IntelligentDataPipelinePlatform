@@ -139,7 +139,7 @@ def resolve_owner_workspace(
         if not user.is_system_admin:
             raise Forbidden(
                 code_value,
-                f"전역 {what}은 시스템 관리자만 만들 수 있습니다. 부서를 고르세요.",
+                f"전역 {what} 생성은 시스템 관리자만 가능합니다. 부서를 선택하세요.",
             )
         return None
     workspace = workspace_by_slug(db, slug)
@@ -165,8 +165,8 @@ def require_owner_edit(
     if owner_workspace_id is None:
         raise Forbidden(
             code_value,
-            f"전역 {what}은 시스템 관리자만 고칠 수 있습니다. "
-            f"여러 부서가 함께 쓰기 때문입니다.",
+            f"전역 {what} 수정은 시스템 관리자만 가능합니다. "
+            f"여러 부서가 함께 사용하기 때문입니다.",
         )
     workspace = db.get(Workspace, owner_workspace_id)
     if workspace is None:

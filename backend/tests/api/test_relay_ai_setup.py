@@ -112,7 +112,7 @@ def test_한_번에_초안은_비밀이_비면_저장하지_않고_넣으면_끝
     trial = got["trial"]
     assert trial["source"]["ok"] and trial["source"]["rows"] == 3
     assert trial["target"]["token"] == "정상" and trial["target"]["types_missing"] == []
-    assert any("「사용」" in one for one in got["next"])
+    assert any("[사용]" in one for one in got["next"])
 
     versions = client.get(
         f"/api/relay/pipelines/{slug}/definitions", headers=admin.headers
@@ -158,7 +158,7 @@ def test_비밀은_정의가_쓰는_이름만_사람만_값은_안_보이고_화
     _definition(registry, slug)  # 대상 토큰 RELAY_T_TOKEN
     h = admin.headers
     unused = client.put("/api/relay/secrets/NOT_USED_TOKEN", json={"value": "v"}, headers=h)
-    assert unused.status_code == 422 and "쓰는 정의가 없습니다" in unused.text
+    assert unused.status_code == 422 and "사용하는 정의가 없습니다" in unused.text
     platform = client.put("/api/relay/secrets/DATABASE_URL", json={"value": "v"}, headers=h)
     assert platform.status_code in (403, 422)
     asked = client.post(
@@ -307,7 +307,7 @@ def test_한_번에_초안은_한_행을_정의를_따라_여러_타입과_선�
     assert recipe["required_missing"] == []
     rows = got["trial"]["recipe"]["rows"]
     assert rows == {"mes_line": 2, "mes_order": 2, "mes_lot": 3}  # 같은 식별자는 하나로
-    assert any("타입 3개로 나눴다" in one for one in got["next"])
+    assert any("타입 3개로 분할했습니다" in one for one in got["next"])
 
     alone = client.post(
         f"/api/relay/pipelines/{_slug()}/scaffold",

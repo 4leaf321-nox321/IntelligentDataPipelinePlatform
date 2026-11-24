@@ -15,14 +15,14 @@ export function ReassignPlanView({ result }: { result: ReassignResult }) {
     <div className="space-y-2 text-xs">
       <p>
         <b>{result.source_name}</b> → <b>{result.target_name}</b>
-        {result.applied ? ' — 이동했습니다' : ' — 계획(아직 아무것도 이동하지 않았습니다)'}
+        {result.applied ? ': 이동 완료' : ': 계획(아직 이동하지 않음)'}
       </p>
       <table>
         <thead className="text-muted-foreground">
           <tr>
             <th className="pr-3 text-left font-normal">종류</th>
-            <th className="pr-3 text-right font-normal">이동할 것</th>
-            {result.applied && <th className="text-right font-normal">이동함</th>}
+            <th className="pr-3 text-right font-normal">이동 예정</th>
+            {result.applied && <th className="text-right font-normal">이동 완료</th>}
           </tr>
         </thead>
         <tbody className="tabular-nums">

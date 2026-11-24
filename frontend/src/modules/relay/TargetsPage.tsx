@@ -32,18 +32,18 @@ export default function TargetsPage() {
     <div className="space-y-4">
       <PageHeader
         title="대상 인스턴스"
-        description="중계한 것을 받는 Standard Platform 입니다. 지금 닿는지, 무슨 판인지, 받은 것을 그 너머 누가 가져가는지 봅니다."
+        description="중계 데이터를 수신하는 Standard Platform입니다. 연결 상태, 버전, 수신하는 타입과 그 데이터를 가져가는 후속 수신처를 표시합니다."
       />
       <ErrorNotice error={map.error} />
       {map.loading && !map.data && (
         <p className="text-muted-foreground text-sm">
-          읽는 중… 대상마다 지금 닿는지 묻느라 몇 초 걸릴 수 있습니다.
+          불러오는 중… 대상마다 연결 상태를 확인하므로 몇 초 걸릴 수 있습니다.
         </p>
       )}
       {rows && rows.length === 0 && (
         <EmptyState
-          title="대상 인스턴스가 없습니다"
-          hint="대상은 파이프라인 정의의 target(server · token_env)에서 나옵니다 — 정의에 대상을 적으면 보입니다."
+          title="대상 인스턴스 없음"
+          hint="대상은 파이프라인 정의의 target(server, token_env)에서 가져옵니다. 정의에 대상을 입력하면 표시됩니다."
         />
       )}
       {rows && rows.length > 0 && (
@@ -52,9 +52,9 @@ export default function TargetsPage() {
             <TableRow>
               <TableHead>대상</TableHead>
               <TableHead>상태</TableHead>
-              <TableHead>보내는 파이프라인</TableHead>
+              <TableHead>전송 파이프라인</TableHead>
               <TableHead>타입</TableHead>
-              <TableHead>그 너머</TableHead>
+              <TableHead>후속 수신처</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -84,7 +84,7 @@ export default function TargetsPage() {
                 <TableCell className="align-top whitespace-normal">
                   {downstream.length === 0 ? (
                     <span className="text-muted-foreground text-xs">
-                      {node.status === 'ok' ? '없음' : '모름'}
+                      {node.status === 'ok' ? '없음' : '확인 불가'}
                     </span>
                   ) : (
                     <ul className="space-y-0.5">

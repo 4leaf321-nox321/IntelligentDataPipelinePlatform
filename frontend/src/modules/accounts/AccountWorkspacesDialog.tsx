@@ -84,10 +84,10 @@ export function AccountWorkspacesDialog({ account, options, onClose, onSaved }: 
     <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{account.display_name} 의 소속</DialogTitle>
+          <DialogTitle>{account.display_name}의 소속</DialogTitle>
           <DialogDescription>
-            여기 적힌 부서가 <strong>소속의 전부</strong>가 됩니다. 별표가 대표 소속 — 로그인해서
-            처음 서는 부서입니다.
+            여기에 표시된 부서가 <strong>전체 소속</strong>이 됩니다. 별표는 대표 소속이며, 로그인
+            시 처음 표시되는 부서입니다.
           </DialogDescription>
         </DialogHeader>
 
@@ -99,7 +99,7 @@ export function AccountWorkspacesDialog({ account, options, onClose, onSaved }: 
                 <Button
                   size="icon"
                   variant="ghost"
-                  aria-label={`${found?.name ?? slug} 를 대표 소속으로`}
+                  aria-label={`${found?.name ?? slug} 대표 소속 지정`}
                   aria-pressed={home === slug}
                   onClick={() => setHome(slug)}
                 >
@@ -114,7 +114,7 @@ export function AccountWorkspacesDialog({ account, options, onClose, onSaved }: 
                 <Button
                   size="icon"
                   variant="ghost"
-                  aria-label={`${found?.name ?? slug} 소속 빼기`}
+                  aria-label={`${found?.name ?? slug} 소속 제외`}
                   onClick={() => drop(slug)}
                 >
                   <X className="size-4" />
@@ -124,7 +124,8 @@ export function AccountWorkspacesDialog({ account, options, onClose, onSaved }: 
           })}
           {slugs.length === 0 && (
             <li className="text-destructive text-sm">
-              소속이 없습니다. 소속 없는 계정은 로그인해도 설 자리가 없습니다 — 한 곳은 골라 주세요.
+              소속이 없습니다. 소속 없는 계정은 로그인해도 사용할 부서가 없습니다. 부서를 1개 이상
+              선택하세요.
             </li>
           )}
         </ul>
@@ -133,8 +134,8 @@ export function AccountWorkspacesDialog({ account, options, onClose, onSaved }: 
           value={null}
           onChange={add}
           placeholder="부서 추가"
-          searchPlaceholder="부서 이름이나 주소로 검색"
-          emptyText="그런 부서가 없습니다"
+          searchPlaceholder="부서 이름 또는 주소로 검색"
+          emptyText="일치하는 부서 없음"
           options={options
             .filter((one) => !slugs.includes(one.slug))
             .map((one) => ({

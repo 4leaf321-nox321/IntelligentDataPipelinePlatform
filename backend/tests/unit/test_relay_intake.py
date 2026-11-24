@@ -160,7 +160,7 @@ def test_칸_이름이_바뀌면_빈_칸으로_멈춘다(tmp_path: Path) -> None
     # 원천의 칸 이름이 바뀌어 어댑터가 빈 값을 낸다 — 바뀐 다섯 행.
     adapter.records = [_model(n, kind="") for n in range(1, 6)]
     held = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
-    assert held.status == "blocked" and "빈 칸 KIND" in held.message, held.message
+    assert held.status == "blocked" and "빈 필드 KIND" in held.message, held.message
     blanks = work.load_state().held["findings"]["blanks"]  # type: ignore[index]
     assert blanks == [{"column": "KIND", "lost": 5, "filled": 100, "carried": 0}]
     assert work.mirror_size() == 100
@@ -258,7 +258,7 @@ def test_실행마다_추이에_한_줄이_남는다(tmp_path: Path) -> None:
     with pytest.raises(SourceError):
         runner.run(pipeline, work, fake)  # type: ignore[arg-type]
     failed = _trend(work)[-1]
-    assert failed["status"] == "failed" and failed["stage"] == "받기"
+    assert failed["status"] == "failed" and failed["stage"] == "수신"
 
 
 def test_전량_다시_받기는_워터마크를_두고_처음부터_받는다(tmp_path: Path) -> None:
@@ -268,7 +268,7 @@ def test_전량_다시_받기는_워터마크를_두고_처음부터_받는다(t
     assert adapter.since == "w1"  # 증분 — 지난 워터마크 뒤로
     adapter.full = True
     again = runner.run(pipeline, work, fake, full=True)  # type: ignore[arg-type]
-    assert adapter.since is None and "전량을 다시 받습니다" in again.message
+    assert adapter.since is None and "전체 재수신" in again.message
     assert work.load_state().watermark == "w3" and _trend(work)[-1]["full"] is True
     # 전량에서 일부만 오면 받기 점검이 그대로 지킨다.
     adapter.records = adapter.records[:2]
@@ -287,7 +287,7 @@ def test_한두_행씩_비는_칸은_실행을_넘어_쌓아_센다(tmp_path: Pa
     assert work.load_state().blank_watch == {"KIND": 2}
     adapter.records = [_model(3, kind="")]
     held = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
-    assert held.status == "blocked" and "앞선 실행들에서 이미 2건" in held.message, (
+    assert held.status == "blocked" and "이전 실행에서 이미 빈 값이 된 2건" in held.message, (
         held.message
     )
     (blank,) = work.load_state().held["findings"]["blanks"]  # type: ignore[index]

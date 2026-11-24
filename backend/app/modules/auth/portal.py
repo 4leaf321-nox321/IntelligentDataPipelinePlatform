@@ -170,12 +170,12 @@ class JwksCache:
                 response = client.get(url, headers={"Accept": "application/json"})
         except httpx.HTTPError as caught:
             raise PortalLoginError(
-                UNAVAILABLE, f"포털 JWKS 를 못 받았다({url}): {type(caught).__name__} {caught}"
+                UNAVAILABLE, f"포털 JWKS 수신 실패({url}): {type(caught).__name__} {caught}"
             ) from caught
         if response.status_code != 200:
             raise PortalLoginError(
                 UNAVAILABLE,
-                f"포털 JWKS 가 {response.status_code} 로 답했다({url}): {response.text[:200]}",
+                f"포털 JWKS 응답 HTTP {response.status_code}({url}): {response.text[:200]}",
             )
         try:
             body = response.json()
@@ -183,12 +183,12 @@ class JwksCache:
             # 포털 nginx 에 그 길이 없으면 포털 SPA(HTML 200)가 온다 — 그 경우를 가려 말한다.
             raise PortalLoginError(
                 UNAVAILABLE,
-                f"포털 JWKS 가 JSON 이 아니다({url}) — 주소가 포털 화면으로 떨어졌을 수 있다: "
-                f"{response.text[:120]!r}",
+                f"포털 JWKS 응답이 JSON 형식이 아님({url}). 주소가 포털 화면을 가리킬 수 "
+                f"있음: {response.text[:120]!r}",
             ) from caught
         keys = _rsa_keys(body)
         if not keys:
-            raise PortalLoginError(UNAVAILABLE, f"포털 JWKS 에 RS256 서명 키가 없다({url})")
+            raise PortalLoginError(UNAVAILABLE, f"포털 JWKS에 RS256 서명 키 없음({url})")
         return keys
 
     def load(self, url: str, *, force: bool = False) -> dict[str, jwt.PyJWK]:
@@ -443,25 +443,26 @@ def status(db: Session, settings: Settings) -> PortalStatusOut:
         base = settings.base_path
         if not base:
             problems.append(
-                "PUBLIC_PATH 가 비어 있습니다 — 포털은 /<id>/ 를 벗겨 넘기므로 로그인 뒤 "
-                "돌아갈 곳이 포털의 첫 화면(/)이 됩니다. .env 에 PUBLIC_PATH=/<포털 id> 를 "
-                "적으세요."
+                "PUBLIC_PATH가 비어 있습니다. 포털은 /<id>/를 제거하고 전달하므로 로그인 후 "
+                "포털의 첫 화면(/)으로 이동합니다. .env에 PUBLIC_PATH=/<포털 id>를 "
+                "설정하세요."
             )
         elif base.strip("/") != settings.portal_audience:
             problems.append(
-                f"접두어({base})와 PORTAL_AUDIENCE({settings.portal_audience})가 다릅니다 "
-                "— 포털 타일의 id · audience 와 맞는지 확인하세요(보통 셋이 같다)."
+                f"접두어({base})와 PORTAL_AUDIENCE({settings.portal_audience})가 다릅니다. "
+                "포털 타일의 id, audience와 일치하는지 확인하세요"
+                "(일반적으로 세 값이 같습니다)."
             )
         if not settings.trust_proxy:
             problems.append(
-                "TRUST_PROXY 가 꺼져 있습니다 — 포털이 https 로 받아도 앱은 http 로 보고 "
-                "로그인 쿠키에 Secure 를 붙이지 않습니다(로그인은 됩니다)."
+                "TRUST_PROXY가 미사용 상태입니다. 포털이 https로 수신해도 앱은 http로 인식해 "
+                "로그인 쿠키에 Secure를 설정하지 않습니다(로그인은 가능)."
             )
         problems.extend(_mcp_problems(settings))
     elif settings.portal_launch_url.strip():
         problems.append(
-            "PORTAL_LAUNCH_URL 은 있는데 PORTAL_JWKS_URL 이 없습니다 — 포털 로그인이 꺼져 "
-            "있어 로그인 화면에 단추를 표시하지 않습니다."
+            "PORTAL_LAUNCH_URL은 설정되어 있지만 PORTAL_JWKS_URL이 없습니다. 포털 로그인이 "
+            "미사용 상태여서 로그인 화면에 버튼을 표시하지 않습니다."
         )
     return PortalStatusOut(
         enabled=on,
@@ -497,9 +498,9 @@ def _mcp_problems(settings: Settings) -> list[str]:
     if public and not under_portal:
         return []
     return [
-        "MCP_PUBLIC_URL 이 "
-        + ("포털 주소 아래입니다" if under_portal else "비어 있습니다")
-        + " — 포털은 MCP 경로(/<id>/mcp)를 열지 않습니다(Claude 는 포털의 /mcp-gw/mcp 로 "
-        "붙고, 게이트웨이가 MCP 포트를 직접 부릅니다). 화면의 Claude 연결 안내가 닿는 주소를 "
-        "보이도록 MCP_PUBLIC_URL=http://<이 서버>:<MCP 포트>/mcp 를 적으세요."
+        "MCP_PUBLIC_URL이 "
+        + ("포털 주소 하위에 있습니다" if under_portal else "비어 있습니다")
+        + ". 포털은 MCP 경로(/<id>/mcp)를 제공하지 않습니다. Claude는 포털의 /mcp-gw/mcp로 "
+        "접속하고, 게이트웨이가 MCP 포트로 직접 요청합니다. 화면의 Claude 연결 안내에 접속 "
+        "가능한 주소가 표시되도록 MCP_PUBLIC_URL=http://<이 서버>:<MCP 포트>/mcp를 설정하세요."
     ]

@@ -84,8 +84,8 @@ function Outcome({ job }: { job: Job }) {
   const applied = (job.result as { applied?: boolean }).applied
   return (
     <span className="text-muted-foreground text-xs">
-      {applied ? '적용 — ' : '계획 — '}
-      새로 {counts.create ?? 0} · 고침 {counts.update ?? 0} · 그대로 {counts.unchanged ?? 0}
+      {applied ? '적용 결과: ' : '계획: '}
+      생성 {counts.create ?? 0} · 변경 {counts.update ?? 0} · 변경 없음 {counts.unchanged ?? 0}
       {counts.error ? ` · 오류 ${counts.error}` : ''}
     </span>
   )
@@ -164,27 +164,27 @@ function Detail({
       {brief && full.loading && (
         <p className="text-muted-foreground flex items-center gap-1 text-xs">
           <Loader2 className="size-3 animate-spin" />
-          계획을 읽는 중…
+          계획을 불러오는 중…
         </p>
       )}
       {brief && full.error && <ErrorNotice error={full.error} />}
       {reassign && <ReassignPlanView result={reassign} />}
       {!reassign && !job.error && (
         <p className="text-muted-foreground text-xs">
-          {job.has_output ? '만든 파일을 받으세요.' : '남길 결과가 없는 작업입니다.'}
+          {job.has_output ? '생성된 파일을 다운로드하세요.' : '결과 파일이 없는 작업입니다.'}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
         {job.has_output && (
           <Button size="xs" variant="outline" onClick={onDownload} disabled={busy}>
             <Download className="mr-1 size-3" />
-            파일 받기
+            파일 다운로드
           </Button>
         )}
         {hasRows(job.result) && (
           <Button size="xs" variant="outline" onClick={onDownloadRows} disabled={busy}>
             <Download className="mr-1 size-3" />
-            모든 줄 받기(CSV)
+            전체 행 다운로드(CSV)
           </Button>
         )}
         {canApply && (
@@ -194,13 +194,13 @@ function Detail({
               적용
             </Button>
             <span className="text-muted-foreground text-xs">
-              아직 아무것도 안 들어갔습니다 — 위 계획을 읽고 눌러 주세요.
+              아직 반영되지 않았습니다. 위 계획을 확인한 후 [적용]을 클릭하세요.
             </span>
           </>
         )}
         {job.applied_by && (
           <span className="text-muted-foreground text-xs">
-            적용했습니다 — 적용 작업 <span className="font-mono">{job.applied_by.slice(0, 8)}</span>
+            적용 완료(적용 작업 <span className="font-mono">{job.applied_by.slice(0, 8)}</span>)
           </span>
         )}
         {job.status === 'done' &&
@@ -211,8 +211,8 @@ function Detail({
             reassign?.applied === false) && (
             <span className="text-muted-foreground text-xs">
               {reassign
-                ? '막히는 것이 있거나 이동할 것이 없어 적용할 수 없습니다 — 부서 관리의 「자료 이동」 에서 다시 미리 보세요.'
-                : '오류가 있거나 바뀌는 것이 없어 적용할 수 없습니다 — 고쳐서 다시 올리세요.'}
+                ? '이동을 막는 항목이 있거나 이동할 자료가 없어 적용할 수 없습니다. [부서 정보] 화면의 [자료 이동]에서 미리 보기를 다시 실행하세요.'
+                : '오류가 있거나 변경 사항이 없어 적용할 수 없습니다. 파일을 수정한 후 다시 업로드하세요.'}
             </span>
           )}
       </div>
@@ -333,16 +333,16 @@ export default function JobsPage() {
     <div className="space-y-6">
       <PageHeader
         title="작업"
-        description="일괄 입력처럼 뒤에서 도는 일. 대화상자를 닫아도 일은 계속되고, 여기서 진행과 결과를 봅니다."
+        description="백그라운드에서 실행되는 오래 걸리는 처리입니다. 대화상자를 닫아도 작업은 계속 실행되며, 이 화면에서 진행 상황과 결과를 확인할 수 있습니다."
       />
 
       {workers.data && alive.length === 0 && (
         <Alert variant="destructive">
-          <AlertTitle>워커가 살아 있지 않습니다</AlertTitle>
+          <AlertTitle>실행 중인 워커 없음</AlertTitle>
           <AlertDescription>
-            작업은 워커가 집어야 돕니다. 지금은 넣어도 「대기」 에 머뭅니다 — 운영자에게{' '}
-            <span className="font-mono">systemctl status &lt;slug&gt;-worker</span> 를 확인해 달라고
-            하세요.
+            작업은 워커가 실행합니다. 현재는 작업을 등록해도 '대기' 상태로 남습니다. 운영자에게{' '}
+            <span className="font-mono">systemctl status &lt;slug&gt;-worker</span> 확인을
+            요청하세요.
           </AlertDescription>
         </Alert>
       )}
@@ -357,7 +357,7 @@ export default function JobsPage() {
             setOffset(0)
           }}
         >
-          <option value="">종류 전부</option>
+          <option value="">전체 종류</option>
           {(kinds.data ?? []).map((one) => (
             <option key={one.name} value={one.name}>
               {one.label}
@@ -373,7 +373,7 @@ export default function JobsPage() {
             setOffset(0)
           }}
         >
-          <option value="">상태 전부</option>
+          <option value="">전체 상태</option>
           {(Object.keys(STATUS_LABEL) as JobStatus[]).map((one) => (
             <option key={one} value={one}>
               {STATUS_LABEL[one]}
@@ -389,7 +389,7 @@ export default function JobsPage() {
               setOffset(0)
             }}
           />
-          내가 시킨 것만
+          내가 요청한 작업만
         </label>
       </div>
 
@@ -400,10 +400,11 @@ export default function JobsPage() {
           줄 안다. 계획을 본 사람만 적용할 수 있으니 대개 다른 계정으로 들어온 것이다. */}
       {linked && page.data && !page.data.items.some((one) => one.id === linked) && (
         <Alert>
-          <AlertTitle>링크의 작업이 이 목록에 없습니다</AlertTitle>
+          <AlertTitle>링크의 작업을 찾을 수 없음</AlertTitle>
           <AlertDescription>
-            미리 보기를 한 사람(정제 도구에 등록한 토큰의 주인)으로 로그인했는지 확인하세요 —
-            계획은 그 사람만 적용합니다. 「내가 시킨 것만」 을 끄면 다른 사람의 작업도 보입니다.
+            미리 보기를 실행한 계정(토큰으로 실행했다면 토큰 소유자)으로 로그인했는지 확인하세요.
+            계획은 해당 계정만 적용할 수 있습니다. '내가 요청한 작업만'을 해제하면 다른 사용자의
+            작업도 표시됩니다.
           </AlertDescription>
         </Alert>
       )}
@@ -433,7 +434,7 @@ export default function JobsPage() {
               사람은 「왜 다섯을 골랐는데 셋만 갔나」 를 묻게 된다. */}
           {applicable.length < picked.size && (
             <span className="text-muted-foreground text-xs">
-              적용은 오류 없는 계획만 — {picked.size - applicable.length}건은 빠집니다
+              오류 없는 계획만 적용(제외 {picked.size - applicable.length}건)
             </span>
           )}
         </div>
@@ -443,20 +444,20 @@ export default function JobsPage() {
         open={confirming !== null}
         title={
           confirming === 'apply'
-            ? `계획 ${applicable.length}건을 적용합니다`
-            : `작업 ${cancellable.length}건을 취소합니다`
+            ? `계획 ${applicable.length}건 적용`
+            : `작업 ${cancellable.length}건 취소`
         }
         description={
           confirming === 'apply' ? (
             <>
-              고른 계획마다 <b>적용 작업</b>이 서고 워커가 차례로 넣습니다. 오류가 있는 계획과 이미
-              적용한 것은 빠집니다 — 한 건이 막혀도 나머지는 갑니다. 넣은 뒤 되돌리려면 객체 화면의{' '}
-              <b>일괄 되돌리기</b>를 씁니다.
+              선택한 계획마다 <b>적용 작업</b>이 등록되고 워커가 차례로 적용합니다. 오류가 있는
+              계획과 이미 적용한 계획은 제외됩니다. 한 건이 실패해도 나머지는 계속 적용됩니다. 적용
+              후 되돌리려면 객체 화면의 <b>[일괄 되돌리기]</b>를 사용하세요.
             </>
           ) : (
             <>
-              도는 중인 작업에 <b>멈춤을 부탁</b>합니다. 워커가 다음 묶음에서 보고 멈추므로,
-              이미 넣은 행은 그대로 남습니다 — 끝난 작업은 빠집니다.
+              실행 중인 작업에 <b>중지를 요청</b>합니다. 워커가 다음 처리 단위에서 확인하고
+              중지하므로, 이미 반영된 행은 그대로 남습니다. 완료된 작업은 제외됩니다.
             </>
           )
         }
@@ -469,7 +470,7 @@ export default function JobsPage() {
       {results && (
         <div className="space-y-1 rounded-md border p-3">
           <p className="text-sm font-semibold">
-            결과 — 성공 {results.filter((one) => one.status === 'ok').length} · 오류{' '}
+            결과: 성공 {results.filter((one) => one.status === 'ok').length} · 오류{' '}
             {results.filter((one) => one.status === 'error').length}
           </p>
           {results
@@ -487,11 +488,11 @@ export default function JobsPage() {
 
       {page.data && page.data.items.length === 0 ? (
         <EmptyState
-          title="작업이 없습니다"
+          title="작업 없음"
           hint={
             mine || kind || status
-              ? '거르기를 풀면 다른 사람이 시킨 것과 타이머가 넣은 것도 보입니다.'
-              : '파일을 가져오면 여기 한 줄이 생깁니다.'
+              ? '필터를 해제하면 다른 사용자가 요청한 작업과 타이머가 등록한 작업도 표시됩니다.'
+              : '작업을 등록하면 이 목록에 표시됩니다.'
           }
         />
       ) : (
@@ -501,7 +502,7 @@ export default function JobsPage() {
               <TableHead className="w-8">
                 <input
                   type="checkbox"
-                  aria-label="이 쪽 전부 선택"
+                  aria-label="이 페이지 전체 선택"
                   checked={
                     (page.data?.items ?? []).length > 0 &&
                     (page.data?.items ?? []).every((one) => picked.has(one.id))
@@ -517,10 +518,10 @@ export default function JobsPage() {
               </TableHead>
               <TableHead className="w-8" />
               <TableHead>시각</TableHead>
-              <TableHead>무엇</TableHead>
+              <TableHead>작업</TableHead>
               <TableHead>상태</TableHead>
               <TableHead>진행 · 결과</TableHead>
-              <TableHead>누가</TableHead>
+              <TableHead>요청자</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -579,7 +580,7 @@ export default function JobsPage() {
                       <span className="text-muted-foreground ml-1 text-xs">취소 요청됨</span>
                     )}
                     {one.attempts > 1 && (
-                      <span className="text-muted-foreground ml-1 text-xs">{one.attempts}번째</span>
+                      <span className="text-muted-foreground ml-1 text-xs">{one.attempts}회차</span>
                     )}
                   </TableCell>
                   <TableCell>

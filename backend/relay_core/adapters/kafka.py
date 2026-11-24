@@ -116,7 +116,7 @@ def config(source: KafkaSource, *, group: str | None = None) -> dict[str, Any]:
     auth = source.auth
     hosts = [one.removeprefix("kafka://") for one in endpoints(source.bootstrap)]
     if not hosts:
-        raise SourceError("adapter.bootstrap 에 브로커 주소(host:port)가 없습니다.")
+        raise SourceError("adapter.bootstrap에 브로커 주소(host:port)가 없습니다.")
     conf: dict[str, Any] = {
         "bootstrap.servers": ",".join(hosts),
         "group.id": group or source.group_id or "datarelay-explore",
@@ -134,7 +134,8 @@ def config(source: KafkaSource, *, group: str | None = None) -> dict[str, Any]:
     if auth.kind == "sasl":
         if auth.mechanism not in MECHANISMS:
             raise SourceError(
-                f"auth.mechanism 은 {' · '.join(MECHANISMS)} 중 하나입니다: {auth.mechanism!r}"
+                f"auth.mechanism은 {' · '.join(MECHANISMS)} 중 하나여야 합니다: "
+                f"{auth.mechanism!r}"
             )
         conf.update(
             {
@@ -157,8 +158,8 @@ def config(source: KafkaSource, *, group: str | None = None) -> dict[str, Any]:
             conf["sasl.oauthbearer.scope"] = auth.scope
     elif auth.kind != "none":
         raise SourceError(
-            "Kafka 의 auth.kind 는 none · sasl · oauth2 입니다(클라이언트 인증서는 auth.cert "
-            f"를 함께): {auth.kind!r}"
+            "Kafka의 auth.kind는 none · sasl · oauth2 중 하나입니다(클라이언트 인증서는 "
+            f"auth.cert와 함께 지정): {auth.kind!r}"
         )
     sasl = auth.kind in ("sasl", "oauth2")
     conf["security.protocol"] = (
@@ -198,8 +199,8 @@ class _Registry:
             return self.cache[number]
         if self.registry is None:
             raise SourceError(
-                "Avro 메시지인데 adapter.schema_registry(주소)가 없습니다 — 스키마를 읽을 "
-                "곳을 적으세요."
+                "Avro 메시지이지만 adapter.schema_registry(주소)가 없습니다. 스키마 "
+                "레지스트리 주소를 입력하세요."
             )
         from fastavro import parse_schema
 
@@ -208,22 +209,25 @@ class _Registry:
         try:
             got = self.client.get(url, headers=auth.headers(), timeout=self.timeout)
         except httpx.HTTPError as failure:
-            raise SourceError(f"스키마 레지스트리에 닿지 못했습니다: {failure}") from None
+            raise SourceError(f"스키마 레지스트리에 연결할 수 없습니다: {failure}") from None
         if got.status_code != 200:
             raise SourceError(
-                f"스키마 레지스트리가 스키마 {number} 를 주지 않았습니다({got.status_code})."
+                f"스키마 레지스트리에서 스키마 {number}의 조회에 "
+                f"실패했습니다({got.status_code})."
             )
         try:
             parsed = parse_schema(json.loads(got.json()["schema"]))
         except (ValueError, KeyError, TypeError) as failure:
-            raise SourceError(f"스키마 {number} 를 읽지 못했습니다: {failure}") from None
+            raise SourceError(
+                f"스키마 {number}의 형식을 읽을 수 없습니다: {failure}"
+            ) from None
         self.cache[number] = parsed
         return parsed
 
     def decode(self, raw: bytes) -> Any:
         if len(raw) < 5 or raw[0] != 0:
             raise SourceError(
-                "Avro 메시지가 스키마 레지스트리의 꼴(앞 1바이트 0 · 스키마 번호 4바이트)이 "
+                "Avro 메시지가 스키마 레지스트리 형식(앞 1바이트 0, 스키마 번호 4바이트)이 "
                 "아닙니다."
             )
         from fastavro import schemaless_reader
@@ -308,8 +312,8 @@ class KafkaAdapter:
         if denied:
             said = getattr(denied[-1], "str", lambda: str(denied[-1]))()
             text = (
-                "Kafka 인증에 실패했습니다 — 계정(auth.user) · 비밀번호(비밀) · 방식"
-                f"(auth.mechanism)을 확인하세요: {said}"
+                "Kafka 인증에 실패했습니다. 계정(auth.user), 비밀번호(인증 정보), "
+                f"방식(auth.mechanism)을 확인하세요: {said}"
             )
         else:
             text = f"{what}: {failure}"
@@ -350,16 +354,16 @@ class KafkaAdapter:
                 body = json.loads(raw)
             except ValueError as failure:
                 raise SourceError(
-                    f"JSON 이 아닌 메시지입니다(파티션 {meta['partition']} · 위치 "
-                    f"{meta['offset']}): {failure} — format 을 확인하세요."
+                    f"JSON 형식이 아닌 메시지입니다(파티션 {meta['partition']}, 오프셋 "
+                    f"{meta['offset']}): {failure}. format을 확인하세요."
                 ) from None
         items = value_at(body, source.rows_path) if source.rows_path else body
         if isinstance(items, dict):
             items = [items]
         if not isinstance(items, list):
             raise SourceError(
-                f"메시지 값의 {source.rows_path or '맨 위'}가 객체도 목록도 아닙니다(파티션 "
-                f"{meta['partition']} · 위치 {meta['offset']})."
+                f"메시지 값의 {source.rows_path or '최상위'} 항목이 객체나 목록이 "
+                f"아닙니다(파티션 {meta['partition']}, 오프셋 {meta['offset']})."
             )
         return [{**one, META: meta} if isinstance(one, dict) else one for one in items]
 
@@ -391,7 +395,7 @@ class KafkaAdapter:
         try:
             meta = consumer.list_topics(self.source.topic, timeout=self.source.timeout)
         except Exception as failure:
-            raise self._why("Kafka 에 닿지 못했습니다", failure, consumer) from None
+            raise self._why("Kafka에 연결할 수 없습니다", failure, consumer) from None
         topic = meta.topics.get(self.source.topic)
         if topic is None or topic.error is not None or not topic.partitions:
             why = f" ({topic.error})" if topic is not None and topic.error is not None else ""
@@ -424,7 +428,9 @@ class KafkaAdapter:
 
         out = {}
         for part in parts:
-            low, high = self._call(f"파티션 {part} 의 끝 위치를 재지 못했습니다", marks(part))
+            low, high = self._call(
+                f"파티션 {part}의 마지막 오프셋을 조회하지 못했습니다", marks(part)
+            )
             out[part] = (int(low), int(high))
         return out
 
@@ -432,7 +438,7 @@ class KafkaAdapter:
         from confluent_kafka import TopicPartition
 
         got = self._call(
-            "소비 그룹이 확정한 위치를 읽지 못했습니다",
+            "컨슈머 그룹의 커밋된 오프셋을 조회하지 못했습니다",
             lambda: consumer.committed(
                 [TopicPartition(self.source.topic, part) for part in parts],
                 timeout=self.source.timeout,
@@ -466,7 +472,7 @@ class KafkaAdapter:
                 if error is not None:
                     if error.code() == KafkaError._PARTITION_EOF:
                         continue
-                    raise SourceError(f"Kafka 가 메시지 대신 오류를 줬습니다: {error}")
+                    raise SourceError(f"Kafka가 메시지 대신 오류를 반환했습니다: {error}")
                 part = message.partition()
                 if part not in todo or message.offset() >= ends[part]:
                     continue  # 시작할 때의 끝 뒤 — 다음 실행
@@ -505,7 +511,7 @@ class KafkaAdapter:
         check_shape(self.source.key, self.source.explode)
         if not self.source.group_id:
             raise SourceError(
-                "adapter.group_id(소비 그룹)가 필요합니다 — datarelay-<slug> 처럼."
+                "adapter.group_id(컨슈머 그룹)가 필요합니다. 예: datarelay-<slug>"
             )
         consumer = self._open()
         try:
@@ -555,24 +561,25 @@ class KafkaAdapter:
                 f"파티션 {part} {count:,}건" for part, count in sorted(lost.items())
             )
             notes.append(
-                f"보존 기간이 지나 원천이 지운 메시지를 건너뛰었습니다({where}) — 그동안의 "
-                "변경을 놓쳤을 수 있습니다. 전량을 다시 받을 길(원천 담당의 다시 보내기)을 "
-                "확인하세요."
+                f"보존 기간이 지나 원천에서 삭제된 메시지를 건너뛰었습니다({where}). 해당 "
+                "기간의 변경이 누락되었을 수 있습니다. 원천 담당자에게 재전송 등 전체 재수신 "
+                "방법을 확인하세요."
             )
         left = sum(max(ends[part] - read.next.get(part, starts[part]), 0) for part in ends)
         if read.capped and left:
             notes.append(
-                f"한 실행의 상한(max_messages)에 닿았습니다 — {left:,}건은 다음 실행."
+                f"실행당 상한(max_messages)에 도달했습니다. 남은 {left:,}건은 다음 실행에서 "
+                "수신합니다."
             )
         if read.stalled and left:
             notes.append(
-                f"메시지가 {self.source.timeout:g}초 동안 오지 않아 멈췄습니다 — {left:,}건은 "
-                "다음 실행."
+                f"{self.source.timeout:g}초 동안 메시지가 수신되지 않아 수신을 중단했습니다. "
+                f"남은 {left:,}건은 다음 실행에서 수신합니다."
             )
         if read.tombstones and self.source.key != TOMBSTONE_KEY:
             notes.append(
-                f"값이 빈 메시지(비석) {read.tombstones:,}건은 건너뛰었습니다 — 식별자가 "
-                f"메시지 키({TOMBSTONE_KEY})일 때만 지운 것으로 봅니다."
+                f"삭제 메시지(값이 빈 메시지) {read.tombstones:,}건을 건너뛰었습니다. "
+                f"식별자가 메시지 키({TOMBSTONE_KEY})일 때만 삭제로 처리합니다."
             )
         return notes
 
@@ -585,7 +592,7 @@ class KafkaAdapter:
         consumer = self._open()
         try:
             self._call(
-                "읽은 위치를 확정하지 못했습니다",
+                "오프셋을 커밋하지 못했습니다",
                 lambda: consumer.commit(
                     offsets=[
                         TopicPartition(self.source.topic, part, off)
@@ -636,8 +643,8 @@ class KafkaAdapter:
     def probe(self) -> str:
         found = self.lag()
         return (
-            f"토픽 {found['topic']} · 파티션 {len(found['partitions'])}개 · "
-            f"그룹 {found['group_id'] or '(없음)'} 이 읽을 것 {found['waiting']:,}건"
+            f"토픽 {found['topic']} · 파티션 {len(found['partitions'])}개 · 그룹 "
+            f"{found['group_id'] or '(없음)'} · 미수신 {found['waiting']:,}건"
         )
 
     def topics(self) -> list[dict[str, Any]]:
@@ -645,7 +652,7 @@ class KafkaAdapter:
         try:
             meta = consumer.list_topics(timeout=self.source.timeout)
         except Exception as failure:
-            raise self._why("Kafka 에 닿지 못했습니다", failure, consumer) from None
+            raise self._why("Kafka에 연결할 수 없습니다", failure, consumer) from None
         finally:
             consumer.close()
         return sorted(
@@ -663,7 +670,7 @@ class KafkaAdapter:
         from relay_core.adapters.explore import suggest
 
         if not self.source.topic:
-            return {"topics": self.topics(), "note": "topic 을 골라 다시 탐색합니다."}
+            return {"topics": self.topics(), "note": "topic을 선택한 후 다시 탐색하세요."}
         found = self.lag()
         consumer = self._open(group="datarelay-explore")
         items: list[Any] = []
@@ -753,25 +760,25 @@ def check_kafka(body: Mapping[str, Any]) -> list[str]:
     problems = []
     fmt = str(body.get("format") or "json")
     if fmt not in FORMATS:
-        problems.append(f"adapter.format 은 {' · '.join(FORMATS)} 중 하나입니다: {fmt!r}")
+        problems.append(f"adapter.format은 {' · '.join(FORMATS)} 중 하나여야 합니다: {fmt!r}")
     start = str(body.get("start") or "earliest")
     if start not in STARTS:
-        problems.append(f"adapter.start 는 {' · '.join(STARTS)} 중 하나입니다: {start!r}")
+        problems.append(f"adapter.start는 {' · '.join(STARTS)} 중 하나여야 합니다: {start!r}")
     if fmt == "avro" and not body.get("schema_registry"):
-        problems.append("format avro 에는 adapter.schema_registry(주소)가 필요합니다.")
+        problems.append("format avro에는 adapter.schema_registry(주소)가 필요합니다.")
     most = body.get("max_messages", 200_000)
     if isinstance(most, bool) or not isinstance(most, int) or not 1 <= most <= 5_000_000:
-        problems.append("adapter.max_messages 는 1 이상 5,000,000 이하의 정수입니다.")
+        problems.append("adapter.max_messages는 1 이상 5,000,000 이하의 정수여야 합니다.")
     hosts = endpoints(str(body.get("bootstrap") or ""))
     if body.get("bootstrap") and not hosts:
-        problems.append("adapter.bootstrap 은 host:port 를 쉼표로 적습니다.")
+        problems.append("adapter.bootstrap은 host:port를 쉼표로 구분해 입력합니다.")
     for one in hosts:
         host = one.removeprefix("kafka://")
         if ":" not in host:
-            problems.append(f"adapter.bootstrap 의 {host} 에 포트가 없습니다.")
+            problems.append(f"adapter.bootstrap의 {host}에 포트가 없습니다.")
     group = str(body.get("group_id") or "")
     if group and not all(ch.isalnum() or ch in "._-" for ch in group):
-        problems.append("adapter.group_id 는 영문 · 숫자 · . _ - 만 씁니다.")
+        problems.append("adapter.group_id에는 영문, 숫자, . _ -만 사용할 수 있습니다.")
     return problems
 
 

@@ -117,7 +117,7 @@ def test_모인_객체는_원천_행을_모두_보이고_규칙과_원래_값을
     assert got.rows_total == 2 and [one["row"] for one in got.rows] == [2, 3]
     status = next(one for one in got.fields if one.name == "task_status")
     assert status.value == "진행" and status.columns == ["TASK_STATUS"]
-    assert "대응 IP→진행" in status.rule
+    assert "값 매핑 IP→진행" in status.rule
     assert status.seen == [{"value": "IP", "rows": [2, 3]}]
     assert got.rows[0]["values"] == {
         "TASK_CODE": "T1",
@@ -133,7 +133,7 @@ def test_한_행의_객체는_참조_칸의_출처와_관계의_양쪽을_보인
     edge = trace(work, recipe, "plm_model", "M2")
     assert edge.rows_total == 1 and edge.rows[0]["row"] == 3
     task = next(one for one in edge.fields if one.name == "task")
-    assert task.rule == "plm_task 의 식별자" and task.columns == ["TASK_CODE"]
+    assert task.rule == "plm_task의 식별자" and task.columns == ["TASK_CODE"]
     assert edge.relations == [
         {"relation": "plm_derived_from", "direction": "out", "other": "M1"}
     ]
@@ -189,7 +189,7 @@ def test_기준_뒤에_레시피가_바뀌어도_기준의_규칙으로_읽는�
         for one in trace(work, recipe, "plm_model", "M1").fields
         if one.name == "model_kind"
     )
-    assert "대응 A→양산" in kind.rule  # 지금 레시피에는 대응이 없다
+    assert "값 매핑 A→양산" in kind.rule  # 지금 레시피에는 대응이 없다
 
 
 def test_원천_표가_없으면_지금_미러로_찾고_그렇다고_적는다(
@@ -199,8 +199,8 @@ def test_원천_표가_없으면_지금_미러로_찾고_그렇다고_적는다(
     for one in work.path("work").glob("*.source.csv"):
         one.unlink()
     got = trace(work, recipe, "plm_task", "T1")
-    assert got.basis == "지금 미러" and got.rows_total == 2
-    assert any("지금 미러" in one for one in got.problems)
+    assert got.basis == "현재 미러" and got.rows_total == 2
+    assert any("현재 미러" in one for one in got.problems)
 
 
 def test_모르는_타입과_어디에도_없는_식별자는_까닭을_말한다(
@@ -209,7 +209,7 @@ def test_모르는_타입과_어디에도_없는_식별자는_까닭을_말한�
     work, recipe = applied
     with pytest.raises(TraceError, match="plm_task · plm_model"):
         trace(work, recipe, "plm_part", "X")
-    with pytest.raises(TraceError, match="찾지 못했습니다"):
+    with pytest.raises(TraceError, match="원천 표에 없는 식별자입니다"):
         trace(work, recipe, "plm_model", "M404")
 
 

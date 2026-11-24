@@ -55,9 +55,9 @@ const KINDS = Object.keys(RULE_LABEL) as Editable[]
 
 /** 출발 판의 이름 — 목록의 상태를 붙인다. */
 function startLabel(one: RecipeVersion): string {
-  if (one.status === 'active') return `사용 중인 판 ${one.version}`
+  if (one.status === 'active') return `사용 중인 버전 ${one.version}`
   const state = one.status === 'draft' ? '초안' : '사용 종료'
-  return `판 ${one.version}(${state}${one.note ? ` · ${one.note}` : ''})`
+  return `버전 ${one.version}(${state}${one.note ? ` · ${one.note}` : ''})`
 }
 
 function MapEditor({ spec, onChange }: { spec: Spec; onChange: (next: Spec) => void }) {
@@ -71,7 +71,7 @@ function MapEditor({ spec, onChange }: { spec: Spec; onChange: (next: Spec) => v
       {pairs.map(([raw, out], index) => (
         <div key={index} className="flex items-center gap-1">
           <Input
-            aria-label={`대응 ${index + 1} 원천 값`}
+            aria-label={`값 매핑 ${index + 1} 원천 값`}
             className="h-7 w-28 font-mono text-xs"
             value={raw}
             onChange={(event) =>
@@ -80,7 +80,7 @@ function MapEditor({ spec, onChange }: { spec: Spec; onChange: (next: Spec) => v
           />
           <span className="text-muted-foreground text-xs">→</span>
           <Input
-            aria-label={`대응 ${index + 1} 대상 값`}
+            aria-label={`값 매핑 ${index + 1} 대상 값`}
             className="h-7 w-28 text-xs"
             value={out}
             onChange={(event) =>
@@ -90,7 +90,7 @@ function MapEditor({ spec, onChange }: { spec: Spec; onChange: (next: Spec) => v
           <Button
             size="xs"
             variant="ghost"
-            aria-label={`대응 ${index + 1} 삭제`}
+            aria-label={`값 매핑 ${index + 1} 삭제`}
             onClick={() => commit(pairs.filter((_one, at) => at !== index))}
           >
             <Trash2 className="size-3" />
@@ -99,7 +99,7 @@ function MapEditor({ spec, onChange }: { spec: Spec; onChange: (next: Spec) => v
       ))}
       <Button size="xs" variant="outline" onClick={() => setPairs([...pairs, ['', '']])}>
         <Plus className="size-3" />
-        대응 추가
+        값 매핑 추가
       </Button>
     </div>
   )
@@ -125,7 +125,7 @@ function RuleCells({
       <TableCell colSpan={3} className="whitespace-normal">
         <p className="font-mono text-xs break-all">{ruleText(spec)}</p>
         <p className="text-muted-foreground text-xs">
-          여러 행 모으기 · 해석기 · 대상 식별자 대조는 「본문(JSON)」 에서 수정합니다.
+          집계 속성, 해석기, 대상 식별자 대조는 [JSON 편집]에서 수정합니다.
         </p>
       </TableCell>
     )
@@ -188,7 +188,7 @@ function RuleCells({
               <label className="flex items-center gap-1">
                 <input
                   type="checkbox"
-                  aria-label={`${name} 날짜로`}
+                  aria-label={`${name} 날짜 변환`}
                   checked={Boolean(current.date)}
                   onChange={(event) => {
                     const next = { ...current }
@@ -197,12 +197,12 @@ function RuleCells({
                     onChange(next)
                   }}
                 />
-                날짜로
+                날짜 변환
               </label>
               <label className="flex items-center gap-1">
                 <input
                   type="checkbox"
-                  aria-label={`${name} 대문자로`}
+                  aria-label={`${name} 대문자 변환`}
                   checked={Boolean(current.upper)}
                   onChange={(event) => {
                     const next = { ...current }
@@ -211,15 +211,15 @@ function RuleCells({
                     onChange(next)
                   }}
                 />
-                대문자로
+                대문자 변환
               </label>
               <Button
                 size="xs"
                 variant="ghost"
-                aria-label={`${name} 대응 ${mapOpen ? '접기' : '펼치기'}`}
+                aria-label={`${name} 값 매핑 ${mapOpen ? '숨김' : '표시'}`}
                 onClick={() => setMapOpen(!mapOpen)}
               >
-                대응 {mapPairs(current).length}개 {mapOpen ? '접기' : '펼치기'}
+                값 매핑 {mapPairs(current).length}개 {mapOpen ? '숨김' : '표시'}
               </Button>
             </div>
             {mapOpen && <MapEditor spec={current} onChange={onChange} />}
@@ -254,10 +254,10 @@ function TypeFields({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>칸</TableHead>
+            <TableHead>속성</TableHead>
             <TableHead>규칙 종류</TableHead>
             <TableHead>값</TableHead>
-            <TableHead>열의 처리</TableHead>
+            <TableHead>열 처리</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -277,7 +277,7 @@ function TypeFields({
                   <Button
                     size="xs"
                     variant="ghost"
-                    aria-label={`${name} 칸 삭제`}
+                    aria-label={`${name} 속성 삭제`}
                     onClick={() => onChange(withField(one, name, null))}
                   >
                     <Trash2 className="size-3" />
@@ -290,16 +290,16 @@ function TypeFields({
       </Table>
       <div className="flex items-center gap-2">
         <Input
-          aria-label="새 칸 이름"
+          aria-label="새 속성 이름"
           className="h-8 w-48 font-mono"
-          placeholder="새 칸 이름(대상 속성)"
+          placeholder="새 속성 이름(대상 타입)"
           value={adding}
           onChange={(event) => setAdding(event.target.value)}
         />
         <Button size="sm" variant="outline" disabled={!adding.trim() || names.has(adding.trim())} onClick={add}>
-          <Plus className="size-4" />칸 추가
+          <Plus className="size-4" />속성 추가
         </Button>
-        {names.has(adding.trim()) && <span className="text-destructive text-xs">이미 있는 칸입니다</span>}
+        {names.has(adding.trim()) && <span className="text-destructive text-xs">이미 있는 속성입니다</span>}
       </div>
     </div>
   )
@@ -340,7 +340,7 @@ export function RecipeEditor({
           ? (await relayApi.recipeFile(slug)).body
           : (await relayApi.recipe(slug, Number(which))).body
       ) as RecipeDoc | null
-      if (!body) throw new Error('정의 파일에 레시피가 없습니다 — 다른 출발 판을 선택하세요.')
+      if (!body) throw new Error('정의 파일에 레시피가 없습니다. 다른 원본 버전을 선택하세요.')
       setBase(clone(body))
       setDraft(clone(body))
       setTypeSlug(typesOf(body)[0]?.type_slug ?? '')
@@ -375,7 +375,7 @@ export function RecipeEditor({
       setMode('fields')
       return parsed
     } catch (caught) {
-      setParseError(`본문을 JSON 으로 읽지 못했습니다 — ${fail(caught).message}`)
+      setParseError(`원문의 JSON 형식이 올바르지 않습니다. ${fail(caught).message}`)
       return null
     }
   }
@@ -410,7 +410,7 @@ export function RecipeEditor({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">초안 작성</span>
         <select
-          aria-label="출발 판"
+          aria-label="원본 버전"
           className={SELECT}
           value={start}
           onChange={(event) => setStart(event.target.value)}
@@ -430,7 +430,7 @@ export function RecipeEditor({
         </Button>
         {busy && <Loader2 className="size-4 animate-spin" />}
         <span className="text-muted-foreground text-xs">
-          불러온 판은 바뀌지 않습니다 — 고친 것은 새 초안으로 저장됩니다.
+          원본 버전은 변경되지 않습니다. 수정 내용은 새 초안으로 저장됩니다.
         </span>
       </div>
       <ErrorNotice error={error} />
@@ -449,7 +449,7 @@ export function RecipeEditor({
               aria-pressed={mode === 'fields'}
               onClick={() => mode === 'json' && toFields()}
             >
-              칸
+              규칙 편집
             </Button>
             <Button
               size="sm"
@@ -457,7 +457,7 @@ export function RecipeEditor({
               aria-pressed={mode === 'json'}
               onClick={() => mode === 'fields' && toJson()}
             >
-              본문(JSON)
+              JSON 편집
             </Button>
             {mode === 'fields' && types.length > 0 && (
               <select
@@ -486,7 +486,7 @@ export function RecipeEditor({
           )}
           {mode === 'json' && (
             <Textarea
-              aria-label="레시피 본문"
+              aria-label="레시피 원문"
               className="min-h-72 font-mono text-xs"
               value={text}
               onChange={(event) => setText(event.target.value)}
@@ -496,9 +496,7 @@ export function RecipeEditor({
 
           {mode === 'fields' && (
             <p className="text-muted-foreground text-sm" data-testid="recipe-changes">
-              {changed.length
-                ? `출발 판에서 바뀐 것: ${changed.join(' · ')}`
-                : '출발 판에서 바뀐 것이 없습니다.'}
+              {changed.length ? `원본 대비 변경 사항: ${changed.join(' · ')}` : '원본 대비 변경 사항 없음'}
             </p>
           )}
           {blocked.length > 0 && (
@@ -516,7 +514,7 @@ export function RecipeEditor({
             <Input
               aria-label="메모"
               className="h-8 w-80"
-              placeholder="메모 — 무엇을 왜 수정했나"
+              placeholder="메모(수정 내용과 사유)"
               value={note}
               onChange={(event) => setNote(event.target.value)}
             />

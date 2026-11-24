@@ -80,11 +80,11 @@ def test_걷어내기는_AI도_계획까지_적용과_다시_켜기는_사람이
     assert detail["state"]["pending"]["origin"] == "retract"
     assert detail["jobs"][0]["kind"] == "relay_retract"
     again = client.post(f"{base}/retract", json={"all": True}, headers=mcp)
-    assert again.status_code == 409 and "이미 적용을 기다립니다" in again.text
+    assert again.status_code == 409 and "이미 적용 대기 중입니다" in again.text
 
     run = client.post(f"{base}/run", headers=admin.headers)
     assert run.status_code == 409 and _code(run).endswith("RELAY-0041")
-    assert "다시 켜기" in run.json()["error"]["message"]
+    assert "[재개]" in run.json()["error"]["message"]
     by_token = client.post(f"{base}/resume", headers=mcp)
     assert by_token.status_code == 403 and _code(by_token).endswith("RELAY-0042")
 
@@ -92,19 +92,19 @@ def test_걷어내기는_AI도_계획까지_적용과_다시_켜기는_사람이
         client, db, admin.headers, client.post(f"{base}/apply", headers=admin.headers)
     )
     assert applied["result"]["status"] == "applied", applied["result"]
-    assert "걷어냈습니다" in applied["result"]["summary"]
+    assert "회수했습니다" in applied["result"]["summary"]
     detail = client.get(base, headers=member.headers).json()
-    assert (detail["status"], detail["status_label"]) == ("stopped", "걷어내고 멈춤")
+    assert (detail["status"], detail["status_label"]) == ("stopped", "회수 후 중지")
     assert services.lateness(db, services.by_slug(slug, db)) == ""
 
     resumed = client.post(f"{base}/resume", headers=admin.headers)
     assert resumed.status_code == 200, resumed.text
-    assert "다시 켰습니다" in resumed.json()["message"]
+    assert "재개했습니다" in resumed.json()["message"]
     detail = client.get(base, headers=member.headers).json()
     assert detail["status"] == "ok" and not detail["state"].get("stopped")
     assert [one["event"] for one in detail["history"][:1]] == ["resumed"]
     not_stopped = client.post(f"{base}/resume", headers=admin.headers)
-    assert not_stopped.status_code == 409 and "멈춰 있지 않습니다" in not_stopped.text
+    assert not_stopped.status_code == 409 and "중지 상태가 아닙니다" in not_stopped.text
 
 
 def test_대기_중인_걷어내기는_다시_켜면_거두고_대상에_못_닿으면_켜지_않는다(
@@ -133,7 +133,7 @@ def test_대기_중인_걷어내기는_다시_켜면_거두고_대상에_못_닿
     answers: list[tuple[int, Any]] = [(0, None), (200, {"applied_by": None})]
     monkeypatch.setattr(services, "probe_http", lambda *_args: answers.pop(0))
     down = client.post(f"{base}/resume", headers=admin.headers)
-    assert down.status_code == 409 and "닿지 않아" in down.text
+    assert down.status_code == 409 and "연결할 수 없어" in down.text
     assert (services.read_state(slug) or {}).get("stopped")
     cancelled = client.post(f"{base}/resume", headers=admin.headers)
     assert cancelled.status_code == 200 and "적용하지 마세요" in cancelled.json()["message"]

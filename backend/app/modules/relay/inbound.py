@@ -47,14 +47,14 @@ HEADER = "X-Relay-Token"
 
 
 def _nowhere(slug: str) -> NotFound:
-    return NotFound(code("RELAY", 31), f"받을 곳이 없습니다: {slug}")
+    return NotFound(code("RELAY", 31), f"수신할 파이프라인이 없습니다: {slug}")
 
 
 def check_size(length: str | None) -> None:
     if length and length.isdigit() and int(length) > MAX_BYTES:
         raise AppError(
             code("RELAY", 32),
-            f"한 번에 {MAX_BYTES // (1024 * 1024)}MB 까지 받습니다.",
+            f"한 번에 최대 {MAX_BYTES // (1024 * 1024)}MB까지 수신합니다.",
             status=413,
         )
 
@@ -90,7 +90,7 @@ def receive(
     secret = services.secrets_env().get(str(auth.get("token_env") or ""), "")
     # 비밀이 비었으면 아무도 못 보낸다 — 빈 머리글과 같다고 받지 않는다.
     if not secret or not token or not hmac.compare_digest(token.encode(), secret.encode()):
-        raise AppError(code("RELAY", 33), f"{HEADER} 가 맞지 않습니다.", status=401)
+        raise AppError(code("RELAY", 33), f"{HEADER}가 올바르지 않습니다.", status=401)
     most = int(adapter.get("max_items") or 50_000)
     try:
         if parquet.looks_like(raw):
@@ -100,12 +100,12 @@ def receive(
             items = items_of(json.loads(raw), str(adapter.get("rows_path") or ""))
     except (ValueError, SourceError) as failure:
         raise AppError(
-            code("RELAY", 34), f"보낸 본문을 읽지 못했습니다: {failure}", status=422
+            code("RELAY", 34), f"요청 본문을 읽을 수 없습니다: {failure}", status=422
         ) from None
     if len(items) > most:
         raise AppError(
             code("RELAY", 32),
-            f"한 번에 {most:,}개까지 받습니다(보낸 것 {len(items):,}개"
+            f"한 번에 최대 {most:,}건까지 수신합니다(요청 {len(items):,}건"
             + (" 이상" if parquet.looks_like(raw) else "")
             + ").",
             status=413,
@@ -118,8 +118,8 @@ def receive(
     if waiting >= MAX_WAITING:
         raise AppError(
             code("RELAY", 35),
-            f"받을 함에 묶음이 {waiting}개 쌓였습니다 — 실행이 받아 가지 못하고 있습니다(실행 "
-            "멈춤 · 늦음을 확인하세요).",
+            f"수신함에 처리되지 않은 수신 데이터가 {waiting}건 쌓였습니다. 실행이 수신 "
+            "데이터를 처리하지 못하고 있습니다. 실행 중단, 지연 여부를 확인하세요.",
             status=429,
         )
     name = f"{stamp()}{SUFFIX}"
@@ -146,5 +146,6 @@ def _keep_trial(slug: str, items: list[Any]) -> dict[str, Any]:
         "accepted": len(items),
         "queued": name,
         "trial": True,
-        "note": "시험 수신 — 실행은 읽지 않습니다. 정의 시험 · 한 번에 초안이 읽습니다.",
+        "note": "테스트 수신 데이터입니다. 실행에는 사용하지 않으며 정의 테스트와 일괄 초안 "
+        "생성에만 사용합니다.",
     }

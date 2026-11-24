@@ -290,11 +290,11 @@ def test_정의의_모양을_먼저_본다() -> None:
             check_adapter({**base, **over})
         return str(caught.value)
 
-    assert "모르는 칸" in bad(auth={"kind": "bearer", "token_env": "T", "realm": "x"})
+    assert "지원하지 않는 항목" in bad(auth={"kind": "bearer", "token_env": "T", "realm": "x"})
     assert "token_url" in bad(auth={"kind": "oauth2", "token_env": "T"})
     assert "param" in bad(auth={"kind": "query", "token_env": "T", "param": ""})
     assert "kind" in bad(auth={"kind": "kerberos"})
-    assert "GET · POST" in bad(method="DELETE")
+    assert "GET, POST" in bad(method="DELETE")
     assert "body" in bad(method="POST")
     assert "paging" in bad(paging="scroll")
     assert "식별자" in bad(explode="lines")

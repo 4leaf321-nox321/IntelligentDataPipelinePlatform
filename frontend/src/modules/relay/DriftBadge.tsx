@@ -14,8 +14,8 @@ import { shownDateTime } from '@/shared/lib/datetime'
 /** 마디의 풍선 도움말 한 줄 — 어긋남이 없으면 빈 글. */
 export function driftTitle(node: MapNode): string {
   const { drift, at, problem } = driftOf(node)
-  if (problem) return `마지막 대조 ${shownDateTime(at)} — 대조하지 못했습니다(상세에서 까닭 확인)`
-  return drift ? `마지막 대조 ${shownDateTime(at)} — 대상과 어긋남 ${drift}건` : ''
+  if (problem) return `마지막 대조 ${shownDateTime(at)} · 대조 실패(상세 화면에서 원인 확인)`
+  return drift ? `마지막 대조 ${shownDateTime(at)} · 대상 불일치 ${drift}건` : ''
 }
 
 export function DriftBadge({ node }: { node: MapNode }) {

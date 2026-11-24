@@ -117,7 +117,9 @@ class TargetReader:
             if status == 404:
                 return None
             if status != 200 or not isinstance(body, dict):
-                raise ReconcileError(f"대상의 {type_slug} 목록을 못 읽었습니다({status}).")
+                raise ReconcileError(
+                    f"대상의 {type_slug} 목록을 조회하지 못했습니다({status})."
+                )
             items = [one for one in body.get("items") or [] if isinstance(one, dict)]
             out.extend(items)
             if not items or len(out) >= int(body.get("total") or 0):
@@ -195,7 +197,7 @@ class CoreReader:
             status, body = self.lister._get(path)
             if status != 200 or not isinstance(body, dict):
                 raise ReconcileError(
-                    f"대상의 {type_slug} 를 코어 API 로 못 읽었습니다({status})."
+                    f"대상의 {type_slug} 타입을 코어 API로 조회하지 못했습니다({status})."
                 )
             for row in body.get("items") or []:
                 if isinstance(row, dict) and not row.get("deleted") and not row.get("hidden"):
@@ -269,7 +271,7 @@ class ExportReader:
         if not self._schema:
             self.fallback = "대상의 정의를 읽지 못했습니다"
         elif groups is None:
-            self.fallback = "사이드바 묶음에 들지 않은 타입이 있습니다"
+            self.fallback = "사이드바 그룹에 속하지 않은 타입이 있습니다"
         elif groups:
             self._load(groups)
 
@@ -293,10 +295,12 @@ class ExportReader:
                 server, token, f"/api/jobs/{job['id']}/download", who="대상 SP"
             )
         except sp.pipeline.Stop as stop:
-            self.fallback = f"묶음 내보내기({', '.join(groups)})를 못 썼습니다: {_short(stop)}"
+            self.fallback = (
+                f"번들 내보내기({', '.join(groups)})를 사용할 수 없습니다: {_short(stop)}"
+            )
             return
         if not isinstance(envelope, dict):
-            self.fallback = "묶음 내보내기의 결과를 읽을 수 없습니다"
+            self.fallback = "번들 내보내기 결과를 읽을 수 없습니다"
             return
         exported = {
             str(one.get("slug"))
@@ -352,9 +356,11 @@ def best_reader(target: Target, slugs: Iterable[str]) -> Reader:
     closed = ", ".join(sorted(set(present) - core))
     # 코어로 열기로 한 타입 하나를 빠뜨려도 대조는 돈다 — 무엇이 빠졌는지는 보고서가 말한다.
     if closed and exported.keyed:
-        exported.notice = f"코어로 열리지 않은 타입({closed})이 있어 내보내기로 읽었습니다"
+        exported.notice = (
+            f"코어 공개되지 않은 타입({closed})이 있어 번들 내보내기로 조회했습니다"
+        )
     elif closed:
-        exported.fallback = f"코어로 열리지 않은 타입({closed}) · {exported.fallback}"
+        exported.fallback = f"코어 공개되지 않은 타입({closed}) · {exported.fallback}"
     return exported
 
 
@@ -398,24 +404,24 @@ class Report:
 
     def summary(self) -> str:
         if self.problems:
-            return "대조하지 못했습니다 — " + " / ".join(self.problems)
+            return "대조하지 못했습니다. " + " / ".join(self.problems)
         rows = sum(one.rows for one in self.types.values())
         if not self.drift:
-            note = f"대상과 같습니다(객체 {rows}건)."
+            note = f"대상과 일치합니다(객체 {rows}건)."
         else:
             parts = []
             for label, count in (
-                ("빠짐", sum(len(one.missing) for one in self.types.values())),
-                ("안 씀", sum(len(one.deprecated) for one in self.types.values())),
-                ("다름", sum(len(one.changed) for one in self.types.values())),
-                ("대상에만", sum(len(one.extra) for one in self.types.values())),
+                ("누락", sum(len(one.missing) for one in self.types.values())),
+                ("사용 중지", sum(len(one.deprecated) for one in self.types.values())),
+                ("값 불일치", sum(len(one.changed) for one in self.types.values())),
+                ("대상에만 존재", sum(len(one.extra) for one in self.types.values())),
             ):
                 if count:
                     parts.append(f"{label} {count}")
-            note = f"대상과 어긋남 {self.drift}건({' · '.join(parts)}) — 기준 객체 {rows}건."
+            note = f"대상 불일치 {self.drift}건({' · '.join(parts)}) · 기준 객체 {rows}건."
         unverified = sum(one.unverified for one in self.types.values())
         if unverified:
-            note += f" 확인 못 한 참조 칸 {unverified}."
+            note += f" 미확인 참조 {unverified}건."
         for one in self.notes:
             note += f" {one}."
         return note
@@ -607,7 +613,7 @@ BUCKET_ROWS = spill.BUCKET_ROWS
 def _head(run: Path, applied_run: str) -> dict[str, Any]:
     manifest, problems = diff_head(run)
     if problems:
-        raise ReconcileError(f"기준 출력을 못 읽었습니다({applied_run}): {problems}")
+        raise ReconcileError(f"기준 출력을 읽을 수 없습니다({applied_run}): {problems}")
     return manifest
 
 
@@ -656,7 +662,7 @@ def _base(work: Workdir, applied_run: str, folder: Path) -> _Base:
     held.close()
     if problems:
         held.drop()
-        raise ReconcileError(f"기준 출력을 못 읽었습니다({applied_run}): {problems}")
+        raise ReconcileError(f"기준 출력을 읽을 수 없습니다({applied_run}): {problems}")
     ranked = _ranked(rows, manifest, sp.pipeline.OBJECTS_DIR)
     return _Base(manifest=manifest, rows={slug: rows[slug] for slug in ranked}, held=held)
 
@@ -681,7 +687,7 @@ def _compare(
         report.via = str(getattr(reader, "via", ""))
         fallback = str(getattr(reader, "fallback", "") or "")
         if fallback:
-            report.notes.append(f"목록 API 로 읽었습니다 — {fallback}")
+            report.notes.append(f"목록 API로 조회했습니다. 사유: {fallback}")
         notice = str(getattr(reader, "notice", "") or "")
         if notice:
             report.notes.append(notice)
@@ -762,7 +768,7 @@ def compare(
         work.save_state(state)
     report = Report(at=_now(), baseline=state.applied_run or "", source=pipeline.source)
     if not state.applied_run:
-        report.problems.append("아직 적용한 것이 없습니다 — 견줄 기준이 없습니다.")
+        report.problems.append("적용한 계획이 없어 비교할 기준 출력이 없습니다.")
         return report
     folder = work.path(f"work/{stamp()}.reconcile.spill")
     try:
@@ -809,8 +815,8 @@ def resync(
     if state.pending is not None:
         return Outcome(
             "waiting",
-            f"적용을 기다리는 계획({state.pending.job_id[:8]})이 있어 보정 계획을 생성하지 "
-            "않았습니다 — 그 계획을 적용하거나 다시 실행한 뒤 대조하세요.",
+            f"적용 대기 중인 계획({state.pending.job_id[:8]})이 있어 보정 계획을 생성하지 "
+            "않았습니다. 계획을 적용하거나 다시 실행한 후 대조하세요.",
         )
     report = compare(pipeline, work, reader, submit)
     if report.problems:
@@ -841,7 +847,7 @@ def resync(
             if isinstance(row, dict) and str(row.get("key")) in keys
         )
     if problems:
-        raise ReconcileError(f"기준 출력을 못 읽었습니다({report.baseline}): {problems}")
+        raise ReconcileError(f"기준 출력을 읽을 수 없습니다({report.baseline}): {problems}")
     send: dict[str, list[dict[str, Any]]] = {}
     resent: dict[str, set[str]] = {}
     graves: list[dict[str, Any]] = []
@@ -863,8 +869,8 @@ def resync(
     if not send and not graves:
         return Outcome(
             "nothing",
-            report.summary() + " 보정 계획에 실을 것이 없습니다 — 대상에만 있는 것은 "
-            "잠기지 않은 타입이라 사람이 정합니다.",
+            report.summary() + " 보정 계획에 포함할 항목이 없습니다. 대상에만 존재하는 객체는 "
+            "잠기지 않은 타입이므로 사람이 판단합니다.",
         )
     every = set().union(*resent.values()) if resent else set()
     touching: dict[str, list[dict[str, Any]]] = {}
@@ -878,7 +884,7 @@ def resync(
             and (str(row.get("src")) in mine or str(row.get("dst")) in every)
         )
     if problems:
-        raise ReconcileError(f"기준 출력을 못 읽었습니다({report.baseline}): {problems}")
+        raise ReconcileError(f"기준 출력을 읽을 수 없습니다({report.baseline}): {problems}")
     edges = {
         slug: touching[slug]
         for slug in _ranked(touching, manifest_before, sp.pipeline.RELATIONS_DIR)
@@ -905,7 +911,7 @@ def resync(
         slug for slug in manifest_before.get("relations_order", []) if slug in edge_order
     ] or edge_order
     manifest["source"] = pipeline.source
-    manifest["title"] = f"{manifest.get('title') or pipeline.slug} — 대조의 보정 계획"
+    manifest["title"] = f"{manifest.get('title') or pipeline.slug} — 대조 보정 계획"
     (folder / sp.pipeline.MANIFEST).write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )

@@ -30,7 +30,7 @@ def apply(settings: Settings) -> list[str]:
     if settings.relay_ca_file:
         corp = Path(settings.relay_ca_file)
         if not corp.is_file():
-            log.warning("RELAY_CA_FILE 이 없습니다 — 사내 CA 를 걸지 않았습니다: %s", corp)
+            log.warning("RELAY_CA_FILE이 없어 사내 CA를 적용하지 않았습니다: %s", corp)
         else:
             bundle = settings.relay_work_dir / BUNDLE
             body = Path(certifi.where()).read_bytes().rstrip() + b"\n" + corp.read_bytes()
@@ -40,13 +40,13 @@ def apply(settings: Settings) -> list[str]:
                 scratch.write_bytes(body)
                 os.replace(scratch, bundle)
             os.environ["SSL_CERT_FILE"] = str(bundle)
-            done.append(f"사내 CA 를 더한 인증서 묶음: {bundle}")
+            done.append(f"사내 CA를 추가한 인증서 번들: {bundle}")
     if settings.relay_proxy:
         for name in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
             os.environ[name] = settings.relay_proxy
         no_proxy = settings.relay_no_proxy
         os.environ["NO_PROXY"] = os.environ["no_proxy"] = no_proxy
-        done.append(f"프록시 {settings.relay_proxy} (거치지 않음: {no_proxy})")
+        done.append(f"프록시 {settings.relay_proxy}(제외: {no_proxy})")
     for line in done:
-        log.info("바깥 연결: %s", line)
+        log.info("외부 연결: %s", line)
     return done

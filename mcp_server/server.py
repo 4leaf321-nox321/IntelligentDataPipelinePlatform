@@ -38,15 +38,16 @@ GUIDE = Path(__file__).resolve().parent / "guide" / "GUIDE.md"
 _JSON_RESPONSE = os.environ.get("MCP_JSON_RESPONSE", "") == "1"
 
 INSTRUCTIONS = (
-    "datarelay — 레거시 시스템(PLM · MES)의 데이터를 Standard Platform 에 넣는 중계 플랫폼. "
-    "**설정 값은 AI 가 고른다** — 사람은 원천 주소 · 원천 이름 · 대상 타입을 말하고, "
-    "비밀(토큰 · 비밀번호)을 화면에서 넣고, 시험이 깨끗한 판을 「사용」 · 계획을 「적용」 할 "
-    "뿐이다. 처음에 get_guide('start') 를 읽어라. 새 원천은 get_guide('adapter') — API "
-    "지침서가 있으면 source_spec 으로 읽고, pipeline_scaffold 로 정의 · 레시피 초안과 "
-    "시험을 한 번에 만든 뒤 "
-    "결과의 next 를 따른다. 비밀이 비었으면(secrets_needed · secrets_status) 사람에게 화면 › "
-    "중계 › 비밀 에서 넣어 달라고 말한다 — 값은 대화로 받지 않는다. 정의에는 비밀의 이름만 "
-    "적는다. 고를 값은 대상 정의(target_schema)의 값으로만 낸다. 짐작으로 채우지 않는다."
+    "datarelay는 레거시 시스템(PLM, MES)의 데이터를 Standard Platform(SP)에 적재하는 "
+    "중계 플랫폼입니다. **설정 값은 AI가 선택합니다.** 사람이 하는 일은 원천 주소, "
+    "원천 이름, 대상 타입의 전달, 인증 정보(토큰, 비밀번호)의 화면 입력, 테스트 결과에 "
+    "문제가 없는 버전의 [사용], 계획의 [적용]뿐입니다. 처음에 get_guide('start')를 "
+    "읽으세요. 새 원천은 get_guide('adapter')를 따릅니다. API 명세가 있으면 source_spec으로 "
+    "분석하고, pipeline_scaffold로 정의 초안, 레시피 초안, 테스트를 한 번에 생성한 후 "
+    "결과의 next를 따릅니다. 인증 정보가 미입력이면(secrets_needed, secrets_status) "
+    "사람에게 화면의 [중계] › [인증 정보]에서 입력하도록 요청합니다. 값은 대화로 받지 "
+    "않습니다. 정의에는 인증 정보의 이름만 적습니다. 선택 값은 대상 정의(target_schema)의 "
+    "값만 사용합니다. 추측으로 채우지 않습니다."
 )
 
 mcp = FastMCP("datarelay", json_response=_JSON_RESPONSE, instructions=INSTRUCTIONS)
@@ -92,8 +93,8 @@ async def _call(
         path, suffix = path[: -len(".csv")], ".csv"
     if not _SAFE_PATH.fullmatch(path):
         raise RelayError(
-            f"경로에 쓸 수 없는 글자가 있습니다: {path!r} — slug 는 영문 · 숫자 · - · _ 만 "
-            "됩니다."
+            f"경로에 사용할 수 없는 문자가 있습니다: {path!r}. slug에는 영문, 숫자, -, _만 "
+            "사용할 수 있습니다."
         )
     async with httpx.AsyncClient(base_url=API, timeout=120, transport=_TRANSPORT) as client:
         got = await client.request(
@@ -123,32 +124,41 @@ async def _call(
 
 @mcp.tool()
 def get_guide(topic: str = "start") -> str:
-    """사용 안내 — topic: start(차례 · 지킬 것) · recipe(sp-table/1 문법 전부) ·
-    adapter(새 원천 붙이기 — 탐색 · 정의 초안 · 시험) · types(대상에 타입이 없을 때) ·
-    reconcile(대상과의 대조 — 어긋남 읽기 · 보정 계획)."""
+    """사용 안내. topic: start(작업 순서, 준수 사항), recipe(sp-table/1 문법 전체),
+    adapter(새 원천 연결: 탐색, 정의 초안, 테스트), types(대상에 타입이 없을 때),
+    reconcile(대상과의 대조: 불일치 확인, 보정 계획)."""
     text = GUIDE.read_text(encoding="utf-8")
     parts = re.split(r"(?m)^## ", text)
     for part in parts[1:]:
         name, _, body = part.partition("\n")
         if name.strip() == topic:
             return f"## {name}\n{body}"
-    return f"모르는 topic 입니다: {topic}. 되는 것: " + ", ".join(
+    return f"알 수 없는 topic입니다: {topic}. 사용할 수 있는 topic: " + ", ".join(
         p.partition("\n")[0].strip() for p in parts[1:]
     )
 
 
 @mcp.tool()
 async def whoami(ctx: Context) -> Any:
-    """이 토큰의 사람 — 이름 · 시스템 관리자인가(레시피를 작성하려면 시스템 관리자여야
-    한다)."""
+    """토큰 소유자 정보: 이메일, 이름, 시스템 관리자 여부. 레시피를 작성하려면 시스템
+    관리자여야 합니다."""
     me = await _call(ctx, "GET", "/auth/me")
     return {k: me.get(k) for k in ("email", "display_name", "is_system_admin")}
 
 
 @mcp.tool()
+async def relay_overview(ctx: Context) -> Any:
+    """운영 요약: 상태별 파이프라인 건수, 확인이 필요한 파이프라인(상태, 사유, 원천 시스템,
+    대상)과 대상 SP별 연결 상태. 정상인 파이프라인은 건수로만 담습니다. "지금 문제가 있는
+    것", "오늘 확인할 것"에는 이 도구를 먼저 씁니다. 파이프라인이 많을 때 `relay_map`보다
+    짧습니다."""
+    return await _call(ctx, "GET", "/relay/overview")
+
+
+@mcp.tool()
 async def relay_map(ctx: Context) -> Any:
-    """연결 지도 — 원천 시스템 → API → 파이프라인 → 대상 SP → 타입. 파이프라인마다 상태를
-    준다."""
+    """연결 지도: 원천 시스템 → 원천(API, 파일, 토픽) → 파이프라인 → 대상 SP → 타입의
+    흐름. 파이프라인별 상태를 포함합니다."""
     got = await _call(ctx, "GET", "/relay/map")
     pipelines = [n for n in got["nodes"] if n["kind"] == "pipeline"]
     return {
@@ -172,8 +182,8 @@ async def relay_map(ctx: Context) -> Any:
 
 @mcp.tool()
 async def pipeline_get(ctx: Context, slug: str) -> Any:
-    """파이프라인 상세 — 원천 · 대상 · 사용 중인 레시피(recipe_label) · 칸 대응(lineage) ·
-    상태 · 이력."""
+    """파이프라인 상세: 원천, 대상, 사용 중인 레시피(recipe_label), 속성 매핑표(lineage),
+    상태, 실행 이력."""
     got = await _call(ctx, "GET", f"/relay/pipelines/{slug}")
     got["history"] = got.get("history", [])[:10]
     return got
@@ -181,27 +191,28 @@ async def pipeline_get(ctx: Context, slug: str) -> Any:
 
 @mcp.tool()
 async def source_sample(ctx: Context, slug: str, limit: int = 20) -> Any:
-    """원천의 표본 — 레시피가 읽는 **평평한 열** 그대로(마지막 실행이 받아 둔 미러에서)."""
+    """미러의 행 일부: 레시피가 읽는 **열**(어댑터의 columns가 생성한 표의 열) 그대로입니다.
+    마지막 실행이 수신해 둔 미러에서 조회합니다."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/sample", params={"limit": limit})
 
 
 @mcp.tool()
 async def target_schema(ctx: Context, slug: str) -> Any:
-    """대상 SP 의 정의 — 레시피가 만드는 타입의 칸 · 자료형 · 고를 값(enum_options) · 참조
-    대상, 사이드바 묶음(`groups`)과 타입마다 든 묶음(`nav_group_of`)."""
+    """대상 SP의 정의: 레시피가 생성하는 타입의 속성, 자료형, 선택 값(enum_options), 참조
+    대상, 사이드바 그룹(`groups`), 타입별 사이드바 그룹(`nav_group_of`)."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/target-schema")
 
 
 @mcp.tool()
 async def recipe_versions(ctx: Context, slug: str) -> Any:
-    """레시피의 판들 — draft · active(사용 중) · retired · discarded(폐기). 사용 중인 판이
-    없으면 정의 파일의 레시피를 사용한다."""
+    """레시피 버전 목록: draft(초안), active(사용 중), retired(사용 종료), discarded(폐기).
+    사용 중인 버전이 없으면 정의 파일의 레시피를 사용합니다."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/recipes")
 
 
 @mcp.tool()
 async def recipe_get(ctx: Context, slug: str, version: int | None = None) -> Any:
-    """레시피 본문 — version 을 안 주면 정의 파일의 것(출발점)."""
+    """레시피 본문. version을 지정하지 않으면 정의 파일의 레시피(원본 버전)를 반환합니다."""
     if version is None:
         return await _call(ctx, "GET", f"/relay/pipelines/{slug}/recipe-file")
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/recipes/{version}")
@@ -214,9 +225,9 @@ async def recipe_get(ctx: Context, slug: str, version: int | None = None) -> Any
 async def recipe_draft_save(
     ctx: Context, slug: str, recipe: dict[str, Any] | str, note: str = ""
 ) -> Any:
-    """레시피 초안을 저장한다 — 새 판 번호가 생긴다. **사용 중인 판은 그대로다.** recipe 는
-    sp-table/1 JSON(객체 또는 그 글). 돌려준 problems(어댑터가 내지 않는 열 …)를 먼저
-    수정한다."""
+    """레시피 초안 저장. 새 버전 번호가 생성됩니다. **사용 중인 버전은 변경되지 않습니다.**
+    recipe는 sp-table/1 JSON(객체 또는 JSON 문자열)입니다. 반환된 problems(어댑터가 제공하지
+    않는 열 등)를 먼저 수정합니다."""
     body = json.loads(recipe) if isinstance(recipe, str) else recipe
     return await _call(
         ctx, "POST", f"/relay/pipelines/{slug}/recipes", body={"body": body, "note": note}
@@ -227,10 +238,11 @@ async def recipe_draft_save(
 async def recipe_test(
     ctx: Context, slug: str, version: int, sample_rows: list[dict[str, Any]] | None = None
 ) -> Any:
-    """그 판을 미러에 돌려 본다 — **대상에 아무것도 안 보낸다.** clean · rows(타입마다 행 수) ·
-    unresolved(미해결) · would_send(사용하면 보낼 것 — 생성 · 변경 · 삭제) · report(값을
-    가린 패턴). 받은 것이 없으면 `sample_rows`(원천이 보내는 항목의 모양 — 1,000개까지)로 —
-    정의의 식별자 · 열로 펴서 바꿔 본다(그때 would_send 는 세지 않는다)."""
+    """레시피 테스트: 지정한 버전을 미러에 실행합니다. **대상에는 아무것도 전송하지
+    않습니다.** 결과는 clean, rows(타입별 행 수), unresolved(미해결), would_send(사용 시
+    전송 예정: 생성, 변경, 삭제), report(값을 마스킹한 패턴)입니다. 수신 데이터가 없으면
+    `sample_rows`(원천이 전송하는 형식의 항목, 최대 1,000개)로 테스트합니다. 이때 정의의
+    식별자와 열로 표를 구성해 변환하며, would_send는 집계하지 않습니다."""
     body = {"sample_rows": sample_rows} if sample_rows is not None else None
     return await _call(
         ctx, "POST", f"/relay/pipelines/{slug}/recipes/{version}/test", body=body
@@ -242,31 +254,35 @@ async def recipe_test(
 
 @mcp.tool()
 async def adapter_kinds(ctx: Context) -> Any:
-    """어댑터 종류(rest · odata · file · xml)마다 — 설명, 꼭 적을 칸(required), 모든 칸의
-    기본값 · 설명, auth 의 칸. 비밀 칸은 없다 — 비밀은 환경 변수의 이름(token_env)만 적는다."""
+    """어댑터 종류(rest, odata, file, xml, kafka, push)별 설명, 필수 항목(required), 전체
+    항목의 기본값과 설명, auth 항목. 인증 정보 값을 적는 항목은 없습니다. 인증 정보는 환경
+    변수 이름(token_env)만 적습니다."""
     return await _call(ctx, "GET", "/relay/adapter-kinds")
 
 
 @mcp.tool()
 async def source_discover(ctx: Context, adapter: dict[str, Any] | str) -> Any:
-    """어댑터 설정으로 원천에 닿아 본다 — **저장하지 않는다.** 식별자(key) · 열(columns)은 아직
-    몰라도 된다. 돌려주는 found: 칸의 자리(paths)와 보기 값, 열 이름 제안(columns —
-    그대로 어댑터의 columns 로 쓸 수 있다), OData 면 엔티티 셋 목록(entity_sets), DB 면 표의
-    열. 부를 수 있는 주소 · 폴더 밖이면 403 이 까닭을 말한다 — 사람에게 전한다."""
+    """원천 탐색: 어댑터 설정으로 원천에 접속해 조회합니다. **저장하지 않습니다.**
+    식별자(key)와 열(columns)은 미정이어도 됩니다. 반환하는 found에는 필드 위치(paths)와
+    예시 값, 열 이름 제안(columns, 어댑터의 columns에 그대로 사용 가능), OData의 엔티티 셋
+    목록(entity_sets)이 있습니다. 허용 주소나 허용 폴더 밖이면 403과 사유가 반환됩니다.
+    그 사유를 사람에게 전달합니다."""
     body = json.loads(adapter) if isinstance(adapter, str) else adapter
     return await _call(ctx, "POST", "/relay/discover", body={"adapter": body})
 
 
 @mcp.tool()
 async def pipeline_definitions(ctx: Context, slug: str) -> Any:
-    """정의의 판들 — draft · active(사용 중) · retired · discarded(폐기). 사용 중인 판이 같은
-    slug 의 정의 파일을 이긴다. 새 파이프라인이면 빈 목록이다."""
+    """정의 버전 목록: draft(초안), active(사용 중), retired(사용 종료), discarded(폐기).
+    같은 slug이면 사용 중인 버전이 정의 파일보다 우선합니다. 새 파이프라인이면 빈
+    목록입니다."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/definitions")
 
 
 @mcp.tool()
 async def pipeline_definition_get(ctx: Context, slug: str, version: int | None = None) -> Any:
-    """정의 본문 — version 을 안 주면 같은 slug 의 정의 파일(출발점, 없으면 body 가 null)."""
+    """정의 본문. version을 지정하지 않으면 같은 slug의 정의 파일(원본 버전)을 반환합니다.
+    정의 파일이 없으면 body가 null입니다."""
     if version is None:
         return await _call(ctx, "GET", f"/relay/pipelines/{slug}/definition-file")
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/definitions/{version}")
@@ -276,11 +292,12 @@ async def pipeline_definition_get(ctx: Context, slug: str, version: int | None =
 async def pipeline_draft_save(
     ctx: Context, slug: str, definition: dict[str, Any] | str, note: str = ""
 ) -> Any:
-    """파이프라인 정의(relay-pipeline/1) 초안을 저장한다 — 새 판 번호가 생긴다. 새 slug 면
-    새 파이프라인이 초안으로 선다(사람이 사용하기 전까지 실행되지 않는다). **사용 중인 판은
-    그대로다.**
-    `recipe` 칸은 적지 않는다(레시피는 recipe_draft_save). 비밀 값을 적으면 거절된다.
-    돌려준 problems(울타리 밖 주소 · 다른 source · 등록 안 된 대상 …)를 먼저 읽는다."""
+    """파이프라인 정의(relay-pipeline/1) 초안 저장. 새 버전 번호가 생성됩니다. 새 slug이면
+    새 파이프라인이 초안으로 생성되며, 사람이 사용하기 전까지 실행되지 않습니다. **사용
+    중인 버전은 변경되지 않습니다.**
+    `recipe` 항목은 적지 않습니다(레시피는 recipe_draft_save). 인증 정보 값을 적으면
+    거부됩니다. 반환된 problems(허용 주소가 아닌 주소, 다른 source, 미등록 대상 등)를 먼저
+    확인합니다."""
     body = json.loads(definition) if isinstance(definition, str) else definition
     return await _call(
         ctx, "POST", f"/relay/pipelines/{slug}/definitions", body={"body": body, "note": note}
@@ -296,14 +313,15 @@ async def pipeline_test(
     limit: int = 10,
     sample_rows: list[dict[str, Any]] | None = None,
 ) -> Any:
-    """그 정의 판으로 원천을 **받아 보고**(전량 · 저장 안 함) · 대상 SP(닿나 · 토큰 · 레시피가
-    만드는 타입이 있나 · 잠금 managed_by)를 보고 · 레시피로 바꿔 본다 — **대상에 아무것도 안
-    보낸다.** 레시피는 recipe_version › 사용 중인 레시피 판 › 정의 파일의 것.
-    source.always_empty(늘 빈 열) · target.types_missing · recipe.unresolved 를 읽고 수정한다.
-    원천이 크면 앞 줄만 받는다(source.capped — 그때 「사용하면 보낼 것」 은 세지 않는다).
-    **보내 주는 원천(push)** 은 사용 전에는 받은 것이 없다 — `sample_rows`(원천 담당에게 받은
-    보낼 모양의 항목들)로 끝까지 시험하거나, 원천이 받는 자리에 `?trial=1` 로 시험 수신한 것을
-    읽는다(source.inbox 가 「시험 수신함」)."""
+    """정의 테스트: 지정한 정의 버전으로 원천을 **수신해 보고**(전체, 저장하지 않음), 대상
+    SP(연결, 토큰, 레시피가 생성하는 타입의 존재, 잠금 managed_by)를 확인하고, 레시피로
+    변환해 봅니다. **대상에는 아무것도 전송하지 않습니다.** 레시피는 recipe_version › 사용
+    중인 레시피 버전 › 정의 파일의 레시피 순으로 선택합니다. source.always_empty(항상 빈 열),
+    target.types_missing, recipe.unresolved를 확인하고 수정합니다. 원천이 크면 앞부분 행만
+    수신합니다(source.capped). 이때 '사용 시 전송 예정'은 집계하지 않습니다.
+    **푸시 원천(push)**은 사용 전에는 수신 데이터가 없습니다. `sample_rows`(원천 담당자에게
+    받은 전송 형식의 항목)로 끝까지 테스트하거나, 원천이 수신 주소에 `?trial=1`로 전송한
+    테스트 수신 데이터를 읽습니다(source.inbox가 '테스트 수신함')."""
     body: dict[str, Any] = {"recipe_version": recipe_version, "limit": limit}
     if sample_rows is not None:
         body["sample_rows"] = sample_rows
@@ -314,14 +332,15 @@ async def pipeline_test(
 
 @mcp.tool()
 async def pipeline_draft_discard(ctx: Context, slug: str, version: int) -> Any:
-    """정의 초안을 폐기한다 — **초안만**(사용 중인 · 지난 판은 폐기하지 못한다). 시험하다 만
-    초안을 정리한다. 새 파이프라인의 초안을 다 폐기하면 지도에서 사라진다."""
+    """정의 초안 폐기. **초안만** 폐기할 수 있습니다(사용 중인 버전과 이전 버전은 폐기할 수
+    없습니다). 테스트 후 사용하지 않을 초안을 정리합니다. 새 파이프라인의 초안을 모두
+    폐기하면 연결 지도에 표시되지 않습니다."""
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/definitions/{version}/discard")
 
 
 @mcp.tool()
 async def recipe_draft_discard(ctx: Context, slug: str, version: int) -> Any:
-    """레시피 초안을 폐기한다 — **초안만**."""
+    """레시피 초안 폐기. **초안만** 폐기할 수 있습니다."""
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/recipes/{version}/discard")
 
 
@@ -330,21 +349,23 @@ async def recipe_draft_discard(ctx: Context, slug: str, version: int) -> Any:
 
 @mcp.tool()
 async def pipeline_run(ctx: Context, slug: str, full: bool = False) -> Any:
-    """원천을 받아 대상 SP 에 **미리 보기 계획**을 생성한다(작업). 적용하지 않는다 — 계획은
-    사람이 대상 SP 화면이나 datarelay 화면에서 적용한다(자동 적용은 타이머의 실행에만).
-    진행은 job_status 로. 결과가 「받기 점검에서 멈췄습니다」(대량 삭제 · 빈 칸)이면 원천 ·
-    어댑터를 살펴 사람에게 알린다 — 「확인 후 진행」 은 사람이 화면에서만 한다. `full` 이면
-    워터마크를 두고 전량을 다시 받는다(어댑터의 칸을 고친 뒤 — 안 온 것은 삭제로 읽힌다)."""
+    """즉시 실행: 원천을 수신해 대상 SP에 **미리 보기 계획**을 생성합니다(작업). 적용하지
+    않습니다. 계획은 사람이 대상 SP 화면이나 datarelay 화면에서 적용합니다(자동 적용은 실행
+    주기에 따른 실행에만 해당). 진행 상황은 job_status로 확인합니다. 결과가 수신 검증으로
+    인한 중단(대량 삭제, 빈 필드)이면 원천과 어댑터를 확인해 사람에게 알립니다.
+    [확인 후 진행]은 사람이 화면에서만 합니다. `full`이면 워터마크를 무시하고 원천 전체를 다시
+    수신합니다(전체 재수신, 어댑터 필드를 수정한 후). 수신되지 않은 행은 삭제로
+    처리됩니다."""
     body = {"full": True} if full else {}
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/run", body=body)
 
 
 @mcp.tool()
 async def pipeline_reconcile(ctx: Context, slug: str, plan: bool = False) -> Any:
-    """대상 SP 에 **지금 있는 것**을 지난번 적용된 출력과 대조한다(작업 — 대상은 읽기만).
-    빠짐 · 안 씀(사용 중지) · 다름 · 대상에만을 센다. `plan=True` 면 어긋난 줄을 다시 보내는
-    **보정 계획**(미리 보기)까지 생성한다 — 적용은 사람이. 진행은 job_status, 결과는
-    pipeline_reconcile_report."""
+    """대조: 대상 SP의 **현재 객체**를 기준 출력(마지막으로 적용된 출력)과 비교합니다(작업,
+    대상은 조회만). 누락, 사용 중지, 값 불일치, 대상에만 존재를 집계합니다. `plan=True`이면
+    불일치 항목을 다시 전송하는 **보정 계획**(미리 보기)까지 생성합니다. 적용은 사람이
+    합니다. 진행 상황은 job_status, 결과는 pipeline_reconcile_report로 확인합니다."""
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/reconcile", body={"plan": plan})
 
 
@@ -359,22 +380,24 @@ async def pipeline_retract(
     action: str = "deprecate",
     note: str = "",
 ) -> Any:
-    """**보낸 것 걷어내기** — 이 파이프라인이 대상 SP 에 넣은 객체(시험으로 · 잘못 보낸 것)를
-    거두는 계획(미리 보기)을 올린다(작업). 고르기는 하나만: `all=True`(전부) · `types`(그 타입
-    전부) · `keys`(`{"plm_model": ["M-001"]}`). 이 파이프라인이 넣지 않은 것(다른 원천 · 사람이
-    만든 것)은 거절한다. 고른 객체에 닿는 선도 끊는다.
+    """**전송 데이터 회수**: 이 파이프라인이 대상 SP에 적재한 객체(테스트 데이터, 오전송
+    데이터)를 회수하는 계획(미리 보기)을 생성합니다(작업). 범위는 하나만 선택합니다:
+    `all=True`(전체), `types`(해당 타입 전체), `keys`(`{"plm_model": ["M-001"]}`). 이
+    파이프라인이 적재하지 않은 객체(다른 원천의 객체, 사람이 생성한 객체)는 거부합니다.
+    선택한 객체에 연결된 관계도 해제합니다.
 
-    `action`: `deprecate`(기본 — 대상은 사용 중지로 둔다) · `delete`(지운다 — 되돌릴 수 없다.
-    대상 SP 0.4.101 부터, `pipeline_get` 의 `target_deletes`. 이력 · 감사 기록은 남고, 가리키는
-    것이 있으면 대상이 그 줄을 막는다). **사람이 지우라고 하지 않았으면 `delete` 를 고르지
-    않는다.** `previous=True` 는 앞서 사용 중지로 걷어낸 것 중 대상에 남은 것을 지운다(`delete`
-    로만).
+    `action`: `deprecate`(기본, 대상 객체를 사용 중지로 둡니다), `delete`(삭제, 되돌릴 수
+    없습니다). `delete`는 대상 SP 0.4.101 이상에서 지원하며 `pipeline_get`의
+    `target_deletes`로 확인합니다. 이력과 감사 기록은 남고, 해당 객체를 참조하는 객체가
+    있으면 대상이 그 항목을 거부합니다. **사람이 삭제를 요청하지 않았으면 `delete`를
+    선택하지 않습니다.** `previous=True`는 이전에 사용 중지로 회수한 객체 중 대상에 남은
+    객체를 삭제합니다(`delete`와 함께만 사용).
 
-    올리면 **파이프라인이 멈춘다**(원천에 그 행이 그대로면 다음 실행이 다시 만드니까). 적용과
-    「다시 켜기」 는 사람이 화면에서 한다 — 사람에게 계획 링크(job_status 의 결과)와 함께,
-    원천에서 지우거나 레시피를 고친 뒤 다시 켜라고 말한다. **사람이 걷어내라고 하지 않았으면
-    부르지 않는다.**
-    `note` 에 까닭을(감사 기록에)."""
+    회수 계획을 생성하면 **파이프라인이 중지됩니다**(원천에 해당 행이 그대로 있으면 다음
+    실행이 다시 생성하기 때문입니다). 적용과 [재개]는 사람이 화면에서 합니다. 사람에게 계획
+    링크(job_status의 결과)를 전달하고, 원천에서 해당 데이터를 삭제하거나 레시피를 수정한
+    후 [재개]하도록 안내합니다. **사람이 회수를 요청하지 않았으면 호출하지 않습니다.**
+    `note`에 사유를 적습니다(감사 기록에 남습니다)."""
     body = {
         "all": all,
         "types": types or [],
@@ -388,30 +411,31 @@ async def pipeline_retract(
 
 @mcp.tool()
 async def pipeline_reconcile_report(ctx: Context, slug: str) -> Any:
-    """마지막 대조의 보고서 — 타입마다 빠짐 · 안 씀 · 다름(키 → 칸) · 대상에만의 식별자
-    전부."""
+    """마지막 대조 보고서: 타입별 누락, 사용 중지, 값 불일치(식별자 → 속성), 대상에만
+    존재의 식별자 전체."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/reconcile")
 
 
 @mcp.tool()
 async def pipeline_trace(ctx: Context, slug: str, type_slug: str, key: str) -> Any:
-    """거꾸로 보기 — 대상 객체 하나(`type_slug` · `key`)의 값이 어느 원천 행 · 칸 · 레시피
-    규칙에서 왔나. 칸마다 기준 출력의 값 · 규칙 · 원천의 원래 값(행 번호), 원천 행들, 닿는
-    관계, 마지막 대조에서의 상태(`reconcile.state` · 다른 칸). 대조가 「다름」 을 말하면
-    이것으로 까닭을 가린다 — 레시피의 값 모양 탓이면 레시피를, 원천 탓이면 원천 담당을,
-    대상에서 바뀐 것이면 보정 계획을. 읽기만 한다."""
+    """값의 출처 조회: 대상 객체 하나(`type_slug`, `key`)의 값이 원천의 어느 행, 어느 필드,
+    어느 레시피 규칙에서 만들어졌는지 조회합니다. 속성별 기준 출력의 값, 규칙, 원천의 원래
+    값(행 번호)과 원천 행, 연결된 관계, 마지막 대조 결과(`reconcile.state`, 값이 다른
+    속성)를 반환합니다. 대조 결과가 '값 불일치'이면 이 도구로 원인을 구분합니다. 레시피의
+    값 형식이 원인이면 레시피를 수정하고, 원천이 원인이면 원천 담당자에게 알리고, 대상에서
+    변경된 경우이면 보정 계획을 생성합니다. 조회만 합니다."""
     params = {"type_slug": type_slug, "key": key}
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/trace", params=params)
 
 
 @mcp.tool()
 async def pipeline_unresolved(ctx: Context, slug: str) -> Any:
-    """미해결 작업함 — 미해결로 멈춘 실행의 **참조**(대상에서 못 찾은 원천 표기 — 칸 · 행
-    수 · 대상의 후보)와 **값 갈림**(같은 식별자인데 행마다 값이 다름). 참조의 대응을
-    제안하려면 후보 안에서만 골라 레시피의 `relay_aliases` 에 더한 초안을 `recipe_draft_save`
-    로 저장한다(사용은 사람이 화면에서). 값 갈림은 레시피(모으는 칸)나 원천의 문제다 —
-    `split_fields` 는 객체마다 갈리는 칸(모으는 칸 `join` · `collect` 로 바꿀 후보, 안내의
-    `recipe`). 읽기만 한다."""
+    """미해결 처리함: 미해결로 중단된 실행의 **참조**(대상에서 찾지 못한 원천 표기, 필드,
+    행 수, 대상의 후보)와 **값 충돌**(같은 식별자인데 행마다 값이 다름)을 조회합니다.
+    참조에 대응하는 대상 키를 제안하려면 후보 중에서만 선택해 레시피의 `relay_aliases`에
+    추가한 초안을 `recipe_draft_save`로 저장합니다(사용은 사람이 화면에서 합니다). 값 충돌은
+    레시피(집계 속성)나 원천에서 해결합니다. `split_fields`는 객체별 값 충돌 속성입니다(집계
+    속성 `join`, `collect`로 변경할 후보, 안내의 `recipe` 참조). 조회만 합니다."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/unresolved")
 
 
@@ -423,27 +447,28 @@ async def pipeline_unresolved_draft(
     aggregates: list[dict[str, str]] | None = None,
     note: str = "",
 ) -> Any:
-    """미해결 작업함의 「레시피 초안으로 저장」 — 지금 레시피에 **relay 사전**(`entries` —
-    `[{"target": 대상 타입, "text": 원천 표기, "key": 대상 키}]`, key 는 pipeline_unresolved 의
-    후보 안에서만)을 더하고, 값이 갈리는 칸을 **모으는 칸**으로 바꿔(`aggregates` —
-    `[{"type_slug", "field", "mode": "join" | "collect", "separator": "; "}]`) 레시피 판 초안
-    하나로 저장한다. 레시피 JSON 을 직접 고치지 않아도 된다. 사용은 사람이 화면에서.
-    relay 사전은 임시 지름길이다 — 정본은 SP 의 별칭(alias_requests)."""
+    """미해결 처리함의 [레시피 초안 저장]: 현재 레시피에 **relay 사전** 항목(`entries`:
+    `[{"target": 대상 타입, "text": 원천 표기, "key": 대상 키}]`, key는 pipeline_unresolved의
+    후보 중에서만)을 추가하고, 값 충돌 속성을 **집계 속성**으로 변경해(`aggregates`:
+    `[{"type_slug", "field", "mode": "join" | "collect", "separator": "; "}]`) 레시피 버전
+    초안 하나로 저장합니다. 레시피 JSON을 직접 수정하지 않아도 됩니다. 사용은 사람이
+    화면에서 합니다. relay 사전은 임시 수단입니다. 정본은 SP의 별칭입니다(alias_requests)."""
     body = {"entries": entries or [], "aggregates": aggregates or [], "note": note}
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/unresolved/draft", body=body)
 
 
 @mcp.tool()
 async def alias_requests(ctx: Context, slug: str) -> Any:
-    """별칭 요청 목록(CSV 글) — 지금 레시피의 relay 사전을 대표 플랫폼에 미확인 별칭으로
-    제안할 목록. 「대상이 이미 푸나」 가 예인 줄은 relay 사전에서 걷는다. 읽기만 한다."""
+    """별칭 요청 목록(CSV 텍스트): 현재 레시피의 relay 사전을 대표 플랫폼에 미확인 별칭으로
+    제안하기 위한 목록입니다. '대상 처리 여부'가 '예'인 항목(대상이 이미 처리하는 표기)은
+    relay 사전에서 삭제합니다. 조회만 합니다."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/aliases.csv", text=True)
 
 
 @mcp.tool()
 async def pipeline_trend(ctx: Context, slug: str, limit: int = 30) -> Any:
-    """실행 추이 — 실행마다 받은 행 · 미러 · 계획 건수 · 걸린 시간 · 멈춘 단계(최근 것부터
-    `limit` 줄). 원천이 갑자기 줄거나 실패가 이어지는지 볼 때. 읽기만 한다."""
+    """실행 추이: 실행별 수신 행, 미러, 계획 건수, 소요 시간, 중단된 단계(최근 실행부터
+    `limit`건). 원천의 수신량 급감이나 연속 실패를 확인할 때 사용합니다. 조회만 합니다."""
     return await _call(ctx, "GET", f"/relay/pipelines/{slug}/trend", params={"limit": limit})
 
 
@@ -458,11 +483,12 @@ async def type_draft(
     system: str = "",
     nav_group: str | dict[str, Any] | None = None,
 ) -> Any:
-    """**SP 타입 정의 초안** — 대상에 받을 타입이 없을 때 원천 표본(`columns` — 열 → 보기
-    값들, source_discover 의 paths · source_sample 로 만든다)으로 타입 정의와 그 레시피 첫 판을
-    짓는다. 저장 · 전송하지 않는다 — type_plan 으로 대상에 계획을 올린다. `nav_group` 은
-    사이드바 묶음 — 대상에 있는 묶음의 slug(target_schema 의 groups), 또는 새 묶음
-    `{slug, label, icon}`(정의의 groups 로 함께 만든다)."""
+    """**SP 타입 정의 초안**: 대상에 수신할 타입이 없을 때 원천의 예시 값(`columns`: 열 →
+    예시 값 목록, source_discover의 paths나 source_sample로 작성)으로 타입 정의와 그
+    레시피의 첫 버전을 작성합니다. 저장하거나 전송하지 않습니다. 대상에 계획을 생성하려면
+    type_plan을 사용합니다. `nav_group`은 사이드바 그룹입니다. 대상에 있는 그룹의
+    slug(target_schema의 groups) 또는 새 그룹 `{slug, label, icon}`(정의의 groups로 함께
+    생성)을 지정합니다."""
     body = {
         "type_slug": type_slug,
         "label": label,
@@ -479,15 +505,16 @@ async def type_draft(
 async def type_plan(
     ctx: Context, slug: str, ontology: dict[str, Any] | str, note: str = ""
 ) -> Any:
-    """**대상에 타입 계획을 올린다** — SP 타입 정의 초안(`type_draft` · 한 번에 초안의
-    `ontology`)을 그 파이프라인의 원천 이름(`source` — 그 원천의 것으로 잠긴다)과 함께 대상
-    SP 의 **미리 보기 계획**으로. 대상 SP 의 MCP 를 따로 붙이지 않아도 된다. 적용은 사람이
-    대상 SP 화면 「작업」 에서(`link`) — 적용 뒤 pipeline_test 로 types_missing 이 비었나
-    본다. 대상 토큰에 ontology:write 범위가 없으면 거절된다 — 그 말을 사람에게 전한다.
-    **사이드바 묶음**: 타입의 `nav_group_slug` 는 대상에 있는 묶음(target_schema 의
-    groups)이거나 `ontology.groups` 로 함께 만드는 묶음이어야 한다. 이미 있는 타입을 다른
-    묶음으로 옮기려면 `{"types": [{"slug": …, "nav_group_slug": …}]}` 만 — SP 는 보낸 칸만
-    고친다."""
+    """**타입 계획 생성**: SP 타입 정의 초안(`type_draft` 또는 일괄 초안 생성 결과의
+    `ontology`)을 파이프라인의 원천 이름(`source`, 해당 원천으로 잠김)과 함께 대상 SP의
+    **미리 보기 계획**으로 생성합니다. 대상 SP의 MCP를 별도로 연결하지 않아도 됩니다. 적용은
+    사람이 대상 SP의 [작업] 화면에서 합니다(`link`). 적용 후 pipeline_test로 types_missing이
+    비었는지 확인합니다. 대상 토큰에 ontology:write 범위가 없으면 거부됩니다. 그 메시지를
+    사람에게 전달합니다.
+    **사이드바 그룹**: 타입의 `nav_group_slug`는 대상에 있는 그룹(target_schema의 groups)
+    이거나 `ontology.groups`로 함께 생성하는 그룹이어야 합니다. 기존 타입을 다른 그룹으로
+    이동하려면 `{"types": [{"slug": …, "nav_group_slug": …}]}`만 전송합니다. SP는 전송한
+    항목만 수정합니다."""
     body = {
         "ontology": json.loads(ontology) if isinstance(ontology, str) else ontology,
         "note": note,
@@ -497,11 +524,12 @@ async def type_plan(
 
 @mcp.tool()
 async def source_spec(ctx: Context, url: str, auth: dict[str, Any] | None = None) -> Any:
-    """원천의 **API 지침서**를 읽는다 — OpenAPI · Swagger(JSON · YAML), OData `$metadata`,
-    WSDL, 문서 화면(HTML 이면 그 안의 지침서 주소 후보). 서버 주소 · 인증 방식(relay `auth`
-    모양으로) · 목록 조회마다 질의 · 목록 자리(rows_path) · 항목의 칸 · 쪽 넘김 · 증분 질의의
-    후보를 준다 — 이것으로 어댑터를 고르고 source_discover · pipeline_scaffold 로 확인한다.
-    인증은 원천과 같은 모양(비밀은 token_env 이름만). 주소는 원천과 같은 울타리 안만."""
+    """**API 명세 분석**: 원천의 API 명세를 분석합니다. OpenAPI, Swagger(JSON, YAML), OData
+    `$metadata`, WSDL, 문서 화면(HTML이면 그 안의 명세 주소 후보)을 지원합니다. 서버 주소,
+    인증 방식(relay `auth` 형식), 목록 조회별 질의, 목록 위치(rows_path), 항목의 필드,
+    페이지 처리, 증분 질의의 후보를 반환합니다. 이 결과로 어댑터를 선택하고 source_discover나
+    pipeline_scaffold로 확인합니다. 인증은 원천과 같은 형식입니다(인증 정보는 token_env
+    이름만). 주소는 원천과 같은 허용 주소만 조회합니다."""
     body = {"url": url, "auth": auth}
     return await _call(ctx, "POST", "/relay/source-spec", body=body)
 
@@ -526,24 +554,28 @@ async def pipeline_scaffold(
     sample_rows: list[dict[str, Any]] | None = None,
     nav_group: str | dict[str, Any] | None = None,
 ) -> Any:
-    """**한 번에 초안** — 원천의 주소 · 인증(`adapter`, 비밀은 token_env 이름만 — 모양은 비워도
-    된다) · 원천 이름(`source` — plm · mes) · 대상 타입(`type_slug`)만으로: 탐색 → 행 자리 ·
-    쪽 넘김 · 식별자 · 변경 시각 · 삭제 표시를 단서로 채운 **정의 판 초안** → 대상 타입의 칸에
-    이름으로 잇는 **레시피 판 초안**(대상에 타입이 없으면 SP 타입 정의 초안) → **시험**.
-    대상은 `target_from`(대상이 같은 파이프라인 slug) · `target` · 하나뿐인 대상 순.
-    status: needs_secrets(사람에게 secrets_needed 를 화면에서 넣어 달라고 — 아무것도 저장하지
-    않았다) · needs_key(candidates 중 식별자를 골라 key 로 다시) · discover_failed ·
-    drafted · type_missing. **보내 주는 원천(push)** 은 받은 것이 없으니 `sample_rows`(보낼
-    모양의 항목) 또는 `columns`({열: 자리})로 짓는다. **한 행을 여러 타입으로 나눈다**
-    (`split`, 기본) — 대상의 정의를 따라, 같은 원천이 주인인 참조 타입(과제 · 프로젝트 …)은
-    열 묶음(`task.*` · `TASK_*`)에서 객체로 만들어 key_of 로 잇고, 관계 종류는 맞는 열이
-    하나면 선으로. recipe.types(타입마다 묶음 · 식별자 · 이름) · relations ·
-    relation_candidates · skipped(다른 파이프라인이 채워 참조만)를 본다. 결과의 chosen(고른
-    값과 까닭) · required_missing(꼭 받는데 빈 칸 — 먼저) · unmatched · references(참조 칸 —
-    match 로) · trial 을 읽고 recipe_draft_save · pipeline_draft_save 로 고친 뒤 `next` 를
-    따른다. 사용하지 않는다 — 사용은 사람이 화면에서. 대상에 타입이 없으면(`type_missing`)
-    `nav_group`(사이드바 묶음 — 있는 묶음 slug 또는 새 묶음)을 따르고, 안 주면 대상의 묶음에서
-    고른다(recipe.nav_group 에 고른 것과 까닭)."""
+    """**일괄 초안 생성**: 원천 주소와 인증(`adapter`, 인증 정보는 token_env 이름만, 형식
+    항목은 비워도 됨), 원천 이름(`source`: plm, mes), 대상 타입(`type_slug`)만으로 다음을 한
+    번에 수행합니다. 탐색 → 행 위치, 페이지 처리, 식별자, 변경 시각, 삭제 표시를 탐색
+    결과로 채운 **정의 버전 초안** → 대상 타입의 속성에 필드 이름으로 연결한 **레시피 버전
+    초안**(대상에 타입이 없으면 SP 타입 정의 초안) → **테스트**. 대상은
+    `target_from`(대상이 같은 파이프라인의 slug) › `target` › 유일한 대상 순으로 정합니다.
+    status: needs_secrets(사람에게 secrets_needed의 인증 정보를 화면에서 입력하도록 요청,
+    아무것도 저장하지 않음), needs_key(candidates 중 식별자를 선택해 key로 다시 호출),
+    discover_failed, drafted, type_missing.
+    **푸시 원천(push)**은 수신 데이터가 없으므로 `sample_rows`(전송 형식의 항목) 또는
+    `columns`({열: 위치})로 작성합니다.
+    **행 분할**(`split`, 기본): 대상의 정의에 따라 원천 한 행을 여러 타입으로 분할합니다. 같은
+    원천이 관리하는 참조 타입(과제, 프로젝트 등)은 열 그룹(`task.*`, `TASK_*`)에서 객체를
+    생성해 key_of로 연결하고, 관계 종류는 해당하는 열이 하나이면 관계로 생성합니다.
+    recipe.types(타입별 열 그룹, 식별자, 이름), relations, relation_candidates,
+    skipped(다른 파이프라인이 채우는 타입, 참조만)를 확인합니다.
+    결과의 chosen(선택한 값과 사유), required_missing(필수인데 비어 있는 속성, 먼저 처리),
+    unmatched, references(참조 속성, match로 연결), trial을 확인하고 recipe_draft_save,
+    pipeline_draft_save로 수정한 후 `next`를 따릅니다. 초안을 사용 상태로 전환하지 않습니다.
+    사용은 사람이 화면에서 합니다. 대상에 타입이 없으면(`type_missing`) `nav_group`(사이드바
+    그룹: 기존 그룹 slug 또는 새 그룹)을 따르고, 지정하지 않으면 대상의 그룹 중에서
+    선택합니다(recipe.nav_group에 선택한 그룹과 사유)."""
     body: dict[str, Any] = {
         "adapter": json.loads(adapter) if isinstance(adapter, str) else adapter,
         "source": source,
@@ -566,10 +598,10 @@ async def pipeline_scaffold(
 
 @mcp.tool()
 async def secrets_status(ctx: Context) -> Any:
-    """정의가 쓰는 비밀마다 상태 — `screen`(화면에서 넣음) · `server`(서버 설정) ·
-    `missing`(비어 있음)과 쓰는 곳. **값은 없다.** missing 이면 사람에게 화면 › 중계 › 비밀
-    에서 넣어 달라고 말한다(값을 대화로 받지 않는다). `missing` 에 비어 있는 이름, `link` 에
-    사람에게 건넬 화면 자리."""
+    """인증 정보 상태: 정의가 사용하는 인증 정보별 상태 `screen`(입력됨), `server`(서버
+    설정), `missing`(미입력)과 사용처. **값은 포함하지 않습니다.** missing이면 사람에게
+    화면의 [중계] › [인증 정보]에서 입력하도록 요청합니다(값을 대화로 받지 않습니다).
+    `missing`에는 미입력 이름, `link`에는 사람에게 전달할 화면 주소가 있습니다."""
     got = await _call(ctx, "GET", "/relay/secrets")
     # 목록 그대로 내면 MCP 가 원소마다 따로 실어 「무엇이 비었나」 가 흩어진다 — 묶어서 낸다.
     listed = got if isinstance(got, list) else []
@@ -583,10 +615,11 @@ async def secrets_status(ctx: Context) -> Any:
 
 @mcp.tool()
 async def allowed_hosts(ctx: Context) -> Any:
-    """탐색 · 시험이 닿아도 되는 주소 — `source`(원천) · `target`(대상 SP)마다 서버 설정 ·
-    화면에서 더한 것 · 사용 중인 정의의 것. 403(RELAY-0010)으로 막히면 이것을 보고
-    **사람에게** 화면 › 중계 › 허용 주소 에 그 주소를 더해 달라고 말한다(바꾸는 도구는 없다 —
-    재시작은 없다)."""
+    """허용 주소: 탐색과 테스트가 접속할 수 있는 주소입니다. `source`(원천), `target`(대상
+    SP)별로 서버 설정, 화면에서 추가한 주소, 사용 중인 정의의 주소를 반환합니다.
+    403(RELAY-0010)으로 거부되면 이 목록을 확인하고 **사람에게** 화면의
+    [중계] › [허용 주소]에 해당 주소를 추가하도록 요청합니다. 허용 주소를 변경하는 도구는
+    없습니다. 추가 후 재시작은 필요하지 않습니다."""
     return await _call(ctx, "GET", "/relay/allowed-hosts")
 
 
@@ -594,16 +627,18 @@ async def allowed_hosts(ctx: Context) -> Any:
 async def secrets_request(
     ctx: Context, pipeline: str, names: list[str], role: str = "원천 인증"
 ) -> Any:
-    """정의를 짓기 전에 필요한 비밀 **이름**을 비밀 목록에 올린다(값 없음) — 사람이 화면에서
-    바로 넣을 수 있게. role: 원천 인증 · 대상 토큰 · 인증서 키 암호 · 보내는 쪽 비밀. 이름은
-    대문자 · 숫자 · _ (예: MES_API_TOKEN). 플랫폼 자신의 설정 이름은 거절된다."""
+    """인증 정보 이름 등록: 정의를 작성하기 전에 필요한 인증 정보의 **이름**을 인증 정보
+    목록에 등록합니다(값 없음). 사람이 화면에서 바로 입력할 수 있습니다.
+    role 값: '원천 인증', '대상 토큰', '인증서 키 암호', '보내는 쪽 비밀'.
+    이름은 대문자, 숫자, _만 사용합니다(예: MES_API_TOKEN). 플랫폼 자체의 설정 이름은
+    거부됩니다."""
     body = {"pipeline": pipeline, "names": names, "role": role}
     return await _call(ctx, "POST", "/relay/secrets/requests", body=body)
 
 
 @mcp.tool()
 async def job_status(ctx: Context, job_id: str) -> Any:
-    """작업의 상태 · 결과 요약(summary)."""
+    """작업 상태와 결과 요약(summary)."""
     got = await _call(ctx, "GET", f"/jobs/{job_id}")
     return {k: got.get(k) for k in ("id", "kind", "status", "error", "result", "finished_at")}
 

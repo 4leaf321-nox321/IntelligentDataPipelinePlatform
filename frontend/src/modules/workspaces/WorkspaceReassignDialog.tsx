@@ -134,10 +134,10 @@ export function WorkspaceReassignDialog({ source, all, onClose, onDone }: Props)
   /** 끝난 작업이 결과를 못 냈으면 그 까닭 — 취소는 「아무것도 안 옮겼다」 로 말한다. */
   function failure(finished: Job): void {
     if (finished.status === 'cancelled') {
-      setNotice('취소했습니다 — 아무것도 이동하지 않았습니다.')
+      setNotice('이동을 취소했습니다. 이동된 자료는 없습니다.')
       return
     }
-    setError(new Error(finished.error ?? '작업이 끝나지 않았습니다.'))
+    setError(new Error(finished.error ?? '작업이 완료되지 않았습니다.'))
   }
 
   async function preview() {
@@ -199,20 +199,20 @@ export function WorkspaceReassignDialog({ source, all, onClose, onDone }: Props)
     <Dialog open onOpenChange={(next) => !next && onClose()}>
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{source.name} 의 자료 이동</DialogTitle>
+          <DialogTitle>{source.name}의 자료 이동</DialogTitle>
           <DialogDescription>
-            선택한 것을 다른 부서로 통째 넘깁니다. 자료 자체는 그대로고 소유 부서만 바뀝니다. 먼저
-            무엇이 몇 건 이동하는지 미리 보고, 확인한 뒤에 적용합니다. 다 넘긴 뒤에 이 부서를
-            보관하거나 삭제하면 통폐합이 끝납니다.
+            선택한 자료를 다른 부서로 일괄 이관합니다. 자료는 그대로 유지되고 소유 부서만
+            변경됩니다. 먼저 이동할 자료와 건수를 미리 보기로 확인한 후 적용합니다. 이관을 마친 후
+            이 부서를 보관하거나 삭제하면 통폐합이 완료됩니다.
           </DialogDescription>
         </DialogHeader>
 
         {moved ? (
           <div className="space-y-2 text-sm">
-            <p className="text-emerald-600 dark:text-emerald-400">{targetName} 으로 옮겼습니다.</p>
+            <p className="text-emerald-600 dark:text-emerald-400">{targetName} 부서로 이동했습니다.</p>
             <ReassignPlanView result={moved} />
             <p className="text-muted-foreground text-xs">
-              이제 이 부서를 보관하거나 삭제하면 통폐합이 끝납니다.
+              이 부서를 보관하거나 삭제하면 통폐합이 완료됩니다.
             </p>
           </div>
         ) : (
@@ -227,14 +227,14 @@ export function WorkspaceReassignDialog({ source, all, onClose, onDone }: Props)
                   setTarget(next)
                   reset()
                 }}
-                placeholder="어느 부서로 넘길까요"
-                searchPlaceholder="부서 이름이나 주소로 검색"
+                placeholder="이관할 부서 선택"
+                searchPlaceholder="부서 이름 또는 주소로 검색"
               />
             </div>
             <div className="space-y-2">
-              <Label>넘길 것</Label>
+              <Label>이관 항목</Label>
               {contents === null ? (
-                <p className="text-muted-foreground text-sm">무엇이 있는지 확인 중…</p>
+                <p className="text-muted-foreground text-sm">자료 확인 중…</p>
               ) : (
                 <ul className="space-y-1">
                   {contents.map((one) => (
@@ -261,13 +261,13 @@ export function WorkspaceReassignDialog({ source, all, onClose, onDone }: Props)
               {/* 관계 선과 속성으로 이 부서를 **가리키는** 것은 안 옮긴다 — 자동으로
                   바꾸면 「담당 부서」 가 사람 모르게 바뀐다. */}
               <p className="text-muted-foreground text-xs">
-                이 부서를 값으로 가리키는 객체(담당 부서 같은 칸)는 변경하지 않습니다. 그것은 옮기는
-                것이 아니라 고치는 일이라, 사람이 정해야 합니다.
+                이 부서를 값으로 참조하는 객체(담당 부서 등의 속성)는 변경하지 않습니다. 이는 이관이
+                아닌 값의 수정이므로 사람이 직접 결정해야 합니다.
               </p>
             </div>
             {plan && <ReassignPlanView result={plan} />}
             {plan && !plan.ok && plan.errors.length === 0 && (
-              <p className="text-muted-foreground text-xs">이동할 것이 없습니다.</p>
+              <p className="text-muted-foreground text-xs">이동할 자료가 없습니다.</p>
             )}
           </div>
         )}
@@ -278,8 +278,8 @@ export function WorkspaceReassignDialog({ source, all, onClose, onDone }: Props)
             <span className="text-muted-foreground">
               {running.status === 'queued'
                 ? stuck
-                  ? '아직 아무도 집어 가지 않았습니다 — 작업 워커가 꺼져 있을 수 있습니다. 「내 활동 › 작업」 에서 확인하세요.'
-                  : '워커를 기다리는 중 — 창을 닫아도 계속되고, 작업 화면에서 볼 수 있습니다.'
+                  ? '워커가 작업을 시작하지 않았습니다. 작업 워커가 중지되었을 수 있습니다. [내 활동] › [작업]에서 확인하세요.'
+                  : '워커 대기 중. 창을 닫아도 작업은 계속되며 [작업] 화면에서 확인할 수 있습니다.'
                 : progress && progress.total > 0
                   ? `${progress.stage} ${progress.done.toLocaleString()} / ${progress.total.toLocaleString()}건`
                   : `${progress?.stage || '진행 중'}…`}
@@ -301,7 +301,7 @@ export function WorkspaceReassignDialog({ source, all, onClose, onDone }: Props)
             (plan ? (
               <Button onClick={() => void apply()} disabled={busy || !plan.ok}>
                 {busy && <Loader2 className="mr-1 size-3.5 animate-spin" />}
-                {`적용 — ${plan.total.toLocaleString()}건 이동`}
+                {`적용(${plan.total.toLocaleString()}건 이동)`}
               </Button>
             ) : (
               <Button
@@ -309,7 +309,7 @@ export function WorkspaceReassignDialog({ source, all, onClose, onDone }: Props)
                 disabled={busy || !target || picked.size === 0}
               >
                 {busy && <Loader2 className="mr-1 size-3.5 animate-spin" />}
-                {`미리 보기 — ${total.toLocaleString()}건`}
+                {`미리 보기(${total.toLocaleString()}건)`}
               </Button>
             ))}
         </DialogFooter>

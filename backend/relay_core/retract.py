@@ -69,7 +69,7 @@ LEDGER = "retracted.json"
 ACTIONS = ("deprecate", "delete")
 #: 지우기를 받는 대상 SP 판 — 그 전 판은 `action` 칸을 무시하고 사용 중지한다.
 DELETE_SINCE = (0, 4, 101)
-_ACTION_LABEL = {"deprecate": "사용 중지", "delete": "지우기"}
+_ACTION_LABEL = {"deprecate": "사용 중지", "delete": "삭제"}
 
 
 def supports_delete(version: str) -> bool:
@@ -81,14 +81,14 @@ def supports_delete(version: str) -> bool:
 def after_apply(stopped: Mapping[str, Any] | None) -> str:
     """걷어내기 계획을 적용한 뒤의 한마디 — 작업 결과에 붙인다."""
     done = (
-        "지웠습니다(이력 · 감사 기록은 남고 되돌릴 수 없습니다)"
+        "삭제했습니다(이력과 감사 기록은 남고, 되돌릴 수 없습니다)"
         if (stopped or {}).get("action") == "delete"
-        else "사용 중지로 두었습니다"
+        else "사용 중지했습니다"
     )
     return (
-        f"걷어냈습니다 — 대상은 그 객체를 {done}. 파이프라인은 멈춰 있습니다: 원천에 그 행이 "
-        "그대로 있으면 다음 실행이 다시 만드니, 원천에서 지우거나 레시피를 고친 뒤 화면에서 "
-        "「다시 켜기」 하세요."
+        f"전송 데이터를 회수했습니다. 대상에서 해당 객체를 {done}. 파이프라인은 중지 "
+        "상태입니다. 원천에 해당 행이 남아 있으면 다음 실행에서 다시 생성됩니다. 원천에서 "
+        "삭제하거나 레시피를 수정한 후 화면에서 [재개]를 클릭하세요."
     )
 
 
@@ -102,7 +102,7 @@ def _now() -> str:
 
 def _strings(value: Any, what: str) -> frozenset[str]:
     if not isinstance(value, list) or not all(isinstance(one, str) and one for one in value):
-        raise RetractError(f"{what} 는 글자의 목록입니다.")
+        raise RetractError(f"{what}는 문자열 목록이어야 합니다.")
     return frozenset(value)
 
 
@@ -121,22 +121,25 @@ class Scope:
         if body.get("previous") is True:
             if body.get("all") is True or body.get("types") or body.get("keys"):
                 raise RetractError(
-                    "previous 는 홀로 씁니다 — all · types · keys 와 함께 적지 않습니다."
+                    "previous는 단독으로 사용합니다. all, types, keys와 함께 지정할 수 "
+                    "없습니다."
                 )
             return cls(previous=True)
         every = body.get("all") is True
         types = _strings(body.get("types") or [], "types")
         raw = body.get("keys") or {}
         if not isinstance(raw, dict):
-            raise RetractError("keys 는 {타입: [식별자, …]} 입니다.")
+            raise RetractError("keys는 {타입: [식별자, …]} 형식이어야 합니다.")
         keys = {str(slug): _strings(found, f"keys.{slug}") for slug, found in raw.items()}
         keys = {slug: found for slug, found in keys.items() if found}
         if every and (types or keys):
-            raise RetractError("all 은 홀로 씁니다 — types · keys 와 함께 적지 않습니다.")
+            raise RetractError(
+                "all은 단독으로 사용합니다. types, keys와 함께 지정할 수 없습니다."
+            )
         if not (every or types or keys):
             raise RetractError(
-                "무엇을 걷어낼지 적으세요 — all: true(전부) · types: [타입] · keys: {타입: "
-                "[식별자]} · previous: true(앞서 사용 중지로 걷어낸 것) 중 하나."
+                "회수 범위를 지정하세요. all: true(전체), types: [타입], keys: {타입: "
+                "[식별자]}, previous: true(사용 중지로 회수한 객체) 중 하나입니다."
             )
         return cls(all=every, types=types, keys=keys)
 
@@ -145,9 +148,9 @@ class Scope:
 
     def text(self) -> str:
         if self.previous:
-            return "앞서 사용 중지로 걷어낸 것"
+            return "사용 중지로 회수한 객체"
         if self.all:
-            return "보낸 것 전부"
+            return "전송 데이터 전체"
         parts = []
         if self.types:
             parts.append("타입 " + ", ".join(sorted(self.types)))
@@ -175,20 +178,20 @@ class Scope:
 def check(scope: Scope, action: str) -> None:
     """고른 것과 할 일이 맞나 — API 가 넣기 전에, 엔진이 짓기 전에 본다."""
     if action not in ACTIONS:
-        raise RetractError(f"action 은 {' · '.join(ACTIONS)} 중 하나입니다.")
+        raise RetractError(f"action은 {' · '.join(ACTIONS)} 중 하나입니다.")
     if scope.previous and action != "delete":
         raise RetractError(
-            "앞서 걷어낸 것은 이미 사용 중지입니다 — previous 는 action: delete(지우기)로만 "
-            "고릅니다."
+            "사용 중지로 회수한 객체는 이미 사용 중지 상태입니다. previous는 action: "
+            "delete(삭제)와 함께만 지정할 수 있습니다."
         )
 
 
 def stopped_message(stopped: Mapping[str, Any]) -> str:
     by = f" · {stopped['by']}" if stopped.get("by") else ""
     return (
-        f"보낸 것을 걷어내고 멈춰 있습니다({stopped.get('scope') or '—'} · "
-        f"{stopped.get('at') or ''}{by}) — 원천에서 지우거나 레시피를 고친 뒤 화면에서 「다시 "
-        "켜기」 하면 돕니다."
+        f"전송 데이터를 회수하고 파이프라인을 중지한 상태입니다({stopped.get('scope') or '—'} "
+        f"· {stopped.get('at') or ''}{by}). 원천에서 해당 데이터를 삭제하거나 레시피를 수정한 "
+        "후 화면에서 [재개]를 클릭하세요."
     )
 
 
@@ -282,7 +285,7 @@ def _carve(base: Path, out: Path, scope: Scope, ends: dict[str, set[str]]) -> _C
     for file in sorted(folder.glob("*.json")) if folder.is_dir() else []:
         body = sp.pipeline._read_json(file, problems)
         if not isinstance(body, dict) or not isinstance(body.get("rows"), list):
-            raise RetractError(f"기준의 {file.name} 을 못 읽었습니다: {problems}")
+            raise RetractError(f"기준 출력의 {file.name} 파일을 읽을 수 없습니다: {problems}")
         slug = str(body.get("type_slug") or file.stem)
         carved.seen_types.add(slug)
         keep: list[Any] = []
@@ -302,7 +305,7 @@ def _carve(base: Path, out: Path, scope: Scope, ends: dict[str, set[str]]) -> _C
     for file in sorted(folder.glob("*.json")) if folder.is_dir() else []:
         body = sp.pipeline._read_json(file, problems)
         if not isinstance(body, dict) or not isinstance(body.get("rows"), list):
-            raise RetractError(f"기준의 {file.name} 을 못 읽었습니다: {problems}")
+            raise RetractError(f"기준 출력의 {file.name} 파일을 읽을 수 없습니다: {problems}")
         slug = str(body.get("type_slug") or file.stem)
         keep = []
         for row in body["rows"]:
@@ -388,7 +391,7 @@ def _previous(
                 if key in keys and one.get("status") == "deprecated":
                     found.setdefault(slug, set()).add(key)
     except reconcile.ReconcileError as failure:
-        raise RetractError(f"대상을 읽지 못했습니다: {failure}") from None
+        raise RetractError(f"대상을 조회하지 못했습니다: {failure}") from None
     if not found:
         return {}
     send.mkdir(parents=True)
@@ -417,7 +420,7 @@ def _refusal(scope: Scope, carved: _Carved) -> str:
     unknown = sorted(scope.types - carved.seen_types)
     if unknown:
         return (
-            f"이 파이프라인이 대상에 넣은 적이 없는 타입입니다: {', '.join(unknown)} — 넣은 "
+            f"이 파이프라인이 대상에 적재하지 않은 타입입니다: {', '.join(unknown)}. 적재한 "
             f"타입: {', '.join(sorted(carved.seen_types)) or '없음'}."
         )
     missing = [
@@ -428,8 +431,8 @@ def _refusal(scope: Scope, carved: _Carved) -> str:
     if missing:
         more = f" 외 {len(missing) - SHOWN}개" if len(missing) > SHOWN else ""
         return (
-            "이 파이프라인이 대상에 넣은 것(기준)에 없는 식별자입니다: "
-            f"{', '.join(missing[:SHOWN])}{more} — 다른 원천 · 사람이 만든 것은 거두지 "
+            "이 파이프라인의 기준 출력에 없는 식별자입니다: "
+            f"{', '.join(missing[:SHOWN])}{more}. 다른 원천이나 사람이 생성한 객체는 회수하지 "
             "않습니다."
         )
     return ""
@@ -459,15 +462,16 @@ def retract(
     if state.pending is not None:
         return Outcome(
             "waiting",
-            note + f"적용을 기다리는 계획({state.pending.job_id[:8]})이 있어 걷어내기 계획을 "
-            "올리지 않았습니다 — 그 계획을 적용하거나 다시 실행한 뒤 걷어내세요.",
+            note
+            + f"적용 대기 중인 계획({state.pending.job_id[:8]})이 있어 회수 계획을 생성하지 "
+            "않았습니다. 계획을 적용하거나 다시 실행한 후 진행하세요.",
         )
     if not state.applied_run:
-        return Outcome("nothing", note + "대상에 적용한 것이 없어 걷어낼 것이 없습니다.")
+        return Outcome("nothing", note + "대상에 적용한 계획이 없어 회수할 데이터가 없습니다.")
     base = work.path(state.applied_run)
     manifest, problems = diff_head(base)
     if problems:
-        raise RetractError(f"기준 출력을 못 읽었습니다({state.applied_run}): {problems}")
+        raise RetractError(f"기준 출력을 읽을 수 없습니다({state.applied_run}): {problems}")
 
     when = stamp()
     run_name, send_name = f"runs/{when}-{ORIGIN}", f"sends/{when}-{ORIGIN}"
@@ -477,7 +481,8 @@ def retract(
         if not found_before:
             return Outcome(
                 "nothing",
-                note + "앞서 걷어낸 것 중 대상에 사용 중지로 남은 것이 없습니다.",
+                note
+                + "사용 중지로 회수한 객체 중 대상에 사용 중지 상태로 남은 객체가 없습니다.",
             )
         count = sum(len(keys) for keys in found_before.values())
         counts: dict[str, Any] = {
@@ -515,7 +520,7 @@ def retract(
         raise
     if not carved.objects:
         shutil.rmtree(out, ignore_errors=True)
-        return Outcome("nothing", note + "고른 것 중 대상에 남은 객체가 없습니다.")
+        return Outcome("nothing", note + "선택한 객체 중 대상에 남은 객체가 없습니다.")
     head = dict(manifest)
     for kind, kept in (("objects", carved.kept_objects), ("relations", carved.kept_relations)):
         head[f"{kind}_order"] = [
@@ -532,8 +537,8 @@ def retract(
     _mark(send, action, carved.gone, _ends(base, ends))
     _remember(work, carved.gone)
     blind = (
-        f" 도착 쪽 타입을 모르는 관계 종류({', '.join(sorted(carved.blind))})는 출발 쪽만 "
-        "보았습니다."
+        f" 도착 타입을 알 수 없는 관계 종류({', '.join(sorted(carved.blind))})는 출발 객체 "
+        "기준으로만 확인했습니다."
         if carved.blind
         else ""
     )
@@ -576,7 +581,7 @@ def _plan(
     `run` 은 적용되면 기준이 될 출력이다."""
     send = work.path(send_name)
     head = json.loads((send / sp.pipeline.MANIFEST).read_text(encoding="utf-8"))
-    head["title"] = f"{head.get('title') or pipeline.slug} — 보낸 것 걷어내기"
+    head["title"] = f"{head.get('title') or pipeline.slug} — 전송 데이터 회수"
     (send / sp.pipeline.MANIFEST).write_text(
         json.dumps(head, ensure_ascii=False, indent=2), encoding="utf-8"
     )
@@ -585,7 +590,7 @@ def _plan(
             submit, send, pipeline.target, origin=origin_for(pipeline, send_name)
         )
     except SubmitError as failure:
-        return Outcome("blocked", f"{note}걷어내기 계획을 올리지 못했습니다: {failure}")
+        return Outcome("blocked", f"{note}회수 계획을 생성하지 못했습니다: {failure}")
     if not plan.ok:
         # 계획에 오류가 있으면 상태를 바꾸지 않는다 — 멈추지도, 대기 계획으로 두지도 않는다.
         state.history.append(
@@ -594,7 +599,7 @@ def _plan(
         work.save_state(state)
         return Outcome(
             "blocked",
-            f"{note}걷어내기 계획에 오류가 있습니다 — 파이프라인은 그대로 돕니다. "
+            f"{note}회수 계획에 오류가 있습니다. 파이프라인은 중지하지 않았습니다. "
             f"{plan.summary}",
             link=plan.link,
             counts=counts,
@@ -627,12 +632,12 @@ def _plan(
         event["parts"] = len(cut.parts)
     state.history.append(event)
     work.save_state(state)
-    edges = f" · 선 {relations:,}줄 끊기" if relations else ""
+    edges = f" · 관계 {relations:,}건 해제" if relations else ""
     return Outcome(
         "planned",
-        f"{note}걷어내기 계획({shown}): 객체 {objects:,}개 {label}{edges}로 올렸습니다 — "
-        "대상 SP 에서 계획을 읽고 「적용」 하세요. 파이프라인은 멈췄습니다(다시 켜기 전까지 "
-        f"실행 · 타이머가 돌지 않습니다).{blind}",
+        f"{note}회수 계획({shown})을 생성하고 파이프라인을 중지했습니다. 객체 {objects:,}개 "
+        f"{label}{edges}. 대상 SP에서 계획을 확인하고 [적용]을 클릭하세요. [재개] 전까지 "
+        f"실행과 타이머가 동작하지 않습니다.{blind}",
         link=plan.link,
         counts=counts,
     )
@@ -645,20 +650,20 @@ def resume(work: Workdir, applied: Callable[[str], bool | None], *, by: str = ""
     것을 기준이 아직 들고 있게 된다."""
     state = work.load_state()
     if not state.stopped:
-        raise RetractError("멈춰 있지 않습니다.")
+        raise RetractError("파이프라인이 중지 상태가 아닙니다.")
     note = ""
     pending = state.pending
     if pending is not None and pending.origin == ORIGIN:
         known = applied(pending.job_id) if pending.job_id else False
         if known is None:
             raise RetractError(
-                "대상에 닿지 않아 걷어내기 계획이 적용됐는지 모릅니다 — 대상이 닿을 때 다시 "
-                "켜세요."
+                "대상에 연결할 수 없어 회수 계획의 적용 여부를 확인할 수 없습니다. 대상에 "
+                "연결된 후 재개하세요."
             )
         if pending.part > 0 or (known and pending.total > 1):
             raise RetractError(
-                "나눠 보내는 걷어내기의 조각이 들어가기 시작했습니다 — 「적용」 으로 끝까지 "
-                "넣은 뒤 다시 켜세요."
+                "회수 계획의 분할 번들 적용이 시작되었습니다. [적용]으로 모든 분할 번들을 "
+                "적용한 후 재개하세요."
             )
         if known:
             note = settle_pending(state, _Applied())  # type: ignore[arg-type]
@@ -673,16 +678,15 @@ def resume(work: Workdir, applied: Callable[[str], bool | None], *, by: str = ""
             )
             state.pending = None
             note = (
-                f"적용하지 않은 걷어내기 계획({pending.job_id[:8]})을 거뒀습니다 — 대상 SP "
-                "작업 화면에 남은 그 미리 보기는 적용하지 마세요. "
+                f"적용하지 않은 회수 계획({pending.job_id[:8]})을 취소했습니다. 대상 SP의 "
+                "[작업] 화면에 남은 해당 미리 보기는 적용하지 마세요. "
             )
     state.stopped = None
     state.history.append({"at": _now(), "event": "resumed", **({"by": by} if by else {})})
     work.save_state(state)
     return (
-        note
-        + "다시 켰습니다 — 다음 실행부터 돕니다. 원천에 걷어낸 행이 그대로 있으면 다음 계획이 "
-        "다시 만듭니다."
+        note + "파이프라인을 재개했습니다. 다음 실행부터 동작합니다. 원천에 회수한 행이 남아 "
+        "있으면 다음 계획에서 다시 생성됩니다."
     )
 
 

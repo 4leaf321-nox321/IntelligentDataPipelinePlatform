@@ -72,7 +72,7 @@ def definition_editor(page: Page, steps: Steps) -> None:
     """정의 파일에서 출발해 칸 하나를 고쳐 초안으로 — 그 판을 시험하면 원천(샘플 PLM)에
     닿는다."""
     page.goto(f"{BASE}/relay/pipelines/{FILE_SLUG}")
-    panel = page.locator("section").filter(has=page.get_by_role("heading", name="정의 판"))
+    panel = page.locator("section").filter(has=page.get_by_role("heading", name="정의 버전"))
     expect(panel).to_be_visible()
     panel.get_by_role("button", name="초안 작성").click()
     editor = page.get_by_test_id("definition-editor")
@@ -81,17 +81,17 @@ def definition_editor(page: Page, steps: Steps) -> None:
     expect(editor.get_by_label("식별자", exact=True)).to_have_value("ModelId")
     size.fill("200")
     expect(editor.get_by_test_id("definition-changes")).to_have_text(
-        "출발 판에서 바뀐 것: adapter.page_size"
+        "원본 대비 변경 사항: adapter.page_size"
     )
     steps.done("정의 편집")
     editor.get_by_label("정의 메모").fill("E2E — 쪽 크기")
     editor.get_by_role("button", name="초안 저장").click()
-    expect(page.get_by_test_id("definition-saved")).to_contain_text("판 1 초안을 저장했습니다")
+    expect(page.get_by_test_id("definition-saved")).to_contain_text("버전 1 초안을 저장했습니다")
     expect(panel.get_by_text("E2E — 쪽 크기")).to_be_visible()
 
-    panel.get_by_role("button", name="정의 판 1 시험").click()
-    expect(panel.get_by_text("정의 판 1 시험")).to_be_visible(timeout=60_000)
-    expect(panel.get_by_text("받음").first).to_be_visible()
+    panel.get_by_role("button", name="정의 버전 1 테스트").click()
+    expect(panel.get_by_text("정의 버전 1 테스트")).to_be_visible(timeout=60_000)
+    expect(panel.get_by_text("수신 성공").first).to_be_visible()
     steps.done("정의 시험")
 
 
@@ -102,7 +102,7 @@ def new_connection(page: Page, steps: Steps) -> None:
     page.get_by_label("path", exact=True).fill("/api/v1/dev-models")
     page.get_by_label("rows_path", exact=True).fill("items")
     page.get_by_label("인증 방식").select_option("bearer")
-    page.get_by_label("비밀의 환경 변수 이름").fill("MOCK_PLM_TOKEN")
+    page.get_by_label("인증 정보의 환경 변수 이름").fill("MOCK_PLM_TOKEN")
     page.get_by_role("button", name="탐색").click()
     key = page.get_by_label("model_id 식별자", exact=True)
     expect(key).to_be_visible(timeout=30_000)
@@ -112,13 +112,13 @@ def new_connection(page: Page, steps: Steps) -> None:
     page.get_by_label("원천 이름").fill("plm")
     page.get_by_label("대상 SP 주소").fill("http://127.0.0.1:8087")
     page.get_by_label("대상 토큰의 환경 변수").fill("RELAY_TARGET_TOKEN")
-    page.get_by_role("button", name=re.compile("정의 판 초안 저장")).click()
-    expect(page.get_by_text("정의 판 1 초안을 저장했습니다")).to_be_visible()
+    page.get_by_role("button", name=re.compile("정의 버전 초안 저장")).click()
+    expect(page.get_by_text("정의 버전 1 초안을 저장했습니다")).to_be_visible()
     steps.done("새 연결 정의 저장")
 
     page.goto(f"{BASE}/relay/pipelines/{NEW_SLUG}")
-    panel = page.locator("section").filter(has=page.get_by_role("heading", name="정의 판"))
-    expect(panel.get_by_text("판 1", exact=True)).to_be_visible()
+    panel = page.locator("section").filter(has=page.get_by_role("heading", name="정의 버전"))
+    expect(panel.get_by_text("버전 1", exact=True)).to_be_visible()
     steps.done("새 파이프라인 상세")
 
 

@@ -70,7 +70,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (isReloading()) {
       return (
         <p className="text-muted-foreground py-16 text-center text-sm">
-          새 판을 불러오는 중입니다…
+          새 버전을 불러오는 중…
         </p>
       )
     }
@@ -78,9 +78,10 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="mx-auto max-w-lg py-16 text-center">
           <AlertTriangle className="mx-auto size-8 text-amber-600" />
-          <h1 className="mt-4 text-lg font-semibold">이 화면의 파일을 받지 못했습니다</h1>
+          <h1 className="mt-4 text-lg font-semibold">화면 파일 로드 실패</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            새 판이 배포되었거나 서버에 잠깐 닿지 못했습니다. 새로 고치면 대개 낫습니다.
+            새 버전이 배포되었거나 일시적으로 서버에 연결할 수 없었습니다. 대부분 새로 고침하면
+            해결됩니다.
           </p>
           <p className="bg-muted text-muted-foreground mt-4 rounded-md p-3 text-left font-mono text-xs break-all">
             {error.message || String(error)}
@@ -95,9 +96,10 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="mx-auto max-w-lg py-16 text-center">
         <AlertTriangle className="text-destructive mx-auto size-8" />
-        <h1 className="mt-4 text-lg font-semibold">이 화면을 그리지 못했습니다</h1>
+        <h1 className="mt-4 text-lg font-semibold">화면 표시 오류</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          화면 쪽 문제라 서버에는 기록이 남지 않습니다. 계속 나면 아래 내용을 알려 주세요.
+          화면에서 발생한 문제이므로 서버에는 기록되지 않습니다. 문제가 계속되면 아래 내용을
+          관리자에게 전달하세요.
         </p>
         <p className="bg-muted text-muted-foreground mt-4 rounded-md p-3 text-left font-mono text-xs break-all">
           {error.message || String(error)}

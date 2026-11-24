@@ -109,4 +109,4 @@ def test_정의의_새_칸이_틀리면_저장을_거절한다(
     refused = client.post(
         f"/api/relay/pipelines/{slug}/definitions", json={"body": body}, headers=admin.headers
     )
-    assert refused.status_code == 422 and "이미 내는 열" in refused.text
+    assert refused.status_code == 422 and "이미 제공하는 열" in refused.text

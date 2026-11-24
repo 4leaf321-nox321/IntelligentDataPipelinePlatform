@@ -190,7 +190,7 @@ def test_정의를_비밀_없이_읽고_필드_계보를_낸다(tmp_path: Path) 
     assert found.target_server == "http://sp.test" and found.types == ["plm_model"]
     kind = next(one for one in found.lineage if one.target_field == "model_kind")
     assert kind.columns == ["KIND"] and kind.source_paths == ["KindCode"]
-    assert kind.transform == "값 대응 2개"
+    assert kind.transform == "값 매핑 2개"
     edge = next(one for one in found.lineage if one.target_field == "→ plm_derived_from")
     assert edge.source_paths == ["BaseModelId"]
 

@@ -45,7 +45,7 @@ const OBJECT: Record<string, { label: string; tone: Tone }> = {
   active: { label: '사용', tone: 'good' },
   // **더 이상 쓰지 않음은 나쁨이 아니다.** picker 에서 숨을 뿐, 이미 걸린 값과
   // 관계는 그대로 남는다 — 지운 것이 아니다.
-  deprecated: { label: '안 씀', tone: 'neutral' },
+  deprecated: { label: '사용 중지', tone: 'neutral' },
 }
 
 const TOKEN: Record<string, { label: string; tone: Tone }> = {
@@ -68,16 +68,16 @@ const PERFORMANCE: Record<string, { label: string; tone: Tone }> = {
 /** HWAX 포털 로그인(ADR 0028) — 서버 화면의 한 줄. */
 const PORTAL: Record<string, { label: string; tone: Tone }> = {
   // **꺼짐은 나쁨이 아니다** — 포털에 붙지 않은 설치의 정상이다.
-  off: { label: '꺼짐', tone: 'neutral' },
-  on: { label: '켜짐', tone: 'good' },
+  off: { label: '미사용', tone: 'neutral' },
+  on: { label: '사용', tone: 'good' },
   // 켰는데 공개 키가 안 닿으면 포털로 오는 사람이 전부 튕긴다 — 멎은 것의 색.
-  unreachable: { label: '공개 키 못 받음', tone: 'bad' },
+  unreachable: { label: '공개 키 수신 실패', tone: 'bad' },
 }
 
 /** HWAX 게이트웨이 위임(ADR 0028) — 서버 화면의 한 줄. */
 const DELEGATION: Record<string, { label: string; tone: Tone }> = {
-  off: { label: '꺼짐', tone: 'neutral' },
-  on: { label: '켜짐', tone: 'good' },
+  off: { label: '미사용', tone: 'neutral' },
+  on: { label: '사용', tone: 'good' },
   // 허용 주소를 못 읽으면 모든 발급을 거절한다 — 그 사람들의 Claude 가 이 설치를 못 부른다.
   blocked: { label: '모두 거절', tone: 'bad' },
 }
@@ -157,27 +157,27 @@ const RELAY_PIPELINE: Record<string, { label: string; tone: Tone }> = {
   // **적용 대기는 나쁨이 아니라 주의다** — 사람이 계획을 읽고 적용하면 된다.
   pending: { label: '적용 대기', tone: 'warn' },
   // 멈춤은 계획에 오류가 있거나 레시피에 미해결이 있다 — 고치기 전엔 흐르지 않지만 사고는 아니다.
-  blocked: { label: '멈춤', tone: 'warn' },
+  blocked: { label: '중단', tone: 'warn' },
   // 늦음은 데이터가 흐르지 않는다는 뜻이다 — 작업 워커가 멈췄거나 실행이 걸렸다. 실패와 같은 무게.
-  late: { label: '늦음', tone: 'bad' },
+  late: { label: '지연', tone: 'bad' },
   failed: { label: '실패', tone: 'bad' },
   broken: { label: '정의 오류', tone: 'bad' },
   // 아직 안 돈 것은 사고가 아니다 — 처음 「지금 실행」 을 누르면 된다.
-  never: { label: '실행 전', tone: 'neutral' },
+  never: { label: '미실행', tone: 'neutral' },
   // 초안도 사고가 아니다 — 정의 판을 켜기 전까지 안 돌 뿐이다(실행도 서버가 거절한다).
   draft: { label: '초안(미사용)', tone: 'neutral' },
   // 보낸 것을 걷어내고 멈췄다 — 사람이 고른 일이라 사고는 아니지만, 다시 켜기 전엔 흐르지 않는다.
-  stopped: { label: '걷어내고 멈춤', tone: 'warn' },
+  stopped: { label: '회수 후 중지', tone: 'warn' },
 }
 
 /** 중계의 대상 SP — 지금 닿나. */
 const RELAY_TARGET: Record<string, { label: string; tone: Tone }> = {
   ok: { label: '연결됨', tone: 'good' },
-  unreachable: { label: '닿지 않음', tone: 'bad' },
+  unreachable: { label: '연결 불가', tone: 'bad' },
   // 닿긴 하는데 엉뚱한 곳(다른 slug)이다 — 보내기 전에 정의를 봐야 한다.
   mismatch: { label: '다른 인스턴스', tone: 'warn' },
   // 초안만 보내는 대상 — 사람이 정의를 사용하기 전에는 서버가 그 주소에 묻지 않는다(울타리).
-  draft: { label: '확인하지 않음(초안)', tone: 'neutral' },
+  draft: { label: '미확인(초안)', tone: 'neutral' },
 }
 
 /** 중계 레시피 · 정의의 판 — AI(MCP)가 초안을 짓고 사람이 켠다. 둘이 같은 말을 쓴다. */
@@ -193,9 +193,9 @@ const RELAY_VERSION: Record<string, { label: string; tone: Tone }> = {
 
 /** 레시피 · 정의 판의 시험 — 미해결 없이 다 바뀌었나, 원천 · 대상에 닿았나. */
 const RELAY_TRIAL: Record<string, { label: string; tone: Tone }> = {
-  clean: { label: '깨끗함', tone: 'good' },
+  clean: { label: '통과', tone: 'good' },
   // 켜면 그 실행이 멈춘다 — 멎은 것의 색.
-  blocked: { label: '막힘', tone: 'bad' },
+  blocked: { label: '실패', tone: 'bad' },
   // 정의는 닿는데 바꿔 볼 레시피가 없다 — 켜도 레시피 판을 켜기 전에는 안 돈다. 사고는 아니다.
   no_recipe: { label: '레시피 없음', tone: 'warn' },
 }
@@ -204,17 +204,17 @@ const RELAY_TRIAL: Record<string, { label: string; tone: Tone }> = {
  *  머리(`relay/jobs.reconcile_job` 의 `[same]` · `[drift]` · `[problem]`)와 같다. */
 const RELAY_RECONCILE: Record<string, { label: string; tone: Tone }> = {
   // 같음은 평소다 — 눈에 띌 일이 아니다.
-  same: { label: '대상과 같음', tone: 'neutral' },
+  same: { label: '일치', tone: 'neutral' },
   // **어긋남은 사고가 아니라 주의다** — 보정 계획을 올려 사람이 적용하면 된다.
-  drift: { label: '어긋남', tone: 'warn' },
+  drift: { label: '불일치', tone: 'warn' },
   // 견주지 못했다 — 기준이 없거나 대상에 타입이 없다. 흐름은 멎지 않으므로 주의다.
-  problem: { label: '대조 못 함', tone: 'warn' },
+  problem: { label: '대조 실패', tone: 'warn' },
 }
 
 /** 정의 판 시험의 원천 — 그 판의 어댑터로 받아 봤나. */
 const RELAY_SOURCE: Record<string, { label: string; tone: Tone }> = {
-  ok: { label: '받음', tone: 'good' },
-  failed: { label: '못 받음', tone: 'bad' },
+  ok: { label: '수신 성공', tone: 'good' },
+  failed: { label: '수신 실패', tone: 'bad' },
 }
 
 /** 중계 비밀 — 값은 보이지 않고 「어디에 있나」 만(`relay/secrets.listing`). */
@@ -223,7 +223,7 @@ const RELAY_SECRET: Record<string, { label: string; tone: Tone }> = {
   // 서버 설정도 정상이다 — 운영자가 서버에서 둔 값이다(화면에서 바꾸면 화면 값이 먼저).
   server: { label: '서버 설정', tone: 'good' },
   // **비어 있음은 멎은 것이다** — 그 비밀을 쓰는 원천 · 대상에 닿지 못한다.
-  missing: { label: '비어 있음', tone: 'bad' },
+  missing: { label: '미입력', tone: 'bad' },
 }
 
 /** 작업(`jobs`)의 상태 — 말은 `modules/jobs/api` 의 STATUS_LABEL 과 같다. */

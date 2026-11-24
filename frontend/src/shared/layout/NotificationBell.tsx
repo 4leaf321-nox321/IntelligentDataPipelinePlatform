@@ -61,7 +61,7 @@ export function NotificationBell() {
       variant="ghost"
       size="icon"
       className="relative"
-      aria-label={unread ? `안 읽은 알림 ${unread}건` : '알림'}
+      aria-label={unread ? `읽지 않은 알림 ${unread}건` : '알림'}
       onClick={() => navigate('/notifications')}
     >
       <Bell className="size-4" />

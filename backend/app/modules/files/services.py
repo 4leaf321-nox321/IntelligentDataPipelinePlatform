@@ -47,7 +47,7 @@ def too_large(limit: int, *, size: int | None = None) -> AppError:
         details["size_bytes"] = size
     return AppError(
         code("FILES", 3),
-        f"파일이 너무 큽니다 (최대 {limit // 1024 // 1024}MB).",
+        f"파일이 너무 큽니다(최대 {limit // 1024 // 1024}MB).",
         status=413,
         details=details,
     )
@@ -202,8 +202,8 @@ def attach(
     if owner is not None and owner.accept == "image" and attachment.media != "image":
         raise AppError(
             code("FILES", 7),
-            f"이 칸에는 이미지({IMAGE_KINDS})만 업로드할 수 있습니다 — "
-            f"{attachment.original_name} 은(는) 이미지로 확인되지 않았습니다.",
+            f"이 항목에는 이미지({IMAGE_KINDS})만 업로드할 수 있습니다. "
+            f"{attachment.original_name}은(는) 이미지로 확인되지 않습니다.",
             status=415,
             details={"accept": "image", "content_type": attachment.content_type},
         )
@@ -308,7 +308,7 @@ def thumbnail_path(db: Session, *, user: User, attachment_id: uuid.UUID) -> Path
     if found.media is None:
         inspect_pending(db, [found])
     if found.media != "image":
-        raise NotFound(code("FILES", 8), "미리보기가 없는 첨부입니다(이미지가 아닙니다).")
+        raise NotFound(code("FILES", 8), "이미지가 아닌 첨부는 미리보기를 지원하지 않습니다.")
     path = filestore.resolve(found.thumb_path) if found.thumb_path else None
     if path is None:
         original = filestore.resolve(found.relative_path)
@@ -334,7 +334,8 @@ def ensure_readable(path_exists: bool) -> None:
     if not path_exists:
         raise Forbidden(
             code("FILES", 6),
-            "파일이 저장소에 없습니다. 백업에서 파일스토어가 함께 복구됐는지 확인하세요.",
+            "파일이 저장소에 없습니다. "
+            "백업 복원 시 파일스토어도 함께 복원되었는지 확인하세요.",
         )
 
 
@@ -447,8 +448,7 @@ def issue_ticket(
     if owner is None:
         raise Conflict(
             code("FILES", 9),
-            f"업로드 티켓은 객체의 첨부에만 발급합니다({owner_table} 은(는) 지원하지 "
-            "않습니다).",
+            f"업로드 티켓은 객체의 첨부에만 발급합니다. 지원하지 않는 대상: {owner_table}",
         )
     ticket = secrets.token_urlsafe(32)
     expires_at = datetime.now(UTC) + TICKET_TTL
@@ -484,7 +484,7 @@ def _ticket_holder(db: Session, found: AttachmentTicket | None) -> User:
     규칙**이다."""
     refused = AppError(
         code("FILES", 10),
-        "업로드 티켓이 없거나, 이미 사용했거나, 만료됐습니다 — 새로 발급받으세요"
+        "업로드 티켓이 없거나 이미 사용되었거나 만료되었습니다. 새 티켓을 발급받으세요"
         "(MCP `attachment_upload_prepare`).",
         status=401,
     )

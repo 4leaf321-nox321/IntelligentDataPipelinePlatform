@@ -182,7 +182,7 @@ function MultiPick({
           size="icon"
           variant="outline"
           className="size-7 shrink-0"
-          aria-label={`${name} 고르기`}
+          aria-label={`${name} 선택`}
         >
           <ListChecks className="size-3" />
         </Button>
@@ -193,7 +193,7 @@ function MultiPick({
           <Input
             autoFocus
             aria-label={`${name} 검색`}
-            placeholder="이름으로 찾기"
+            placeholder="이름으로 검색"
             className="h-8 border-0 px-1 text-xs shadow-none focus-visible:ring-0"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
@@ -201,7 +201,7 @@ function MultiPick({
         </div>
         <div className="max-h-60 overflow-auto p-1">
           {shown.length === 0 && (
-            <p className="text-muted-foreground px-2 py-3 text-xs">찾는 이름이 없습니다.</p>
+            <p className="text-muted-foreground px-2 py-3 text-xs">일치하는 이름 없음</p>
           )}
           {shown.map((one) => (
             <button
@@ -224,9 +224,9 @@ function MultiPick({
           ))}
         </div>
         <div className="flex items-center justify-between border-t px-2 py-1">
-          <span className="text-muted-foreground text-xs">{picked.size}개 고름</span>
+          <span className="text-muted-foreground text-xs">{picked.size}개 선택</span>
           <Button size="xs" variant="ghost" onClick={() => onChange('')}>
-            비우기
+            선택 해제
           </Button>
         </div>
       </PopoverContent>
@@ -319,8 +319,8 @@ export function PasteGrid({
 
       {wrongCount > 0 && (
         <p className="text-destructive text-sm">
-          등록된 이름이 아닌 칸이 {wrongCount}개 있습니다 — 붉은 칸을 고치세요. 그 줄은 저장되지
-          않습니다.
+          등록되지 않은 이름이 입력된 셀이 {wrongCount}개 있습니다. 빨간색 셀을 수정하세요. 해당
+          행은 저장되지 않습니다.
         </p>
       )}
 
@@ -376,7 +376,7 @@ export function PasteGrid({
                       <td key={column.key} className="w-16 p-0.5 text-center">
                         <input
                           type="checkbox"
-                          aria-label={`${atRow + 1}번 줄 ${column.header}`}
+                          aria-label={`${atRow + 1}번 행 ${column.header}`}
                           checked={isChecked(row[atColumn] ?? '')}
                           onChange={(event) =>
                             edit(atRow, atColumn, event.target.checked ? 'O' : '')
@@ -396,10 +396,10 @@ export function PasteGrid({
                             wrong.length > 0 && 'border-destructive text-destructive',
                             column.readOnly && 'text-muted-foreground bg-muted/40',
                           )}
-                          aria-label={`${atRow + 1}번 줄 ${column.header}`}
+                          aria-label={`${atRow + 1}번 행 ${column.header}`}
                           aria-invalid={wrong.length > 0}
                           title={
-                            wrong.length > 0 ? `등록된 이름이 아닙니다: ${wrong.join(', ')}` : undefined
+                            wrong.length > 0 ? `등록되지 않은 이름: ${wrong.join(', ')}` : undefined
                           }
                           // 목록이 있으면 **드롭다운**으로 고른다 — 손으로 치는 것도 막지
                           // 않는다(엑셀에서 붙여넣기가 그대로 되어야 한다).
@@ -417,7 +417,7 @@ export function PasteGrid({
                             순간 칸이 그 이름으로 바뀌어 둘째를 담을 길이 없다. */}
                         {column.multi && choices?.length && !column.readOnly ? (
                           <MultiPick
-                            name={`${atRow + 1}번 줄 ${column.header}`}
+                            name={`${atRow + 1}번 행 ${column.header}`}
                             options={choices}
                             value={row[atColumn] ?? ''}
                             onChange={(next) => edit(atRow, atColumn, next)}
@@ -433,7 +433,7 @@ export function PasteGrid({
                       size="icon"
                       variant="ghost"
                       className="size-6"
-                      aria-label={`${atRow + 1}번 줄 제거`}
+                      aria-label={`${atRow + 1}번 행 제거`}
                       onClick={() => onRows(rows.filter((_, at) => at !== atRow))}
                     >
                       <Trash2 className="size-3" />
@@ -452,16 +452,16 @@ export function PasteGrid({
           variant="outline"
           onClick={() => onRows([...rows, columns.map(() => '')])}
         >
-          <Plus className="mr-1 size-3" />줄 추가
+          <Plus className="mr-1 size-3" />행 추가
         </Button>
         {/* **엑셀에서 채워 오는 길.** 빈 표라도 헤더가 복사되므로, 붙여 놓고 채운 뒤 다시
             가져오면 열 이름이 맞는다. */}
         <Button size="xs" variant="outline" onClick={() => void copy()}>
           {copied === 'yes' ? <Check className="mr-1 size-3" /> : <Copy className="mr-1 size-3" />}
-          {copied === 'yes' ? '복사했습니다' : '엑셀로 복사'}
+          {copied === 'yes' ? '복사 완료' : '엑셀로 복사'}
         </Button>
         <span className="text-muted-foreground text-xs">
-          엑셀에서 범위를 복사해 <b>아무 칸에나 붙여넣으면</b> 그 자리부터 채워집니다.
+          엑셀에서 범위를 복사해 <b>임의의 셀에 붙여넣으면</b> 해당 셀부터 채워집니다.
         </span>
       </div>
 
@@ -469,7 +469,7 @@ export function PasteGrid({
           단추만 눌리고 아무 일도 안 일어나는 것이 가장 나쁘다. */}
       {copied === 'no' && (
         <div className="space-y-1 rounded-md border border-amber-500/40 bg-amber-500/5 p-2">
-          <p className="text-xs">브라우저가 복사를 막았습니다. 아래를 골라서 직접 복사하세요.</p>
+          <p className="text-xs">브라우저가 복사를 차단했습니다. 아래 내용을 선택해 직접 복사하세요.</p>
           <textarea
             readOnly
             aria-label="복사할 표"

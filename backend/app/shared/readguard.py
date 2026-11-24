@@ -102,8 +102,9 @@ def _take(db: Session, slots: Slots, what: str) -> None:
         if time.monotonic() >= until:
             raise AppError(
                 code("COMMON", 429),
-                f"지금 {what} {slots.count}개가 돌고 있습니다 — 서버를 지키려고 한 번에 "
-                "그만큼만 돌립니다. 앞의 것이 끝나면 다시 해 주세요.",
+                f"현재 {what} {slots.count}개가 실행 중입니다. 서버 보호를 위해 동시에 "
+                f"최대 {slots.count}개까지만 실행합니다. "
+                "실행 중인 처리가 끝난 후 다시 시도하세요.",
                 status=429,
                 details={"slots": slots.count},
             )
@@ -194,14 +195,14 @@ async def run[T](
         if guard.why == "gone":
             raise AppError(
                 code("COMMON", 499),
-                f"요청한 쪽이 떠나 멈췄습니다({what}).",
+                f"클라이언트 연결이 종료되어 중단되었습니다({what}).",
                 status=499,
             ) from caught
         if guard.why == "time":
             raise AppError(
                 code("COMMON", 504),
-                f"{what} — {seconds:g}초 안에 끝나지 않아 멈췄습니다. 서버를 붙잡지 않게 끊은 "
-                f"것이고 바뀐 것은 없습니다. {hint}",
+                f"{what}: {seconds:g}초 안에 완료되지 않아 중단되었습니다. "
+                f"서버 부하를 막기 위한 중단이며 변경된 데이터는 없습니다. {hint}",
                 status=504,
                 details={"seconds": seconds},
             ) from caught

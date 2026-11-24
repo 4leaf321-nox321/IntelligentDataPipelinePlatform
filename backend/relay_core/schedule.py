@@ -30,22 +30,22 @@ def check(schedule: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(schedule, dict) or len(schedule) != 1:
         raise ScheduleError(
-            'schedule 은 {"daily_at": "HH:MM"} 또는 {"every_minutes": N} 중 하나입니다.'
+            'schedule은 {"daily_at": "HH:MM"} 또는 {"every_minutes": N} 중 하나여야 합니다.'
         )
     if "daily_at" in schedule:
         if not _HHMM.fullmatch(str(schedule["daily_at"])):
             raise ScheduleError(
-                f"daily_at 은 HH:MM(24시)이어야 합니다: {schedule['daily_at']!r}"
+                f"daily_at은 HH:MM(24시간) 형식이어야 합니다: {schedule['daily_at']!r}"
             )
         return {"daily_at": str(schedule["daily_at"])}
     if "every_minutes" in schedule:
         minutes = schedule["every_minutes"]
         if not isinstance(minutes, int) or minutes < 5:
             raise ScheduleError(
-                "every_minutes 는 5 이상의 정수입니다(타이머가 5분마다 확인합니다)."
+                "every_minutes는 5 이상의 정수여야 합니다(타이머가 5분마다 확인합니다)."
             )
         return {"every_minutes": minutes}
-    raise ScheduleError(f"모르는 일정입니다: {', '.join(schedule)}")
+    raise ScheduleError(f"지원하지 않는 실행 주기입니다: {', '.join(schedule)}")
 
 
 def label(schedule: dict[str, Any] | None) -> str:
@@ -107,8 +107,8 @@ def late(
     if waiting is not None:
         if now - waiting > grace:
             return (
-                f"실행 작업이 {_span(now - waiting)}째 끝나지 않았습니다 — 작업 워커가 "
-                "멈췄거나 원천 · 대상이 응답하지 않습니다."
+                f"실행 작업이 {_span(now - waiting)}째 완료되지 않았습니다. 작업 워커가 "
+                "중단되었거나 원천 또는 대상이 응답하지 않습니다."
             )
         return ""
     if last is None:
@@ -116,7 +116,7 @@ def late(
     expected = next_slot(schedule, last)
     if now - expected > grace:
         return (
-            f"{expected:%m-%d %H:%M} 차례의 실행이 {_span(now - expected)} 지나도록 "
-            "없습니다 — 일정 타이머가 멈췄는지 확인하세요."
+            f"{expected:%m-%d %H:%M} 예정 실행이 {_span(now - expected)} 지나도록 시작되지 "
+            "않았습니다. 실행 주기 타이머가 중단되었는지 확인하세요."
         )
     return ""

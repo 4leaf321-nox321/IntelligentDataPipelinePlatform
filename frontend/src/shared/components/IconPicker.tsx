@@ -54,7 +54,7 @@ export function IconPicker({ value, onChange, disabled = false, id }: Props) {
             className="pl-8"
             value={query}
             disabled={disabled}
-            placeholder="공구·시험·부서처럼 뜻으로 검색"
+            placeholder="공구, 시험, 부서 등 의미로 검색"
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
@@ -63,7 +63,8 @@ export function IconPicker({ value, onChange, disabled = false, id }: Props) {
       <div className="max-h-56 overflow-y-auto rounded-md border p-2">
         {groups.length === 0 ? (
           <p className="text-muted-foreground p-2 text-sm">
-            맞는 그림이 없습니다. 다른 말로 찾아 보세요 — 없으면 「격자」 로 두면 됩니다.
+            일치하는 아이콘이 없습니다. 다른 검색어로 검색하세요. 적합한 아이콘이 없으면 '격자'를
+            사용하세요.
           </p>
         ) : (
           groups.map(({ group, items }) => (

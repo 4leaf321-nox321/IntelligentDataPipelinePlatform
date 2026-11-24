@@ -90,14 +90,17 @@ def settle_pending(state: State, submit: Submitter) -> str:
         )
         pending.part, pending.job_id, pending.ok = number, "", True
         pending.summary = (
-            f"조각 {number}/{total} 이 적용됐습니다(대상 화면에서) — 「적용」 이 나머지 "
-            f"{total - number}개를 차례로 미리 보고 적용합니다."
+            f"대상 화면에서 분할 번들 {number}/{total}의 적용을 확인했습니다. [적용]을 "
+            f"클릭하면 나머지 {total - number}개를 차례로 미리 보기 후 적용합니다."
         )
-        return f"나눠 보내는 계획의 조각 {number}/{total} 이 적용됐습니다. "
+        return f"분할 번들 {number}/{total}의 적용을 확인했습니다. "
     state.applied_run, state.applied_at = pending.run, _now()
     state.history.append({"at": _now(), "event": "applied", "job_id": pending.job_id})
     state.pending = None
-    return f"대기하던 계획({pending.job_id[:8]})이 적용됐습니다 — 새 기준입니다. "
+    return (
+        f"적용 대기 계획({pending.job_id[:8]})이 적용되었습니다. 해당 출력을 새 기준 출력으로 "
+        "사용합니다. "
+    )
 
 
 def fold(work: Workdir, state: State) -> None:
@@ -164,10 +167,9 @@ def pending_of(
     total = len(cut.parts)
     if total:
         summary = (
-            f"나눠 보냅니다 — 조각 {total}개(본문 {cut.size / 1e6:,.0f}MB · 조각마다 "
-            f"{part_mb}MB · 선 {parts.MAX_EDGES:,}줄 이하). 「적용」 한 번이 조각을 차례로 "
-            "미리 보고 적용합니다.\n"
-            f"조각 1/{total}: {plan.summary}"
+            f"분할 번들 {total}개로 전송합니다(전체 {cut.size / 1e6:,.0f}MB, 번들당 "
+            f"{part_mb}MB, 관계 {parts.MAX_EDGES:,}건 이하). [적용]을 한 번 클릭하면 분할 "
+            f"번들을 차례로 미리 보기 후 적용합니다.\n분할 번들 1/{total}: {plan.summary}"
         )
     return Pending(
         run=run,
@@ -246,10 +248,10 @@ def _held(
     return Outcome(
         "blocked",
         note
-        + "받기 점검에서 멈췄습니다 — 미러 · 워터마크에 반영하지 않았습니다. "
+        + "수신 검증으로 실행을 중단했습니다. 미러와 워터마크에 반영하지 않았습니다. "
         + " ".join(reasons)
-        + " 원천 · 어댑터를 수정하면 다음 실행이 지나가고, 맞는 변경이면 화면에서 「확인 후 "
-        "진행」 을 클릭하세요.",
+        + " 원천이나 어댑터를 수정하면 다음 실행에서 통과합니다. 정상적인 변경이면 화면에서 "
+        "[확인 후 진행]을 클릭하세요.",
     )
 
 
@@ -277,7 +279,7 @@ def _run(
 
     since = None if full else state.watermark
     if full:
-        note += "전량을 다시 받습니다(워터마크를 두고). "
+        note += "워터마크를 무시하고 원천 전체를 다시 수신합니다(전체 재수신). "
     # **삭제 표시가 없는 원천은 전량 날에 사라진 것을 안다**(부재 대조) — 증분 `full_every`
     # 번마다 한 번.
     source = pipeline.adapter.source
@@ -285,7 +287,7 @@ def _run(
     due = full_every and state.incrementals + 1 >= full_every
     if since and due and not getattr(source, "deleted", None):
         since = None
-    sheet["stage"] = "받기"
+    sheet["stage"] = "수신"
     # 받은 행이 많으면 키 차례로 정렬해 디스크로 넘긴다(`records.Records`) — 첫 적재 100만 행에
     # 받은 행 목록만 1.2GB 였다. 미러에 넣은 뒤 지운다.
     with records.spill_to(work.path(f"work/{stamp()}.fetch.spill")):
@@ -311,8 +313,8 @@ def _run(
         removed=took.removed,
     )
     note += (
-        f"받음 {received}건(추가 {took.added} · 변경 {took.changed} · "
-        f"그대로 {took.unchanged} · 삭제 {took.removed}) · 미러 {size}건. "
+        f"수신 {received}건(추가 {took.added} · 변경 {took.changed} · 변경 없음 "
+        f"{took.unchanged} · 삭제 {took.removed}) · 미러 {size}건. "
     )
     note += "".join(f"{one} " for one in fetched.notes)
     del fetched
@@ -331,7 +333,7 @@ def _run(
                 "reasons": checked.reasons(),
             }
         )
-        note += "받기 점검의 멈춤을 확인하고 진행했습니다. "
+        note += "수신 검증의 중단 사유를 확인하고 진행했습니다. "
     state.blank_watch = intake.carry(state.blank_watch, staged.tally)
     if checked.held and accept is not None:
         for column in accept.columns:  # 사람이 맞다고 했다 — 그 칸은 다시 처음부터 센다
@@ -369,8 +371,8 @@ def _run(
         work.save_state(state)
         return Outcome(
             "blocked",
-            note + f"레시피 변환에 미해결이 있습니다 — {made.run}/unresolved.json · "
-            "table-report.txt 를 보고 레시피를 수정하세요.",
+            note + f"레시피 변환 결과에 미해결이 있습니다. {made.run}/unresolved.json과 "
+            "table-report.txt를 확인하고 레시피를 수정하세요.",
         )
 
     sheet["stage"] = "비교"
@@ -383,8 +385,8 @@ def _run(
             work.save_state(state)
             return Outcome(
                 "waiting",
-                note + f"나눠 보내는 계획의 조각 {pending.part}/{pending.total} 까지 "
-                "적용됐습니다 — 「적용」 으로 나머지를 보냅니다.",
+                note + f"분할 번들 {pending.part}/{pending.total}까지 적용되었습니다. "
+                "[적용]을 클릭하면 나머지를 전송합니다.",
             )
         fold(work, state)
         superseded = True
@@ -417,7 +419,7 @@ def _run(
         work.save_state(state)
         return Outcome(
             "nothing",
-            note + "지난번 적용된 것과 같습니다 — 보낼 것이 없습니다.",
+            note + "마지막 적용 이후 변경 사항이 없습니다.",
             counts=counts,
         )
 
@@ -426,8 +428,8 @@ def _run(
     if state.pending and state.pending.ok and state.pending.digest == digest_of(found.run):
         return Outcome(
             "waiting",
-            note + f"같은 계획({state.pending.job_id[:8]})이 적용을 기다립니다 — "
-            "새로 생성하지 않았습니다.",
+            note + f"같은 계획({state.pending.job_id[:8]})이 적용 대기 중입니다. 새 계획을 "
+            "생성하지 않았습니다.",
             link=f"{pipeline.target.server}/jobs?job={state.pending.job_id}",
             counts=counts,
         )
@@ -477,10 +479,10 @@ def apply(
     state = work.load_state()
     pending = state.pending
     if pending is None:
-        return Outcome("nothing", "적용을 기다리는 계획이 없습니다.")
+        return Outcome("nothing", "적용 대기 중인 계획이 없습니다.")
     if not pending.ok and pending.part == 0:
         return Outcome(
-            "blocked", "그 계획에는 오류가 있어 적용하지 않습니다 — 다시 실행하세요."
+            "blocked", "계획에 오류가 있어 적용하지 않습니다. 파이프라인을 다시 실행하세요."
         )
     total = pending.total
     note = ""
@@ -495,7 +497,7 @@ def apply(
                 origin=origin_for(pipeline, pending.send),
             )
             pending.job_id, pending.ok, pending.at = plan.job_id, plan.ok, _now()
-            pending.summary = f"조각 {number}/{total}: {plan.summary}"
+            pending.summary = f"분할 번들 {number}/{total}: {plan.summary}"
             if not plan.ok:
                 state.history.append(
                     {
@@ -509,17 +511,18 @@ def apply(
                 work.save_state(state)
                 return Outcome(
                     "blocked",
-                    f"조각 {number}/{total} 의 미리 보기에 오류가 있어 멈췄습니다 — 앞 조각 "
-                    f"{number - 1}개는 적용됐습니다. 원인을 고친 뒤 「적용」 이 이 조각부터 "
-                    f"다시 보냅니다. {plan.summary}",
+                    f"분할 번들 {number}/{total}의 미리 보기에 오류가 있어 적용을 "
+                    f"중단했습니다. 앞의 분할 번들 {number - 1}개는 적용되었습니다. 원인을 "
+                    "수정한 후 [적용]을 클릭하면 이 분할 번들부터 다시 전송합니다. "
+                    f"{plan.summary}",
                     link=plan.link,
                 )
             work.save_state(state)
         if submit.applied(pending.job_id):
-            note = "이미 적용돼 있었습니다(화면에서 적용한 듯합니다). "
+            note = "이미 적용된 계획입니다. "
         else:
             result = submit.apply(pending.job_id)
-            note = f"적용했습니다 — {result.get('summary') or summarize(result)} "
+            note = f"적용했습니다. {result.get('summary') or summarize(result)} "
         if number >= total:
             break
         event: dict[str, Any] = {
@@ -540,7 +543,9 @@ def apply(
         done["by"] = by
     if total > 1:
         done["parts"] = total
-        note = f"조각 {total}개를 차례로 미리 보고 적용했습니다 — 마지막 조각: {note}"
+        note = (
+            f"분할 번들 {total}개를 차례로 미리 보기 후 적용했습니다. 마지막 분할 번들: {note}"
+        )
     state.history.append(done)
     state.pending = None
     work.save_state(state)

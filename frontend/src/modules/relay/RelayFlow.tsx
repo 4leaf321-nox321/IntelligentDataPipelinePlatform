@@ -18,6 +18,7 @@ import { NODE_TYPES } from '@/modules/relay/FlowNodes'
 import type { ColumnFlowNode, RelayFlowNode } from '@/modules/relay/FlowNodes'
 import { edgeWeight } from '@/modules/relay/graph'
 import type { FlowEdge, RelayGraph } from '@/modules/relay/graph'
+import type { MapNode } from '@/modules/relay/api'
 import {
   HEADER_OFFSET,
   NODE_HEIGHT,
@@ -43,10 +44,10 @@ const FLOW_THEME = {
 
 /** 확대 단추의 이름 — 화면은 한국어다(읽어 주는 프로그램도 같은 말을 듣게). */
 const ARIA_LABELS = {
-  'controls.ariaLabel': '확대 단추',
+  'controls.ariaLabel': '확대 · 축소 버튼',
   'controls.zoomIn.ariaLabel': '확대',
   'controls.zoomOut.ariaLabel': '축소',
-  'controls.fitView.ariaLabel': '전체 보기',
+  'controls.fitView.ariaLabel': '화면에 맞춤',
   'handle.ariaLabel': '연결점',
 }
 
@@ -87,8 +88,11 @@ function toFlowEdge(edge: FlowEdge, graph: RelayGraph, visible: Set<string> | nu
 export function RelayFlow({
   graph,
   visible,
+  onNodeClick,
 }: {
   graph: RelayGraph
+  /** 노드를 클릭했을 때 — 원천 시스템 · 대상의 초점 보기. 파이프라인은 노드 안의 링크로 간다. */
+  onNodeClick?: (node: MapNode) => void
   /** 거르기에 남은 마디 — null 이면 전부. */
   visible: Set<string> | null
 }) {
@@ -144,6 +148,10 @@ export function RelayFlow({
       elementsSelectable={false}
       deleteKeyCode={null}
       ariaLabelConfig={ARIA_LABELS}
+      onNodeClick={(_event, clicked) => {
+        const node = graph.byId.get(clicked.id)
+        if (node && onNodeClick) onNodeClick(node)
+      }}
     >
       <Background variant={BackgroundVariant.Dots} gap={24} size={1} />
       <Controls showInteractive={false} />

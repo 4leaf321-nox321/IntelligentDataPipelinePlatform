@@ -20,8 +20,8 @@ export function NewBuildBanner() {
       className="flex shrink-0 items-center justify-between gap-3 border-b bg-amber-50 px-4 py-2 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-100"
     >
       <span>
-        새 판(<span className="font-mono">{newer}</span>)이 나왔습니다 — 새로 고치면 받습니다.
-        쓰던 것이 있으면 저장한 뒤에 고치세요.
+        새 버전(<span className="font-mono">{newer}</span>)이 배포되었습니다. 새로 고침하면
+        적용됩니다. 작성 중인 내용이 있으면 저장한 후 새로 고침하세요.
       </span>
       <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
         <RefreshCw className="mr-1 size-3.5" />

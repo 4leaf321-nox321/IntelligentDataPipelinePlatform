@@ -58,7 +58,7 @@ def test_늦음_안_끝난_실행이_오래_기다리면() -> None:
         == ""
     )
     said = late(daily, last=None, waiting=queued, now=_at("2026-11-07T06:30:00"), grace=GRACE)
-    assert "5시간째 끝나지 않았습니다" in said and "작업 워커" in said
+    assert "5시간째 완료되지 않았습니다" in said and "작업 워커" in said
 
 
 def test_늦음_다음_차례가_지났는데_실행이_없으면() -> None:
@@ -73,7 +73,7 @@ def test_늦음_다음_차례가_지났는데_실행이_없으면() -> None:
         late(daily, last=last, waiting=None, now=_at("2026-11-07T03:59:00"), grace=GRACE) == ""
     )
     said = late(daily, last=last, waiting=None, now=_at("2026-11-07T04:01:00"), grace=GRACE)
-    assert "11-07 01:00 차례의 실행이 3시간 지나도록 없습니다" in said
+    assert "11-07 01:00 예정 실행이 3시간 지나도록 시작되지 않았습니다" in said
     # 사람이 낮에 돌린 것도 끝난 실행이다 — 다음 차례는 그다음 날 01:00.
     noon = _at("2026-11-07T12:00:00")
     assert (

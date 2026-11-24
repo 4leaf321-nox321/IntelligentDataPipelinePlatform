@@ -43,7 +43,7 @@ describe('플랫폼 자기소개', () => {
     expect(await screen.findByText('생김: 타입 「보고서」')).toBeInTheDocument()
     expect(screen.getByText(/기록 — 보고서 1.2만/)).toBeInTheDocument()
 
-    const summary = screen.getByLabelText(/담는 것/)
+    const summary = screen.getByLabelText(/보유 데이터 요약/)
     await userEvent.clear(summary)
     await userEvent.type(summary, '해석 · 보고서 기록')
     await userEvent.click(screen.getByRole('button', { name: '저장' }))
@@ -55,14 +55,14 @@ describe('플랫폼 자기소개', () => {
   })
 
   it('아직 소개가 없으면 그렇게 말하고, 너무 길면 저장할 수 없다', async () => {
-    client.get.mockResolvedValue(live({ summary: '', stale: ['자기소개를 아직 안 적었다'] }))
+    client.get.mockResolvedValue(live({ summary: '', stale: ['플랫폼 소개 미작성'] }))
     render(<PlatformProfile />)
     expect(await screen.findByText(/아직 소개가 없습니다/)).toBeInTheDocument()
     // 「낡음」 목록이 아니라 「없음」 으로 — 같은 줄을 두 번 말하지 않는다.
-    expect(screen.queryByText('자기소개를 아직 안 적었다')).toBeNull()
-    await userEvent.type(screen.getByLabelText(/다른 플랫폼과의 사이/), 'x')
+    expect(screen.queryByText('플랫폼 소개 미작성')).toBeNull()
+    await userEvent.type(screen.getByLabelText(/다른 플랫폼과의 관계/), 'x')
     expect(screen.getByRole('button', { name: '저장' })).toBeEnabled()
-    await userEvent.click(screen.getByLabelText(/담는 것/))
+    await userEvent.click(screen.getByLabelText(/보유 데이터 요약/))
     await userEvent.paste('가'.repeat(301))
     expect(screen.getByRole('button', { name: '저장' })).toBeDisabled()
   })

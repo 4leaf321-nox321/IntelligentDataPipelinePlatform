@@ -51,31 +51,31 @@ def check(spec: Any) -> Policy | None:
     if spec is True:
         return Policy()
     if not isinstance(spec, dict):
-        raise AutoApplyError("auto_apply 는 true · false 또는 기준 객체입니다.")
+        raise AutoApplyError("auto_apply는 true, false 또는 기준 객체여야 합니다.")
     unknown = sorted(set(spec) - _KEYS)
     if unknown:
-        raise AutoApplyError(f"auto_apply: 모르는 칸입니다: {', '.join(unknown)}")
+        raise AutoApplyError(f"auto_apply: 지원하지 않는 항목입니다: {', '.join(unknown)}")
     after = spec.get("after_manual", Policy.after_manual)
     most = spec.get("max_changes", Policy.max_changes)
     gone = spec.get("allow_gone", Policy.allow_gone)
     if not isinstance(after, int) or isinstance(after, bool) or after < 1:
         raise AutoApplyError(
-            "auto_apply.after_manual 은 1 이상의 정수입니다(첫 적재는 사람이)."
+            "auto_apply.after_manual은 1 이상의 정수여야 합니다(첫 적재는 사람이 적용)."
         )
     if not isinstance(most, int) or isinstance(most, bool) or most < 0:
-        raise AutoApplyError("auto_apply.max_changes 는 0 이상의 정수입니다.")
+        raise AutoApplyError("auto_apply.max_changes는 0 이상의 정수여야 합니다.")
     if not isinstance(gone, bool):
-        raise AutoApplyError("auto_apply.allow_gone 은 true · false 입니다.")
+        raise AutoApplyError("auto_apply.allow_gone은 true 또는 false여야 합니다.")
     return Policy(after_manual=after, max_changes=most, allow_gone=gone)
 
 
 def label(policy: Policy | None) -> str:
     if policy is None:
         return "미사용"
-    gone = "삭제 포함" if policy.allow_gone else "삭제 없을 때만"
+    gone = "삭제 포함" if policy.allow_gone else "삭제 없음"
     return (
-        f"타이머 실행 · 사람 적용 {policy.after_manual}번 뒤 · "
-        f"변경 {policy.max_changes}건 이하 · {gone}"
+        f"타이머 실행 · 사람 적용 {policy.after_manual}회 이후 · 변경 {policy.max_changes}건 "
+        f"이하 · {gone}"
     )
 
 
@@ -102,18 +102,18 @@ def decide(policy: Policy, state: State, outcome: Outcome) -> list[str]:
         reasons.append("대상의 미리 보기에 오류가 있습니다")
         return reasons
     if state.pending.parts:
-        reasons.append(f"나눠 보내는 계획(조각 {state.pending.total}개)은 사람이 적용합니다")
+        reasons.append(f"분할 번들 계획({state.pending.total}개)은 사람이 적용합니다")
         return reasons
     done = manual_applies(state)
     if done < policy.after_manual:
         reasons.append(
-            f"사람이 적용한 것이 {done}번 — {policy.after_manual}번 뒤부터 자동입니다"
+            f"사람 적용이 {done}회입니다. {policy.after_manual}회 이후부터 자동 적용합니다"
         )
     changes, gone = totals(outcome.counts)
     if changes > policy.max_changes:
-        reasons.append(f"생성 + 변경 {changes}건이 기준 {policy.max_changes}건을 넘습니다")
+        reasons.append(f"생성 + 변경 {changes}건이 기준 {policy.max_changes}건을 초과합니다")
     if gone and not policy.allow_gone:
-        reasons.append(f"삭제 {gone}건이 있습니다")
+        reasons.append(f"삭제 {gone}건이 포함되어 있습니다")
     return reasons
 
 
@@ -142,7 +142,7 @@ def after_run(
         )
         work.save_state(state)
         return replace(
-            outcome, message=f"{outcome.message} · 자동 적용 안 함: {'; '.join(reasons)}"
+            outcome, message=f"{outcome.message} · 자동 적용 보류: {'; '.join(reasons)}"
         )
     applied = runner.apply(pipeline, work, submit, by="auto")
     return replace(

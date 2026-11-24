@@ -97,8 +97,8 @@ export class JobStalledError extends Error {
 
   constructor(job: Job) {
     super(
-      '워커가 돌지 않는 것 같습니다 — 작업이 아직 아무에게도 집히지 않았습니다. 「내 활동 › 작업」 ' +
-        '화면에서 확인하세요(작업은 대기열에 남아 있어, 워커가 살아나면 마저 돕니다).',
+      '워커가 작업을 시작하지 않았습니다. 워커가 실행 중이 아닐 수 있습니다. [내 활동] › [작업] ' +
+        '화면에서 확인하세요. 작업은 대기 상태로 남아 있으며, 워커가 다시 실행되면 이어서 처리됩니다.',
     )
     this.name = 'JobStalledError'
     this.job = job
@@ -209,7 +209,7 @@ export const jobsApi = {
     if (done.status !== 'done') {
       throw new Error(
         done.error ??
-          (done.status === 'cancelled' ? '취소됐습니다.' : '내보내기가 끝나지 않았습니다.'),
+          (done.status === 'cancelled' ? '작업이 취소되었습니다.' : '내보내기가 완료되지 않았습니다.'),
       )
     }
     await jobsApi.download(done.id, filename)

@@ -104,7 +104,7 @@ describe('계정 관리 · 그 사람의 토큰', () => {
     accountApi.tokens.mockResolvedValue([])
     await open({ ...ACCOUNT, status: 'suspended' })
     await userEvent.click(screen.getByRole('button', { name: '토큰' }))
-    const dialog = await screen.findByRole('dialog', { name: /홍길동\(hong\) 의 액세스 토큰/ })
+    const dialog = await screen.findByRole('dialog', { name: /홍길동\(hong\)의 액세스 토큰/ })
     expect(dialog).toBeInTheDocument()
     await waitFor(() => expect(accountApi.tokens).toHaveBeenCalledWith('acc-1'))
   })
@@ -119,7 +119,7 @@ describe('계정 관리 · 시스템 관리자 지정', () => {
     await userEvent.click(screen.getByRole('button', { name: '관리자 지정' }))
     // **확인 전에는 아무 일도 없다.**
     expect(accountApi.setSystemAdmin).not.toHaveBeenCalled()
-    expect(screen.getByText(/시스템 관리자로 지정합니다/)).toBeInTheDocument()
+    expect(screen.getByText(/시스템 관리자 지정 — hong/)).toBeInTheDocument()
     expect(screen.getByText(/모든 부서의 자료/)).toBeInTheDocument()
 
     const dialog = screen.getByRole('dialog')
@@ -159,7 +159,7 @@ describe('계정 관리 · 희망 부서 없는 신청의 승인', () => {
   it('부서를 묻고, 고른 부서로 승인한다', async () => {
     accountApi.approve.mockResolvedValue({ ...PENDING, status: 'active' })
     await open(PENDING)
-    expect(screen.getByText('희망 부서 없음 — 승인할 때 선택')).toBeInTheDocument()
+    expect(screen.getByText('희망 부서 없음(승인 시 선택)')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: '승인' }))
     expect(accountApi.approve).not.toHaveBeenCalled()

@@ -121,8 +121,8 @@ describe('새 연결', () => {
     await userEvent.type(await screen.findByLabelText('base_url'), 'http://mes')
     await userEvent.type(screen.getByLabelText('path'), '/lots')
     await userEvent.selectOptions(screen.getByLabelText('인증 방식'), 'query')
-    await userEvent.type(screen.getByLabelText('비밀의 환경 변수 이름'), 'MES_KEY')
-    await userEvent.type(screen.getByLabelText('질의 이름(예: api_key)'), 'api_key')
+    await userEvent.type(screen.getByLabelText('인증 정보의 환경 변수 이름'), 'MES_KEY')
+    await userEvent.type(screen.getByLabelText('쿼리 파라미터 이름(예: api_key)'), 'api_key')
     await userEvent.click(screen.getByRole('button', { name: /탐색/ }))
     await waitFor(() =>
       expect(relayApi.discover).toHaveBeenCalledWith({
@@ -139,28 +139,28 @@ describe('새 연결', () => {
     await userEvent.type(screen.getByLabelText('원천 이름'), 'mes')
     await userEvent.type(screen.getByLabelText('대상 SP 주소'), 'http://hub')
     await userEvent.type(screen.getByLabelText('대상 토큰의 환경 변수'), 'HUB_TOKEN')
-    await userEvent.click(screen.getByRole('button', { name: /정의 판 초안 저장/ }))
+    await userEvent.click(screen.getByRole('button', { name: /정의 버전 초안 저장/ }))
     await waitFor(() => expect(relayApi.saveDefinition).toHaveBeenCalled())
     const [slug, body] = relayApi.saveDefinition.mock.calls[0]
     expect(slug).toBe('mes-lots')
     expect(body.adapter).toMatchObject({ key: 'LotId', columns: { LOT_ID: 'LotId', MADE_ON: 'MadeOn' } })
     expect(body.target).toEqual({ name: '', server: 'http://hub', token_env: 'HUB_TOKEN' })
-    expect(await screen.findByText('정의 판 1 초안을 저장했습니다')).toBeInTheDocument()
+    expect(await screen.findByText('정의 버전 1 초안을 저장했습니다')).toBeInTheDocument()
     expect(screen.getByText(/울타리 밖/)).toBeInTheDocument()
 
     await userEvent.selectOptions(await screen.findByLabelText('대상 타입'), 'mes_lot')
-    await userEvent.selectOptions(screen.getByLabelText('made_on 의 열'), 'MADE_ON')
-    await userEvent.click(screen.getByRole('button', { name: /레시피 판 초안 저장/ }))
+    await userEvent.selectOptions(screen.getByLabelText('made_on 원천 열'), 'MADE_ON')
+    await userEvent.click(screen.getByRole('button', { name: /레시피 버전 초안 저장/ }))
     await waitFor(() => expect(relayApi.saveRecipe).toHaveBeenCalled())
     expect(relayApi.saveRecipe.mock.calls[0][1]).toMatchObject({
       types: [{ type_slug: 'mes_lot', key: { column: 'LOT_ID' }, fields: { made_on: { column: 'MADE_ON', date: true } } }],
     })
 
-    await userEvent.click(screen.getByRole('button', { name: /정의 시험/ }))
+    await userEvent.click(screen.getByRole('button', { name: /정의 테스트/ }))
     await waitFor(() =>
       expect(relayApi.testDefinition).toHaveBeenCalledWith('mes-lots', 1, { recipe_version: 1 }),
     )
-    expect(screen.getByRole('link', { name: /파이프라인 상세로/ })).toHaveAttribute('href', '/relay/pipelines/mes-lots')
+    expect(screen.getByRole('link', { name: /파이프라인 상세로 이동/ })).toHaveAttribute('href', '/relay/pipelines/mes-lots')
     expect(screen.queryByRole('button', { name: /^사용$/ })).not.toBeInTheDocument()
   })
 
@@ -178,7 +178,7 @@ describe('새 연결', () => {
     await userEvent.type(screen.getByLabelText('원천 이름'), 'mes')
     await userEvent.type(screen.getByLabelText('대상 SP 주소'), 'http://hub')
     await userEvent.type(screen.getByLabelText('대상 토큰의 환경 변수'), 'HUB_TOKEN')
-    await userEvent.click(screen.getByRole('button', { name: /정의 판 초안 저장/ }))
+    await userEvent.click(screen.getByRole('button', { name: /정의 버전 초안 저장/ }))
 
     await userEvent.selectOptions(await screen.findByLabelText('대상 타입'), '__new__')
     await userEvent.type(screen.getByLabelText('새 타입 slug'), 'mes_lot')
@@ -195,9 +195,9 @@ describe('새 연결', () => {
     )
     expect(await screen.findByText(/made_on\(date\)/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /타입 정의 초안 다운로드/ })).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('button', { name: /레시피 판 초안 저장/ }))
+    await userEvent.click(screen.getByRole('button', { name: /레시피 버전 초안 저장/ }))
     await waitFor(() =>
-      expect(relayApi.saveRecipe).toHaveBeenCalledWith('mes-lots', { format: 'sp-table/1', types: [{ type_slug: 'mes_lot' }] }, '새 연결 — 첫 판'),
+      expect(relayApi.saveRecipe).toHaveBeenCalledWith('mes-lots', { format: 'sp-table/1', types: [{ type_slug: 'mes_lot' }] }, '새 연결(첫 버전)'),
     )
   })
 
@@ -224,14 +224,14 @@ describe('새 연결', () => {
     await userEvent.type(screen.getByLabelText('원천 이름'), 'mes')
     await userEvent.type(screen.getByLabelText('대상 SP 주소'), 'http://hub')
     await userEvent.type(screen.getByLabelText('대상 토큰의 환경 변수'), 'HUB_TOKEN')
-    await userEvent.click(screen.getByRole('button', { name: /정의 판 초안 저장/ }))
+    await userEvent.click(screen.getByRole('button', { name: /정의 버전 초안 저장/ }))
     await waitFor(() => expect(relayApi.saveDefinition).toHaveBeenCalled())
     const body = relayApi.saveDefinition.mock.calls[0][1]
     expect(body.adapter.key).toEqual(['LotId', 'MadeOn'])
     expect(body.computed).toEqual({ RELAY_KEY: { template: '{LOT_ID}|{MADE_ON}' } })
 
     await userEvent.selectOptions(await screen.findByLabelText('대상 타입'), 'mes_lot')
-    await userEvent.click(screen.getByRole('button', { name: /레시피 판 초안 저장/ }))
+    await userEvent.click(screen.getByRole('button', { name: /레시피 버전 초안 저장/ }))
     await waitFor(() => expect(relayApi.saveRecipe).toHaveBeenCalled())
     expect(relayApi.saveRecipe.mock.calls[0][1].types[0].key).toEqual({ column: 'RELAY_KEY' })
 
@@ -251,15 +251,15 @@ describe('새 연결', () => {
     await userEvent.type(screen.getByLabelText('path'), '/lots')
     await userEvent.click(screen.getByRole('button', { name: /탐색/ }))
     await screen.findByLabelText('LotId 식별자')
-    await userEvent.click(screen.getByRole('button', { name: /정의 판 초안 저장/ }))
-    expect(await screen.findByText(/식별자로 쓸 칸을 하나 이상 선택하세요/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /정의 버전 초안 저장/ }))
+    expect(await screen.findByText(/식별자로 사용할 필드를 하나 이상 선택하세요/)).toBeInTheDocument()
     expect(relayApi.saveDefinition).not.toHaveBeenCalled()
   })
 
   it('관리자가 아니면 만들 수 없다', async () => {
     auth.admin = false
     await mount()
-    expect(screen.getByText('새 연결은 시스템 관리자가 만듭니다.')).toBeInTheDocument()
+    expect(screen.getByText('새 연결은 시스템 관리자만 생성할 수 있습니다.')).toBeInTheDocument()
     expect(within(document.body).queryByRole('button', { name: /탐색/ })).not.toBeInTheDocument()
   })
 })

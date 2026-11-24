@@ -78,27 +78,27 @@ class Described:
 def _transform(spec: dict[str, Any]) -> str:
     parts: list[str] = []
     if "key_of" in spec:
-        return f"타입 {spec['key_of']} 의 식별자"
+        return f"타입 {spec['key_of']}의 식별자"
     if "value" in spec:
         return f"고정값 {spec['value']!r}"
     if "parser" in spec:
         part = "의 종류" if spec.get("part") == "kind" else ""
         return f"해석기 {spec['parser']} › {spec.get('slot')}{part}"
     if spec.get("upper"):
-        parts.append("대문자")
+        parts.append("대문자 변환")
     if spec.get("date"):
-        parts.append("날짜")
+        parts.append("날짜 변환")
     if spec.get("map"):
-        parts.append(f"값 대응 {len(spec['map'])}개")
+        parts.append(f"값 매핑 {len(spec['map'])}개")
     if spec.get("blank"):
-        parts.append(f"빈 값으로 볼 것 {len(spec['blank'])}개")
+        parts.append(f"빈 값 처리 {len(spec['blank'])}개")
     if spec.get("match"):
-        parts.append(f"대상의 {spec['match'].get('keys')} 와 대조")
+        parts.append(f"대상의 {spec['match'].get('keys')}와 대조")
     if "collect" in spec:
-        parts.append("여러 행을 목록으로")
+        parts.append("집계(목록)")
     if "join" in spec:
-        parts.append("여러 행을 한 글로")
-    return " · ".join(parts) or "그대로"
+        parts.append("집계(문자열 결합)")
+    return " · ".join(parts) or "변환 없음"
 
 
 def _columns_of(
@@ -137,7 +137,7 @@ def lineage(
                 target_field=name,
                 columns=cols,
                 source_paths=[columns.get(one, one if same else "") for one in cols],
-                transform=_transform(spec) if isinstance(spec, dict) else "그대로",
+                transform=_transform(spec) if isinstance(spec, dict) else "변환 없음",
             )
         )
 
@@ -156,7 +156,7 @@ def describe(path: Path) -> Described:
         body = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError) as failure:
         out = Described(path=path)
-        out.problems.append(f"정의를 못 읽었습니다: {failure}")
+        out.problems.append(f"정의를 읽을 수 없습니다: {failure}")
         return out
     return describe_body(body, path=path, base=path.parent)
 
@@ -168,7 +168,7 @@ def describe_body(
     (레시피는 레시피 판에서)."""
     out = Described(path=path, origin=origin, body=body)
     if body.get("format") != FORMAT:
-        out.problems.append(f"format 이 {FORMAT} 가 아닙니다")
+        out.problems.append(f"format이 {FORMAT}이 아닙니다")
     out.slug = str(body.get("slug") or path.stem)
     out.source = str(body.get("source") or "")
     out.system = str(body.get("system") or out.source.upper())
@@ -227,7 +227,7 @@ def describe_body(
     elif out.adapter_kind == "push":
         where = ""
         out.endpoint = f"/api/relay/inbound/{out.slug}"
-        out.endpoint_label = "받기(push) — 원천이 보낸다"
+        out.endpoint_label = "푸시 수신(push)"
     else:
         where = str(checked.get("base_url") or "")
         out.endpoint = f"{where.rstrip('/')}{checked.get('path', '')}"
@@ -250,7 +250,7 @@ def describe_body(
     try:
         recipe = json.loads(recipe_path.read_text(encoding="utf-8"))
     except ValueError as failure:
-        out.problems.append(f"레시피를 못 읽었습니다: {failure}")
+        out.problems.append(f"레시피를 읽을 수 없습니다: {failure}")
         return out
     out.types = [
         str(one["type_slug"]) for one in recipe.get("types") or [] if "type_slug" in one
@@ -265,7 +265,9 @@ def describe_body(
     out.lineage = lineage(recipe, out.columns, same=out.columns_all)
     unknown = sorted({c for step in out.lineage for c in step.columns} - set(out.columns))
     if unknown and not out.columns_all:
-        out.problems.append(f"레시피가 읽는 열을 어댑터가 내지 않습니다: {', '.join(unknown)}")
+        out.problems.append(
+            f"레시피가 사용하는 열을 어댑터가 제공하지 않습니다: {', '.join(unknown)}"
+        )
     return out
 
 

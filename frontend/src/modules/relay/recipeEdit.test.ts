@@ -75,13 +75,13 @@ describe('레시피 편집 규칙', () => {
     next = withField(next, 'task', null)
     let doc = withType(after, 'plm_model', next)
     expect(changes(RECIPE, doc)).toEqual([
-      'plm_model.task(칸 삭제)',
+      'plm_model.task(속성 삭제)',
       'plm_model.model_kind',
-      'plm_model.region(칸 추가)',
+      'plm_model.region(속성 추가)',
     ])
     doc = { ...doc, title: '바뀜', relations: [] }
     expect(changes(RECIPE, doc)).toContain('관계')
-    expect(changes(RECIPE, doc)).toContain('그 밖(title · dictionaries …)')
+    expect(changes(RECIPE, doc)).toContain('기타(title · dictionaries …)')
     expect(changes(RECIPE, clone(RECIPE))).toEqual([])
   })
 
@@ -94,11 +94,11 @@ describe('레시피 편집 규칙', () => {
       withField(withField(model, 'region', { column: ' ' }), 'task', { key_of: 'plm_project' }),
     )
     expect(blockers(broken)).toEqual([
-      'plm_model.task: 다른 타입 「plm_project」 이 레시피에 없습니다.',
-      'plm_model.region: 열 이름이 비었습니다.',
+      "plm_model.task: 'plm_project' 타입이 레시피에 없습니다.",
+      'plm_model.region: 열 이름을 입력하세요.',
     ])
     expect(blockers({ format: 'sp-table/1', types: [] })).toEqual([
-      'types 가 비었습니다 — 무엇을 만들지 적어야 합니다.',
+      'types가 비어 있습니다. 생성할 타입을 입력하세요.',
     ])
   })
 })

@@ -130,9 +130,9 @@ const PERIODS: { value: PerformancePeriod; label: string }[] = [
 ]
 
 const SORTS: { value: RequestSort; label: string }[] = [
-  { value: 'p95', label: '느린 순' },
-  { value: 'max_bytes', label: '큰 순' },
-  { value: 'calls', label: '호출 많은 순' },
+  { value: 'p95', label: '응답 시간순' },
+  { value: 'max_bytes', label: '응답 크기순' },
+  { value: 'calls', label: '호출 횟수순' },
 ]
 
 /** 서버가 강제하는 상한 안에서 고른 값(`shared/pagination.py` 의 MAX_LIMIT 는 200). */
@@ -216,24 +216,24 @@ function Cases({
   if (cases.data.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        이 기간의 사례가 없습니다 — 보관 기간이 지나 정리됐을 수 있습니다.
+        이 기간의 사례가 없습니다. 보관 기간이 지나 삭제되었을 수 있습니다.
       </p>
     )
   }
   return (
     <div className="space-y-1">
       <p className="text-muted-foreground text-xs">
-        {bySize ? '가장 큰' : '가장 오래 걸린'} 순 {cases.data.length}건. 요청 ID 로 서버 로그(app.log)에서
-        그 요청의 모든 줄을 찾습니다.
+        {bySize ? '응답 크기' : '응답 시간'}순 상위 {cases.data.length}건. 요청 ID로 서버 로그(app.log)에서
+        해당 요청의 전체 로그를 조회할 수 있습니다.
       </p>
       <Table>
         <TableHeader>
           <TableRow>
             <TableHead>시각</TableHead>
-            <TableHead>누가</TableHead>
+            <TableHead>사용자</TableHead>
             <TableHead>경로</TableHead>
             <TableHead className="text-right">상태</TableHead>
-            <TableHead className="text-right">걸린 시간</TableHead>
+            <TableHead className="text-right">소요 시간</TableHead>
             <TableHead className="text-right">크기</TableHead>
             <TableHead>요청 ID</TableHead>
           </TableRow>
@@ -282,37 +282,38 @@ function Requests({
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="text-base font-semibold">경로마다</h2>
+        <h2 className="text-base font-semibold">경로별</h2>
         <Choice label="정렬" options={SORTS} value={sort} onChange={onSort} />
       </div>
       {limits && (
         <p className="text-muted-foreground text-sm">
-          p50 은 호출의 절반이 그보다 빨랐다는 뜻이고, p95 는 스무 번 중 한 번만 그보다 느렸다는
-          뜻입니다. <StatusBadge kind="performance" value="slow" /> 은 p95 가{' '}
-          {shownMs(limits.p95_ms)}를 넘은 경로(24시간에 {limits.min_calls}번 이상 호출된 것만),{' '}
-          <StatusBadge kind="performance" value="large" /> 는 {shownBytes(limits.response_bytes)}
-          보다 큰 응답을 낸 경로입니다. <StatusBadge kind="performance" value="file" /> 응답(내려받기 ·
-          사진)은 크고 받는 쪽 속도를 타는 것이 정상이라 세지 않습니다. 홈의 「남은 일」 은 최근
-          24시간을 이 기준으로 셉니다. 줄을 클릭하면 그 경로의 최악 사례가 표시됩니다.
+          p50은 호출의 절반이 이 값보다 빨랐다는 뜻이고, p95는 호출 20회 중 1회만 이 값보다
+          느렸다는 뜻입니다. <StatusBadge kind="performance" value="slow" /> 표시는 p95가{' '}
+          {shownMs(limits.p95_ms)}를 초과한 경로(24시간 동안 {limits.min_calls}회 이상 호출된 경로만),{' '}
+          <StatusBadge kind="performance" value="large" /> 표시는{' '}
+          {shownBytes(limits.response_bytes)}보다 큰 응답을 반환한 경로입니다.{' '}
+          <StatusBadge kind="performance" value="file" /> 표시 응답(다운로드, 사진)은 크기가 크고 수신
+          측 속도의 영향을 받으므로 집계하지 않습니다. 홈의 '확인 필요'는 최근 24시간을 이 기준으로
+          집계합니다. 행을 클릭하면 해당 경로의 최악 사례가 표시됩니다.
         </p>
       )}
       <ErrorNotice error={stats.error} />
       {data?.capped && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          기록이 많아 {shownDateTime(data.since)} 이후의 최근 기록만 셌습니다 — 기간을 좁히면 전부
-          셉니다.
+          기록이 많아 {shownDateTime(data.since)} 이후의 최근 기록만 집계했습니다. 기간을 좁히면
+          전체를 집계합니다.
         </div>
       )}
       {data && data.items.length === 0 ? (
         data.first_recorded_at === null ? (
           <EmptyState
-            title="아직 기록이 없습니다"
-            hint="요청 시간은 이 기능이 들어간 판부터 남깁니다. 화면을 사용하면 몇 초 뒤부터 쌓입니다."
+            title="기록 없음"
+            hint="요청 시간은 이 기능이 포함된 버전부터 기록합니다. 화면을 사용하면 몇 초 후부터 기록됩니다."
           />
         ) : (
           <EmptyState
-            title="이 기간에 기록된 요청이 없습니다"
-            hint={`가장 오래된 기록은 ${shownDateTime(data.first_recorded_at)} 입니다. 기간을 넓혀 보세요.`}
+            title="이 기간에 기록된 요청 없음"
+            hint={`가장 오래된 기록: ${shownDateTime(data.first_recorded_at)}. 기간을 넓혀 조회하세요.`}
           />
         )
       ) : (
@@ -320,7 +321,7 @@ function Requests({
           <TableHeader>
             <TableRow>
               <TableHead>메서드</TableHead>
-              <TableHead>경로 틀</TableHead>
+              <TableHead>경로 패턴</TableHead>
               <TableHead className="text-right">호출</TableHead>
               <TableHead className="text-right">p50</TableHead>
               <TableHead className="text-right">p95</TableHead>
@@ -399,7 +400,7 @@ function Requests({
           limit={data.limit}
           offset={data.offset}
           onChange={setOffset}
-          unit="곳"
+          unit="개"
         />
       )}
     </section>
@@ -418,22 +419,22 @@ export function shapeParts(shape: Record<string, unknown>): { label: string; val
     ['group_by', '기준'],
     ['split_by', '세부 기준'],
     ['metric', '집계'],
-    ['metric_field', '집계 칸'],
+    ['metric_field', '집계 속성'],
     ['grain', '기간 단위'],
     ['conditions', '조건'],
     ['status', '상태'],
-    ['year', '해'],
+    ['year', '연도'],
   ]
   for (const [key, label] of names) {
     if (shape[key] !== undefined) out.push({ label, value: text(shape[key]) })
   }
   if (shape.q) out.push({ label: '검색어', value: '있음' })
-  if (shape.under) out.push({ label: '트리', value: '가지 하나' })
+  if (shape.under) out.push({ label: '트리', value: '하위 트리 1개' })
   if ('query' in shape) {
     const types = Array.isArray(shape.types) ? shape.types : []
-    out.push({ label: '범위', value: types.length ? types.join(', ') : '기본(기록 타입 뺌)' })
+    out.push({ label: '범위', value: types.length ? types.join(', ') : '기본(기록 타입 제외)' })
   } else if (shape.types !== undefined) {
-    out.push({ label: '타입들', value: text(shape.types) })
+    out.push({ label: '타입 목록', value: text(shape.types) })
   }
   return out
 }
@@ -445,27 +446,27 @@ function CutQuestionsSection({ period }: { period: PerformancePeriod }) {
   )
   return (
     <section className="space-y-3">
-      <h2 className="text-base font-semibold">끊긴 질문</h2>
+      <h2 className="text-base font-semibold">중단된 조회</h2>
       <p className="text-muted-foreground text-sm">
-        시간 상한(<span className="font-mono">READ_QUERY_SECONDS</span>)에 걸려 답을 못 받은
-        물음입니다. 같은 모양끼리 묶어 많이 끊긴 것부터 표시합니다. 조건의 값과 검색어는 남기지
-        않습니다.
+        조회 시간 상한(<span className="font-mono">READ_QUERY_SECONDS</span>)을 초과하거나 질의가
+        너무 커서 결과를 반환하지 못한 조회입니다. 같은 형태끼리 묶어 중단 횟수가 많은 순으로
+        표시합니다. 조건의 값과 검색어는 기록하지 않습니다.
       </p>
       <ErrorNotice error={cut.error} />
       {cut.data && cut.data.items.length === 0 ? (
         <EmptyState
-          title="이 기간에 끊긴 질문이 없습니다"
-          hint="목록 · 통계 · SPARQL 이 모두 답을 냈다는 뜻입니다."
+          title="이 기간에 중단된 조회 없음"
+          hint="목록, 통계, SPARQL 조회가 모두 결과를 반환했습니다."
         />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>까닭</TableHead>
-              <TableHead>물음</TableHead>
-              <TableHead className="text-right">번</TableHead>
-              <TableHead className="text-right">사람</TableHead>
-              <TableHead>마지막</TableHead>
+              <TableHead>원인</TableHead>
+              <TableHead>조회</TableHead>
+              <TableHead className="text-right">횟수</TableHead>
+              <TableHead className="text-right">사용자 수</TableHead>
+              <TableHead>최근 발생</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -508,7 +509,7 @@ function CutQuestionsSection({ period }: { period: PerformancePeriod }) {
       )}
       {cut.data && cut.data.total > cut.data.items.length && (
         <p className="text-muted-foreground text-xs">
-          모양 {cut.data.total}가지 중 많이 끊긴 {cut.data.items.length}가지만 보입니다.
+          형태 {cut.data.total}종 중 중단 횟수 상위 {cut.data.items.length}종만 표시합니다.
         </p>
       )}
     </section>
@@ -522,17 +523,17 @@ function Jobs({ period }: { period: PerformancePeriod }) {
   )
   return (
     <section className="space-y-3">
-      <h2 className="text-base font-semibold">작업 종류마다</h2>
+      <h2 className="text-base font-semibold">작업 종류별</h2>
       <p className="text-muted-foreground text-sm">
-        그 기간에 들어온 작업입니다. 대기는 들어와 워커가 시작하기까지, 소요는 시작해 끝나기까지입니다.
-        대기가 길면 워커가 모자라거나 앞의 작업이 깁니다 — 아직 대기인 작업은 「가장 오래 대기」 로
-        따로 표시합니다.
+        해당 기간에 등록된 작업입니다. 대기는 등록부터 워커가 시작할 때까지, 소요는 시작부터
+        종료까지의 시간입니다. 대기가 길면 워커가 부족하거나 앞선 작업이 오래 걸리는 상태입니다.
+        대기 중인 작업은 '최장 대기'로 따로 표시합니다.
       </p>
       <ErrorNotice error={jobs.error} />
       {jobs.data && jobs.data.items.length === 0 ? (
         <EmptyState
-          title="이 기간에 들어온 작업이 없습니다"
-          hint="작업은 일괄 입력 · 내보내기 · 동기화처럼 오래 걸리는 일입니다. 기간을 넓혀 보세요."
+          title="이 기간에 등록된 작업 없음"
+          hint="작업은 워커가 실행하는 오래 걸리는 처리입니다. 기간을 넓혀 조회하세요."
         />
       ) : (
         <Table>
@@ -563,7 +564,7 @@ function Jobs({ period }: { period: PerformancePeriod }) {
                   {one.open}
                   {one.queued_oldest_s !== null && (
                     <p className="text-muted-foreground text-xs">
-                      가장 오래 대기 {shownSeconds(one.queued_oldest_s)}
+                      최장 대기 {shownSeconds(one.queued_oldest_s)}
                     </p>
                   )}
                 </TableCell>
@@ -602,8 +603,8 @@ export function Performance({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-muted-foreground text-sm">
-          요청마다 응답의 마지막 바이트를 보낼 때까지 걸린 시간과 보낸 크기입니다. 기록은 보관
-          기간(<span className="font-mono">LOG_RETENTION_DAYS</span>)이 지나면 정리됩니다.
+          요청별로 응답의 마지막 바이트를 전송할 때까지의 소요 시간과 응답 크기입니다. 기록은 보관
+          기간(<span className="font-mono">LOG_RETENTION_DAYS</span>)이 지나면 삭제됩니다.
         </p>
         <Choice label="기간" options={PERIODS} value={period} onChange={setPeriod} />
       </div>

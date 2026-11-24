@@ -45,7 +45,7 @@ export function WorkspaceEditDialog({ workspace, all, onClose, onSaved }: Props)
   const [error, setError] = useState<Error | null>(null)
 
   const options = [
-    { value: ROOT, label: '최상위 (상위 없음)', hint: '본부처럼 위가 없는 부서' },
+    { value: ROOT, label: '최상위(상위 없음)', hint: '본부처럼 상위 부서가 없는 부서' },
     ...parentOptions(
       all.filter((one) => one.slug !== workspace.slug),
       workspace.slug,
@@ -78,8 +78,8 @@ export function WorkspaceEditDialog({ workspace, all, onClose, onSaved }: Props)
         <DialogHeader>
           <DialogTitle>{workspace.name} 수정</DialogTitle>
           <DialogDescription>
-            주소(<span className="font-mono">{workspace.slug}</span>)는 못 바꿉니다. 다른 시스템이
-            이 주소로 부서를 찾고 있어서, 바꾸면 그쪽에서 조용히 안 맞습니다.
+            주소(<span className="font-mono">{workspace.slug}</span>)는 변경할 수 없습니다. 다른
+            시스템이 이 주소로 부서를 조회하므로, 변경하면 해당 시스템에서 부서를 찾지 못합니다.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
@@ -93,7 +93,7 @@ export function WorkspaceEditDialog({ workspace, all, onClose, onSaved }: Props)
             />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="edit-description">하는 일</Label>
+            <Label htmlFor="edit-description">업무</Label>
             {/* 조직도만으로는 「재료2팀」 과 「재료3팀」 이 무엇이 다른지 알 수 없다. */}
             <Input
               id="edit-description"
@@ -111,11 +111,12 @@ export function WorkspaceEditDialog({ workspace, all, onClose, onSaved }: Props)
               value={parent}
               onChange={setParent}
               placeholder="상위 부서를 선택하세요"
-              searchPlaceholder="부서 이름이나 주소로 검색"
+              searchPlaceholder="부서 이름 또는 주소로 검색"
             />
             {parentChanged && (
               <p className="text-muted-foreground text-xs">
-                옮겨도 자료는 하나도 안 움직입니다. 새 형제들의 맨 끝에 놓입니다.
+                상위 부서를 변경해도 자료는 이동하지 않습니다. 새 상위 부서의 마지막 하위 부서로
+                배치됩니다.
               </p>
             )}
           </div>

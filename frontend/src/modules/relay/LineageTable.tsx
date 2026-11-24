@@ -47,7 +47,7 @@ export function LineageTable({ steps }: { steps: LineageStep[] }) {
   if (steps.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        레시피를 못 읽어 칸 대응을 그리지 못했습니다 — 위의 문제를 먼저 보세요.
+        레시피를 읽을 수 없어 속성 매핑표를 표시할 수 없습니다. 위의 문제를 먼저 확인하세요.
       </p>
     )
   }
@@ -55,10 +55,10 @@ export function LineageTable({ steps }: { steps: LineageStep[] }) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>대상 칸</TableHead>
+          <TableHead>대상 속성</TableHead>
           <TableHead>← 변환</TableHead>
           <TableHead>← 열</TableHead>
-          <TableHead>← 원천 자리</TableHead>
+          <TableHead>← 원천 위치</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -105,7 +105,7 @@ export function LineageTable({ steps }: { steps: LineageStep[] }) {
                       </p>
                     )}
                     {one.target_missing && (
-                      <p className="text-destructive text-xs">대상 SP 정의에 없는 칸</p>
+                      <p className="text-destructive text-xs">대상 SP 정의에 없는 속성</p>
                     )}
                   </TableCell>
                   <TableCell className="align-top text-xs whitespace-normal">

@@ -35,7 +35,7 @@ def write_source(mirror: Source, recipe: Path, run: Path, *, work: Path) -> Path
     사본은 거꾸로 보기(`trace`)가 쓴다 — 기준을 만든 뒤 레시피 판이 바뀌면 지금 레시피로는 그
     값이 어디서 왔는지 틀리게 말한다."""
     if len(mirror) == 0:
-        raise ValueError("미러가 비어 있습니다 — 받은 행이 없습니다.")
+        raise ValueError("미러가 비어 있습니다. 수신한 행이 없습니다.")
     source = mirror.write_csv(work / f"{run.name}.source.csv")
     (work / f"{run.name}.recipe.table.json").write_bytes(recipe.read_bytes())
     return source

@@ -56,7 +56,7 @@ def key_column(columns: Mapping[str, str], key: str | Sequence[str]) -> dict[str
     paths = [key] if isinstance(key, str) else list(key)
     missing = [path for path in paths if path not in by_path]
     if missing:
-        raise ValueError(f"식별자 자리가 열(columns)에 없습니다: {', '.join(missing)}")
+        raise ValueError(f"식별자 위치가 열(columns)에 없습니다: {', '.join(missing)}")
     if len(paths) == 1:
         return {"column": by_path[paths[0]]}
     name, n = KEY_COLUMN, 2
@@ -139,7 +139,7 @@ def _fields(
                     {
                         "property": key,
                         "column": exact[0],
-                        "why": f"참조 — {ref} 의 식별자와 맞춤(match)",
+                        "why": f"참조: {ref}의 식별자와 대조(match)",
                     }
                 )
                 used.add(exact[0])
@@ -152,17 +152,17 @@ def _fields(
         column, why = "", ""
         exact = [c for c, n in names.items() if want and want in n]
         if exact:
-            column, why = exact[0], "이름이 같음"
+            column, why = exact[0], "이름 일치"
         elif label and (same := [c for c, n in names.items() if label in n]):
-            column, why = same[0], "표시 이름이 같음"
+            column, why = same[0], "표시 이름 일치"
         else:
             free = [c for c in columns if c not in used]
             tail = [c for c in free if len(want) >= 4 and _norm(c).endswith(want)]
             head = [c for c in free if len(_norm(c)) >= 4 and want.endswith(_norm(c))]
             if len(tail) == 1:
-                column, why = tail[0], "열 이름이 칸 이름으로 끝남"
+                column, why = tail[0], "열 이름이 속성 이름으로 끝남"
             elif not tail and len(head) == 1:
-                column, why = head[0], "칸 이름이 열 이름으로 끝남"
+                column, why = head[0], "속성 이름이 열 이름으로 끝남"
         if not column:
             unmatched.append(brief)
             continue
@@ -191,7 +191,7 @@ def first_recipe(
     fields, matched, unmatched, references = _fields(columns, props, used)
     recipe = {
         "format": "sp-table/1",
-        "title": f"{type_slug}(한 번에 초안)",
+        "title": f"{type_slug}(일괄 초안 생성)",
         "types": [
             {
                 "type_slug": type_slug,
@@ -310,7 +310,7 @@ def split_recipe(
                 continue  # 주인이 다르다 — 만들지 않고 참조(`match`)
             if ref in taken:
                 skipped.append(
-                    {"type_slug": ref, "why": f"{taken[ref]} 파이프라인이 채운다 — 참조만"}
+                    {"type_slug": ref, "why": f"{taken[ref]} 파이프라인 적재 타입(참조만)"}
                 )
                 continue
             free = {
@@ -373,7 +373,7 @@ def split_recipe(
             {
                 "property": k,
                 "column": groups[v["key_of"]].key,
-                "why": f"참조 — 같은 행의 {v['key_of']}(key_of)",
+                "why": f"참조: 같은 행의 {v['key_of']}(key_of)",
             }
             for k, v in preset.items()
         ]
@@ -396,7 +396,7 @@ def split_recipe(
     used_all |= {one["dst"]["column"] for one in relations}
     recipe: dict[str, Any] = {
         "format": "sp-table/1",
-        "title": f"{type_slug}(한 번에 초안)",
+        "title": f"{type_slug}(일괄 초안 생성)",
         "types": entries,
     }
     if relations:
@@ -477,7 +477,7 @@ def _relations(
                             "src": {"key_of": start},
                             "dst": {"column": found[0]},
                             "evidence_note": {
-                                "value": f"원천 열 {found[0]}(한 번에 초안)",
+                                "value": f"원천 열 {found[0]}(일괄 초안 생성)",
                             },
                         }
                     )

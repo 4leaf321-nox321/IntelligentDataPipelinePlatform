@@ -59,7 +59,7 @@ CSV_HEADER = [
     "원천 표기",
     "원천",
     "파이프라인",
-    "대상이 이미 푸나",
+    "대상 처리 여부",
 ]
 
 
@@ -73,8 +73,8 @@ def _active(found: Described) -> None:
     if found.draft:
         raise Conflict(
             code("RELAY", 30),
-            f"{found.slug} 은 아직 초안입니다 — 미해결 작업함은 정의 판을 사용해 실행한 뒤에 "
-            "씁니다.",
+            f"{found.slug}은 아직 초안입니다. 미해결 처리함은 정의 버전을 사용해 실행한 후에 "
+            "사용할 수 있습니다.",
         )
 
 
@@ -88,7 +88,9 @@ def _auth(found: Described) -> tuple[str, dict[str, str]]:
 def _type_path(type_slug: str) -> str:
     if not _TYPE.fullmatch(type_slug):
         raise AppError(
-            code("RELAY", 28), f"대상 타입의 이름이 맞지 않습니다: {type_slug!r}", status=422
+            code("RELAY", 28),
+            f"대상 타입 이름 형식이 올바르지 않습니다: {type_slug!r}",
+            status=422,
         )
     return quote(type_slug, safe="")
 
@@ -110,14 +112,15 @@ def target_objects(found: Described, type_slug: str) -> list[TargetObject]:
         except httpx.HTTPError as failure:
             raise AppError(
                 code("RELAY", 25),
-                f"대상({server})에 닿지 않아 {type_slug} 의 객체를 못 읽었습니다: {failure}",
+                f"대상({server})에 연결할 수 없어 {type_slug}의 객체를 조회하지 못했습니다: "
+                f"{failure}",
                 status=502,
             ) from failure
         if answer.status_code != 200:
             raise AppError(
                 code("RELAY", 25),
-                f"대상이 {type_slug} 의 객체를 주지 않습니다({answer.status_code}) — 타입이 "
-                "대상에 있는지, 토큰이 읽을 수 있는지 확인하세요.",
+                f"대상에서 {type_slug}의 객체를 조회할 수 없습니다({answer.status_code}). "
+                "타입이 대상에 있는지, 토큰에 읽기 권한이 있는지 확인하세요.",
                 status=502,
             )
         body = answer.json()
@@ -173,7 +176,7 @@ def current_recipe(db: Session, found: Described) -> tuple[dict[str, Any] | None
     """지금 도는 레시피 — 사용 중인 판, 없으면 정의 파일의 것."""
     row = recipes.active(db, found.slug)
     if row is not None:
-        return dict(row.body), f"레시피 판 {row.version}"
+        return dict(row.body), f"레시피 버전 {row.version}"
     if found.recipe is not None and found.recipe.is_file():
         return json.loads(found.recipe.read_text(encoding="utf-8")), "정의 파일의 레시피"
     return None, ""
@@ -210,7 +213,7 @@ def _merged(rule: list[Candidate], platform: list[TargetObject]) -> list[Candida
                 key=given.key,
                 label=given.label,
                 score=score,
-                why="대상 — 여럿과 맞음",
+                why="대상 — 여러 건 일치",
                 by="대상",
             )
         )
@@ -229,19 +232,20 @@ def read(db: Session, slug: str) -> InboxOut:
     llm = _llm() is not None
     if found.draft:
         return InboxOut(
-            note="아직 초안입니다 — 정의 판을 사용해 실행한 뒤 미해결이 생기면 여기 모입니다.",
+            note="아직 초안입니다. 정의 버전을 사용해 실행한 후 미해결이 발생하면 여기에 "
+            "표시됩니다.",
             llm=llm,
         )
     work = _work(slug)
     if work is None:
         return InboxOut(
-            note="아직 실행한 적이 없습니다 — 미해결은 실행이 멈출 때 생깁니다.", llm=llm
+            note="아직 실행하지 않았습니다. 미해결은 실행이 중단될 때 발생합니다.", llm=llm
         )
     blocked = inbox.blocked_run(work)
     if blocked is None:
         return InboxOut(
-            note="미해결로 멈춘 실행이 없습니다 — 마지막 실행이 미해결 없이 지나갔거나 다른 "
-            "까닭(받기 점검 · 계획 오류)으로 멈췄습니다.",
+            note="미해결로 중단된 실행이 없습니다. 마지막 실행이 미해결 없이 완료되었거나 "
+            "다른 사유(수신 검증, 계획 오류)로 중단되었습니다.",
             llm=llm,
         )
     run, at = blocked
@@ -281,8 +285,8 @@ def read(db: Session, slug: str) -> InboxOut:
     for target, items in sorted(by_target.items()):
         if not target or target.startswith("@") or not _TYPE.fullmatch(target):
             problems.append(
-                f"{target or '(대상 타입을 모름)'} — 대상 SP 의 타입이 아니라 후보를 낼 수 "
-                "없습니다."
+                f"{target or '(대상 타입 미확인)'}: 대상 SP의 타입이 아니므로 후보를 제시할 "
+                "수 없습니다."
             )
             continue
         try:
@@ -320,14 +324,14 @@ def suggest(db: Session, slug: str, target: str, text: str, column: str) -> Sugg
     if llm is None:
         raise Conflict(
             code("RELAY", 26),
-            "GLM 이 설정되지 않았습니다 — 서버의 RELAY_LLM_URL · RELAY_LLM_MODEL 을 적으면 "
+            "GLM이 설정되지 않았습니다. 서버 설정에 RELAY_LLM_URL, RELAY_LLM_MODEL을 입력하면 "
             "제안을 받을 수 있습니다.",
         )
     current, _label = current_recipe(db, found)
     if target not in aliases.match_targets(current or {}):
         raise AppError(
             code("RELAY", 28),
-            f"지금 레시피가 {target} 와 참조 대조하지 않습니다 — 제안할 곳이 없습니다.",
+            f"현재 레시피는 {target}와 참조 대조하지 않습니다. 제안할 대상이 없습니다.",
             status=422,
         )
     objects = target_objects(found, target)
@@ -335,7 +339,7 @@ def suggest(db: Session, slug: str, target: str, text: str, column: str) -> Sugg
     labels = {one.key: one for one in objects}
     platform = platform_candidates(found, target, [text]).get(text, [])
     picks = [
-        Candidate(one.key, one.label, 0.7, "대상 — 여럿과 맞음", by="대상")
+        Candidate(one.key, one.label, 0.7, "대상 — 여러 건 일치", by="대상")
         for one in platform
         if one.status in ("active", "")
     ]
@@ -375,11 +379,13 @@ def draft(
     body, label = current_recipe(db, found)
     if body is None:
         raise Conflict(
-            code("RELAY", 28), f"{slug} 에 레시피가 없습니다 — 먼저 레시피를 작성하세요."
+            code("RELAY", 28), f"{slug}에 레시피가 없습니다. 먼저 레시피를 작성하세요."
         )
     if (not entries and not aggregates) or len(entries) > ENTRIES_MAX:
         raise AppError(
-            code("RELAY", 28), f"대응은 한 번에 1 ~ {ENTRIES_MAX}개를 저장합니다.", status=422
+            code("RELAY", 28),
+            f"relay 사전 항목은 한 번에 1~{ENTRIES_MAX}개까지 저장할 수 있습니다.",
+            status=422,
         )
     targets = aliases.match_targets(body)
     wanted: dict[str, set[str]] = {}
@@ -387,7 +393,7 @@ def draft(
         if one.target not in targets:
             raise AppError(
                 code("RELAY", 28),
-                f"레시피가 {one.target} 와 참조 대조하지 않습니다 — relay 사전에 둘 곳이 "
+                f"레시피가 {one.target}와 참조 대조하지 않습니다. relay 사전에 추가할 수 "
                 "없습니다.",
                 status=422,
             )
@@ -398,8 +404,8 @@ def draft(
         if missing:
             raise AppError(
                 code("RELAY", 28),
-                f"대상의 {target} 에 없거나 사용 중지된 키입니다: {', '.join(missing[:10])} — "
-                "대상에 있는 키만 고를 수 있습니다.",
+                f"대상의 {target}에 없거나 사용 중지된 키입니다: {', '.join(missing[:10])}. "
+                "대상에 있는 키만 선택할 수 있습니다.",
                 status=422,
             )
     merged = (
@@ -424,8 +430,8 @@ def draft(
         found,
         merged,
         note.strip()
-        or f"미해결 작업함 — 대응 {len(entries)}개 · 모으는 칸 {len(aggregates)}개"
-        f"({label}에 더함)",
+        or f"미해결 처리함 — relay 사전 {len(entries)}건 · 집계 속성 {len(aggregates)}개"
+        f"({label}에 추가)",
     )
     return RecipeSaved(version=row.version, problems=problems)
 

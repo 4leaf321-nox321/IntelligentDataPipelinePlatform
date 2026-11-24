@@ -95,7 +95,7 @@ def test_조각은_차례대로_상한_안으로_빠짐없이(tmp_path: Path) ->
     for number, folder in enumerate(cut.parts, start=1):
         loaded = sp.pipeline.load(folder)
         assert loaded.manifest["part"] == {"number": number, "total": len(cut.parts)}
-        assert f"조각 {number}/{len(cut.parts)}" in loaded.manifest["title"]
+        assert f"분할 번들 {number}/{len(cut.parts)}" in loaded.manifest["title"]
         body = sp.pipeline.payload(loaded)
         rows = sum(len(one["rows"]) for one in body["objects"] + body["relations"])
         assert parts._size(body) <= 6000 + parts._HEAD or rows == 1

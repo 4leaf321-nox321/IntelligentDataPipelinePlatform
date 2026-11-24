@@ -24,12 +24,12 @@ const KINDS = [
   {
     kind: 'source' as const,
     title: '원천',
-    hint: 'PLM · MES 의 API · 공유 폴더 · SFTP · Kafka 브로커 · 토큰 주소. 대상 SP 로도 쓸 수 있다(예전부터의 뜻).',
+    hint: 'PLM, MES의 API, 공유 폴더, SFTP, Kafka 브로커, 토큰 주소. 대상 SP 주소로도 사용 가능(기존 호환)',
   },
   {
     kind: 'target' as const,
     title: '대상 SP',
-    hint: '받는 Standard Platform 인스턴스 — 정의 초안의 시험 · 한 번에 초안이 그 정의를 읽고 대조한다. 원천 주소로는 못 쓴다.',
+    hint: '데이터를 적재할 Standard Platform 인스턴스. 정의 초안의 테스트와 일괄 초안 생성에서 대상 정의 조회에 사용. 원천 주소로 사용 불가',
   },
 ]
 
@@ -97,10 +97,10 @@ export default function AllowedHostsPage() {
     <div className="space-y-4">
       <PageHeader
         title="허용 주소"
-        description="AI 의 탐색 · 시험이 닿아도 되는 주소입니다. 화면에서 더한 것은 재시작 없이 바로 쓰입니다. 사용 중인 정의의 주소는 저절로 허용됩니다."
+        description="AI의 탐색과 테스트가 접속할 수 있는 주소입니다. 화면에서 추가한 주소는 재시작 없이 바로 사용됩니다. 사용 중인 정의의 주소는 자동으로 허용됩니다."
       />
       <ErrorNotice error={listed.error} />
-      {listed.loading && !listed.data && <p className="text-muted-foreground text-sm">읽는 중…</p>}
+      {listed.loading && !listed.data && <p className="text-muted-foreground text-sm">불러오는 중…</p>}
       {listed.data && (
         <div className="grid gap-4 lg:grid-cols-2">
           {KINDS.map(({ kind, title, hint }) => {
@@ -111,10 +111,10 @@ export default function AllowedHostsPage() {
                   <h2 className="text-base font-semibold">{title}</h2>
                   <p className="text-muted-foreground text-xs">{hint}</p>
                 </div>
-                <Fixed label="서버 설정(.env — 화면에서 못 바꿈)" hosts={one.settings} />
-                <Fixed label="사용 중인 정의가 쓰는 주소(저절로)" hosts={one.definitions} />
+                <Fixed label="서버 설정(.env, 화면에서 변경 불가)" hosts={one.settings} />
+                <Fixed label="사용 중인 정의의 주소(자동 허용)" hosts={one.definitions} />
                 <div className="space-y-1">
-                  <Label htmlFor={`hosts-${kind}`}>화면에서 더한 주소 — 줄마다 host 또는 host:port</Label>
+                  <Label htmlFor={`hosts-${kind}`}>화면에서 추가한 주소(한 행에 host 또는 host:port 하나)</Label>
                   <Textarea
                     id={`hosts-${kind}`}
                     rows={5}
@@ -137,9 +137,9 @@ export default function AllowedHostsPage() {
       {listed.data && admin && (
         <div className="flex items-center gap-3">
           <Button onClick={save} disabled={busy}>
-            {busy ? '저장하는 중…' : '저장'}
+            {busy ? '저장 중…' : '저장'}
           </Button>
-          {saved && <span className="text-sm">저장했습니다 — 지금부터 쓰입니다.</span>}
+          {saved && <span className="text-sm">저장했습니다. 지금부터 사용됩니다.</span>}
           {listed.data.updated_at && (
             <span className="text-muted-foreground text-xs">
               마지막 변경 {shownDateTime(listed.data.updated_at)} · {listed.data.updated_by}

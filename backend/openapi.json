@@ -3781,6 +3781,20 @@
         ],
         "summary": "Relay Map",
         "operationId": "relay_map_api_relay_map_get",
+        "parameters": [
+          {
+            "name": "probe",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "대상 상태를 저장값 대신 지금 조회한다.",
+              "default": false,
+              "title": "Probe"
+            },
+            "description": "대상 상태를 저장값 대신 지금 조회한다."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3788,6 +3802,38 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RelayMap"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/relay/overview": {
+      "get": {
+        "tags": [
+          "relay"
+        ],
+        "summary": "Relay Overview",
+        "description": "운영 요약 — 상태별 건수 · 확인 필요 목록 · 대상 상태(MCP `relay_overview`).",
+        "operationId": "relay_overview_api_relay_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RelayOverview"
                 }
               }
             }
@@ -8341,6 +8387,111 @@
         ],
         "title": "NotificationOut"
       },
+      "OverviewItem": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "system": {
+            "type": "string",
+            "title": "System",
+            "default": ""
+          },
+          "target": {
+            "type": "string",
+            "title": "Target",
+            "default": ""
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason",
+            "default": ""
+          },
+          "link": {
+            "type": "string",
+            "title": "Link",
+            "default": ""
+          },
+          "last_job_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Job At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "status",
+          "status_label"
+        ],
+        "title": "OverviewItem",
+        "description": "확인이 필요한 파이프라인 하나 — 상태가 문제이거나 마지막 대조가 불일치 · 대조 실패."
+      },
+      "OverviewTarget": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "server": {
+            "type": "string",
+            "title": "Server"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "status_label": {
+            "type": "string",
+            "title": "Status Label"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "server",
+          "status",
+          "status_label"
+        ],
+        "title": "OverviewTarget"
+      },
       "Page_AccessLogOut_": {
         "properties": {
           "items": {
@@ -9409,6 +9560,63 @@
           "edges"
         ],
         "title": "RelayMap"
+      },
+      "RelayOverview": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "title": "Generated At"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Counts"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Labels"
+          },
+          "attention": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewItem"
+            },
+            "type": "array",
+            "title": "Attention"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/OverviewTarget"
+            },
+            "type": "array",
+            "title": "Targets"
+          },
+          "problems": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Problems"
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "total",
+          "counts",
+          "labels",
+          "attention"
+        ],
+        "title": "RelayOverview",
+        "description": "운영 요약(`overview.py`) — 지도와 같은 판정. 정상인 파이프라인은 건수로만 담는다."
       },
       "RequestCaseOut": {
         "properties": {

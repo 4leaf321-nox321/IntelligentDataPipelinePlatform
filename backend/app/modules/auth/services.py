@@ -173,7 +173,7 @@ def rotate_refresh(
     )
     if token is None:
         raise AppError(
-            code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인해 주세요.", status=401
+            code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인하세요.", status=401
         )
 
     if token.revoked_at is not None:
@@ -199,7 +199,7 @@ def rotate_refresh(
             # 비밀번호를 바꾼 뒤 새로 로그인한 세션까지 옛 기기의 갱신 한 번에
             # 끊겼다(2026-10-08).
             raise AppError(
-                code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인해 주세요.", status=401
+                code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인하세요.", status=401
             )
         else:
             # 회전으로 이미 넘겨진 값이 유예를 지나 다시 왔다 — 사슬이 둘로 갈렸다(탈취).
@@ -207,14 +207,14 @@ def rotate_refresh(
             revoke_all_for_user(db, token.user_id)
             raise AppError(
                 code("AUTH", 5),
-                "세션이 무효화되었습니다. 다시 로그인해 주세요.",
+                "세션이 무효화되었습니다. 다시 로그인하세요.",
                 status=401,
                 details={"reason": "reuse_of_revoked_token"},
             )
 
     if token.expires_at <= _now():
         raise AppError(
-            code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인해 주세요.", status=401
+            code("AUTH", 3), "세션이 만료되었습니다. 다시 로그인하세요.", status=401
         )
 
     user = db.get(User, token.user_id)
@@ -369,15 +369,16 @@ def create_pat(
         names = sorted({name for one in off for name in scopes.extension_of(one)})
         raise AppError(
             code("AUTH", 108),
-            f"꺼진 확장 모듈의 범위입니다: {', '.join(off)} — 시스템 관리자 › 서버 › "
-            f"「확장 모듈」 에서 {', '.join(names)} 을(를) 켜면 고를 수 있습니다.",
+            f"미사용 확장 모듈의 범위입니다: {', '.join(off)}. 시스템 관리자 › 서버 › "
+            f"[확장 모듈]에서 {', '.join(names)}을(를) 사용하도록 설정하면 선택할 수 "
+            "있습니다.",
             status=400,
             details={"known": list(known), "extensions": names},
         )
     if unknown:
         raise AppError(
             code("AUTH", 107),
-            f"모르는 범위입니다: {', '.join(unknown)}",
+            f"지원하지 않는 범위입니다: {', '.join(unknown)}",
             status=400,
             details={"known": list(known)},
         )

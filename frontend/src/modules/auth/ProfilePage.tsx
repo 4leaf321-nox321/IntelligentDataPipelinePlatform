@@ -107,7 +107,7 @@ export default function ProfilePage() {
           />
           {/* **아이디는 여기서 못 바꾼다.** 로그인 식별자라 본인이 바꾸면 감사
               기록이 가리키는 대상이 흔들린다 — 그것은 관리자의 일이다. */}
-          <p className="text-muted-foreground text-xs">아이디는 관리자만 바꿀 수 있습니다.</p>
+          <p className="text-muted-foreground text-xs">아이디는 관리자만 변경할 수 있습니다.</p>
         </div>
         <Button type="submit" disabled={busy}>
           {busy ? '저장 중…' : '저장'}
@@ -120,8 +120,8 @@ export default function ProfilePage() {
         <div>
           <h2 className="text-base font-semibold">액세스 토큰</h2>
           <p className="text-muted-foreground mt-1 text-sm">
-            스크립트나 연계 프로그램이 이 시스템의 API 를 부를 때 사용하는 자격입니다. 사람 세션과
-            달리 만료가 길고, 안 쓰면 삭제합니다.
+            스크립트나 연계 프로그램이 이 시스템의 API를 호출할 때 사용하는 인증 수단입니다. 로그인
+            세션과 달리 유효 기간이 길므로, 사용하지 않는 토큰은 폐기하세요.
           </p>
         </div>
 
@@ -129,7 +129,7 @@ export default function ProfilePage() {
           <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
             {/* **여기서 한 번만 보인다.** 다시 볼 수 없다는 것을 말하지 않으면
                 사람은 창을 닫고 나서 다시 찾는다. */}
-            <p className="font-medium">지금 복사해 두세요. 다시 볼 수 없습니다.</p>
+            <p className="font-medium">지금 복사하세요. 다시 표시되지 않습니다.</p>
             <p className="mt-1 font-mono text-xs break-all">{issued}</p>
           </div>
         )}
@@ -142,7 +142,7 @@ export default function ProfilePage() {
             <Input
               value={tokenName}
               onChange={(event) => setTokenName(event.target.value)}
-              placeholder="토큰 용도 (예: 정제 스크립트)"
+              placeholder="토큰 용도(예: 정제 스크립트)"
               className="max-w-sm"
               required
             />
@@ -154,7 +154,7 @@ export default function ProfilePage() {
               max={3650}
               value={expiresDays}
               onChange={(event) => setExpiresDays(event.target.value)}
-              placeholder="만료 (일)"
+              placeholder="만료(일)"
               className="w-32"
               aria-label="만료까지 일수"
             />
@@ -164,8 +164,8 @@ export default function ProfilePage() {
               화면은 「이 설치에는 읽기 범위뿐」 처럼 보였다 — 사람은 고칠 자리를 못 찾는다. */}
           {scopes.error && (
             <p className="text-destructive text-sm">
-              범위 목록을 받지 못했습니다 — 지금 발급하면 읽기(read)만 들어갑니다. 새로 고쳐
-              보고, 그래도 같으면 서버 상태를 확인하세요.
+              범위 목록을 불러오지 못했습니다. 지금 발급하면 읽기(read) 범위만 부여됩니다. 새로 고침
+              후에도 같으면 서버 상태를 확인하세요.
             </p>
           )}
           <div className="flex flex-wrap gap-3">
@@ -189,9 +189,9 @@ export default function ProfilePage() {
           {/* **기본이 읽기뿐인 이유를 적는다.** 안 적으면 사람은 전부 켜 놓고
               「나중에 좁히자」 고 하는데, 나중은 오지 않는다. */}
           <p className="text-muted-foreground text-xs">
-            선택하지 않으면 읽기만 됩니다. 필요한 것만 켜세요 — 계정 관리와 서버 설정은 어느
-            범위로도 열리지 않습니다. <b>만료를 비우면 만료가 없습니다</b> — 바깥 시스템에 주는
-            토큰에는 일수를 적어 두세요.
+            선택하지 않으면 읽기 범위만 부여됩니다. 필요한 범위만 선택하세요. 계정 관리와 서버
+            설정은 어떤 범위로도 허용되지 않습니다. <b>만료를 비워 두면 만료 없이 발급됩니다.</b>{' '}
+            외부 시스템에 제공하는 토큰에는 일수를 입력하세요.
           </p>
         </form>
 
@@ -199,11 +199,11 @@ export default function ProfilePage() {
           <TableHeader>
             <TableRow>
               <TableHead>이름</TableHead>
-              <TableHead>앞자리</TableHead>
+              <TableHead>접두어</TableHead>
               <TableHead>범위</TableHead>
-              <TableHead>발급</TableHead>
+              <TableHead>발급일</TableHead>
               <TableHead>만료</TableHead>
-              <TableHead>마지막 사용</TableHead>
+              <TableHead>최종 사용</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -220,7 +220,7 @@ export default function ProfilePage() {
                 <TableCell>
                   {one.expires_at ? (
                     new Date(one.expires_at) < new Date() ? (
-                      <span className="text-destructive">{shownDate(one.expires_at)} 지남</span>
+                      <span className="text-destructive">{shownDate(one.expires_at)} 만료</span>
                     ) : (
                       shownDate(one.expires_at)
                     )

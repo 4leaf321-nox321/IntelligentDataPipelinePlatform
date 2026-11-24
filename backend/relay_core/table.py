@@ -91,23 +91,23 @@ def read_table(path: Path, *, encoding: str = "auto", delimiter: str = ",") -> A
     name = next((one for one in tried if _decodes(path, one)), None)
     if name is None:
         raise stop(
-            f"{path.name}: 글자를 읽을 수 없습니다({', '.join(tried)}) — "
-            "대응 파일의 source.encoding 에 인코딩을 적으세요"
+            f"{path.name}: 문자 인코딩을 인식할 수 없습니다({', '.join(tried)}). 레시피의 "
+            "source.encoding에 인코딩을 지정하세요"
         )
     with path.open(encoding=name, newline="") as handle:
         header = [one.strip() for one in next(csv.reader(handle, delimiter=delimiter), [])]
     if not any(header):
-        raise stop(f"{path.name}: 첫 줄(머리글)이 비어 있습니다")
+        raise stop(f"{path.name}: 첫 행(머리글)이 비어 있습니다")
     doubled = sorted(one for one, count in Counter(header).items() if count > 1 and one)
     if doubled:
-        raise stop(f"{path.name}: 머리글에 같은 이름이 둘 이상입니다 — {', '.join(doubled)}")
+        raise stop(f"{path.name}: 머리글에 중복된 열 이름이 있습니다: {', '.join(doubled)}")
     count = blank = 0
     for number, record in _records(path, name, delimiter):
         if not any(cell.strip() for cell in record):
             blank += 1
             continue
         if len(record) > len(header) and any(cell.strip() for cell in record[len(header) :]):
-            raise stop(f"{path.name} {number}행: 머리글보다 칸이 많습니다({len(record)}칸)")
+            raise stop(f"{path.name} {number}행: 머리글보다 열이 많습니다({len(record)}개)")
         count += 1
     digest = hashlib.sha256()
     with path.open("rb") as raw:
@@ -454,7 +454,8 @@ def convert(
                 )
             elif not server or not token:
                 raise table_mod.Stop(
-                    f"참조 대조({target})에 플랫폼 식별자가 필요합니다 — SP_SERVER · SP_TOKEN"
+                    f"참조 대조({target})에는 대상 SP의 식별자 조회가 필요합니다. SP_SERVER, "
+                    "SP_TOKEN을 지정하세요"
                 )
             else:
                 cache[target] = pipeline.fetch_keys(server, token, target)

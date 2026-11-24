@@ -84,7 +84,7 @@ describe('조각을 못 받으면', () => {
         <Broken />
       </ErrorBoundary>,
     )
-    expect(screen.getByText('이 화면의 파일을 받지 못했습니다')).toBeInTheDocument()
+    expect(screen.getByText('화면 파일 로드 실패')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '새로 고침' })).toBeInTheDocument()
     expect(reload).not.toHaveBeenCalled()
   })
@@ -105,7 +105,7 @@ describe('새 판이 나왔다는 띠', () => {
     systemApi.health.mockResolvedValue({ status: 'ok', version: 'v999.0.0', app: 'x' })
     const { NewBuildBanner } = await import('@/shared/layout/NewBuildBanner')
     const { unmount } = render(<NewBuildBanner />)
-    expect(await screen.findByText(/새 판/)).toHaveTextContent('v999.0.0')
+    expect(await screen.findByText(/새 버전/)).toHaveTextContent('v999.0.0')
     screen.getByRole('button', { name: /새로 고침/ }).click()
     expect(reload).toHaveBeenCalledTimes(1)
     unmount()

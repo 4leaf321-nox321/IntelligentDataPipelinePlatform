@@ -40,7 +40,7 @@ export interface PlatformProfileLive {
   stale: string[]
 }
 
-const EMPTY = '자기소개를 아직 안 적었다'
+const EMPTY = '플랫폼 소개 미작성'
 const SUMMARY_MAX = 300
 const NOTES_MAX = 2000
 
@@ -76,23 +76,23 @@ export function PlatformProfile() {
 
   return (
     <section className="space-y-3" id="platform-profile">
-      <h2 className="text-base font-semibold">플랫폼 자기소개</h2>
+      <h2 className="text-base font-semibold">플랫폼 소개</h2>
       <p className="text-muted-foreground text-sm">
-        같은 틀로 띄운 플랫폼 여럿이 한 에이전트(MCP)에 붙으면 도구가 모두 같아서, 에이전트는 이
-        소개로 어느 플랫폼에 물을지 선택합니다. 사람이 쓴 소개와 <b>조회할 때마다 세는</b>「지금
-        담긴 것」 이 함께 실립니다. 소개는 <b>로그인 없이도 표시되므로</b> 토큰 · 내부 주소 · 사람
-        이름은 입력하지 않습니다. 에이전트의 <code>platform_profile</code> 로 초안을 받을 수도
-        있습니다.
+        같은 틀로 구축한 여러 플랫폼이 하나의 에이전트(MCP)에 연결되면 도구가 모두 같으므로,
+        에이전트는 이 소개로 조회할 플랫폼을 선택합니다. 사람이 작성한 소개와 <b>조회할 때마다
+        집계하는</b> '현재 데이터'가 함께 제공됩니다. 소개는 <b>로그인 없이도 표시되므로</b> 토큰,
+        내부 주소, 사람 이름은 입력하지 마세요. 에이전트의 <code>platform_profile</code>로 초안을 받을
+        수도 있습니다.
       </p>
       <ErrorNotice error={failed ?? live.error} />
       {empty && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          아직 소개가 없습니다 — 에이전트는 아래 「지금 담긴 것」 만으로 이 플랫폼을 판단합니다.
+          아직 소개가 없습니다. 에이전트는 아래 '현재 데이터'만으로 이 플랫폼을 판단합니다.
         </div>
       )}
       {changed.length > 0 && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          <p>소개를 저장한 뒤 바뀐 것이 있습니다. 확인하고 저장하면 이 표시가 사라집니다.</p>
+          <p>소개를 저장한 후 변경 사항이 있습니다. 확인 후 저장하면 이 표시가 사라집니다.</p>
           <ul className="mt-1 list-inside list-disc">
             {changed.map((reason) => (
               <li key={reason}>{reason}</li>
@@ -104,25 +104,25 @@ export function PlatformProfile() {
         <div className="space-y-3 rounded-md border p-4">
           <div className="space-y-1.5">
             <Label htmlFor="profile-summary">
-              담는 것 ({shownSummary.length}/{SUMMARY_MAX}자)
+              보유 데이터 요약({shownSummary.length}/{SUMMARY_MAX}자)
             </Label>
             <Textarea
               id="profile-summary"
               rows={2}
               value={shownSummary}
-              placeholder="예: CAE 그룹의 해석 · 보고서 기록과 개발모델 — 보고서와 해석 결과를 묻는 곳"
+              placeholder="예: CAE 그룹의 해석 · 보고서 기록과 개발모델. 보고서와 해석 결과를 조회하는 플랫폼"
               onChange={(event) => setSummary(event.target.value)}
             />
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="profile-notes">
-              다른 플랫폼과의 사이 ({shownNotes.length}/{NOTES_MAX}자)
+              다른 플랫폼과의 관계({shownNotes.length}/{NOTES_MAX}자)
             </Label>
             <Textarea
               id="profile-notes"
               rows={3}
               value={shownNotes}
-              placeholder="예: 개발모델 · 과제의 정본은 허브입니다. 보고서의 정본은 ReportArchive 입니다."
+              placeholder="예: 개발모델 · 과제의 정본은 허브입니다. 보고서의 정본은 ReportArchive입니다."
               onChange={(event) => setNotes(event.target.value)}
             />
           </div>
@@ -131,14 +131,14 @@ export function PlatformProfile() {
               저장
             </Button>
             <span className="text-muted-foreground text-xs">
-              {one.updated_at ? `마지막 저장 ${shownDateTime(one.updated_at)}` : '저장한 적 없음'}
-              {' · '}변경 기록은 관리 › 감사 기록의 <code>server.profile</code>
+              {one.updated_at ? `마지막 저장 ${shownDateTime(one.updated_at)}` : '저장 기록 없음'}
+              {' · '}변경 기록: [변경 이력]의 <code>server.profile</code>
             </span>
           </div>
           <div className="space-y-1">
-            <p className="text-sm font-medium">지금 담긴 것 (조회할 때마다 셉니다)</p>
+            <p className="text-sm font-medium">현재 데이터(조회할 때마다 집계)</p>
             {one.facts.length === 0 ? (
-              <p className="text-muted-foreground text-sm">아직 담긴 것이 없습니다.</p>
+              <p className="text-muted-foreground text-sm">데이터 없음</p>
             ) : (
               <ul className="text-muted-foreground space-y-0.5 text-sm">
                 {one.facts.flatMap((fact) =>

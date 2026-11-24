@@ -32,7 +32,7 @@ def test_기준은_켜야_있고_모르는_칸은_거절한다() -> None:
         with pytest.raises(AutoApplyError):
             check(wrong)
     assert autoapply.label(None) == "미사용"
-    assert "3번 뒤" in autoapply.label(Policy())
+    assert "3회 이후" in autoapply.label(Policy())
 
 
 def _run(pipeline: Any, work: Workdir, fake: FakeSubmitter, policy: Policy) -> runner.Outcome:
@@ -47,9 +47,9 @@ def test_사람이_정한_횟수만큼_적용한_뒤부터_자동이다(tmp_path
     policy = Policy(after_manual=1)
 
     first = _run(_pipeline(tmp_path, rows), work, fake, policy)
-    assert first.status == "planned" and "자동 적용 안 함" in first.message
+    assert first.status == "planned" and "자동 적용 보류" in first.message
     skipped = work.load_state().history[-1]
-    assert skipped["event"] == "auto_skipped" and "0번" in skipped["reasons"][0]
+    assert skipped["event"] == "auto_skipped" and "0회" in skipped["reasons"][0]
 
     assert runner.apply(_pipeline(tmp_path, rows), work, fake).status == "applied"  # type: ignore[arg-type]
 

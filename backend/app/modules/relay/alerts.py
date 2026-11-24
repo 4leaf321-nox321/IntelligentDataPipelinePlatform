@@ -27,8 +27,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -36,7 +38,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.modules.jobs.models import Job
 from app.modules.notifications import services as notifications
-from app.modules.relay import services
+from app.modules.relay import services, webhook
 from relay_core.state import Workdir
 
 FILE = "alerts.json"
@@ -44,6 +46,31 @@ LOCK = "datarelay:relay_alert"
 #: 알린 적이 없으면 좋은 상태로 본다 — 첫 실행이 실패하면 그것부터 알린다.
 GOOD = {"run": "ok", "reconcile": "same", "plan": "none", "late": "ok"}
 BODY_MAX = 500
+#: **묶음 알림** — 같은 원천 시스템에서 실행 실패가 이만큼 이어지면(원천 시스템 장애) 알림
+#: 1건으로 묶는다. 그 뒤 그 시스템의 실패 · 복구는 개별로 알리지 않고, 모두 복구되면 한 번
+#: 알린다. 실행 지연도 타이머의 한 번 확인에서 이만큼 나오면(작업 워커 중단) 1건으로 묶는다.
+#: 파이프라인이 많은 설치에서 원천 하나가 내려가면 알림 수십 건이 한꺼번에 쌓이고, 그러면
+#: 원인은 그 속에 묻힌다.
+GROUP_AT = 3
+#: 묶음 알림의 상태 — 원천 시스템마다 묶인 파이프라인. 공용 폴더(`relay_work_dir` 의 부모)에
+#: 둔다.
+GROUPS_FILE = "alerts-systems.json"
+
+
+def _tell(
+    db: Session,
+    *,
+    kind: str,
+    title: str,
+    body: str | None,
+    link: str,
+    skip: Any = None,
+) -> None:
+    """시스템 관리자 알림과, 설정했으면 사내 메신저 웹훅(`webhook.py`)으로."""
+    notifications.notify_system_admins(
+        db, kind=kind, title=title, body=body, link=link, skip=skip
+    )
+    webhook.send(kind=kind, title=title, body=body, link=link)
 
 
 def _run_state(job: Job) -> str:
@@ -106,22 +133,22 @@ def _message(lane: str, state: str, slug: str, job: Job) -> tuple[str, str, str]
         made = [one for one in saved.get("history") or [] if one.get("event") == "planned"]
         line = counts_line(made[-1].get("counts")) if made else ""
         said = line or str(pending.get("summary") or summary)
-        return notifications.RELAY_PLAN_WAITING, f"{slug} 적용 대기", f"{what} — {said}"
+        return notifications.RELAY_PLAN_WAITING, f"{slug} 적용 대기", f"{what}: {said}"
     if lane == "run":
         if state == "failed":
             return notifications.RELAY_RUN_FAILED, f"{slug} 실행 실패", job.error or ""
         if state == "blocked":
-            return notifications.RELAY_RUN_FAILED, f"{slug} 실행 멈춤", summary
+            return notifications.RELAY_RUN_FAILED, f"{slug} 실행 중단", summary
         return notifications.RELAY_RUN_RECOVERED, f"{slug} 실행 복구", summary
     report = services.read_report(slug) or {}
     said = str(report.get("summary") or summary)
     if state == "drift":
         count = int(report.get("drift") or 0)
-        return notifications.RELAY_DRIFT, f"{slug} 대상과 어긋남 {count}건", said
+        return notifications.RELAY_DRIFT, f"{slug} 대상 불일치 {count}건", said
     if state == "problem":
         why = job.error if job.status == "failed" else " / ".join(report.get("problems") or [])
         return notifications.RELAY_DRIFT, f"{slug} 대조 실패", why or said
-    return notifications.RELAY_DRIFT_RESOLVED, f"{slug} 대상과 일치", said
+    return notifications.RELAY_DRIFT_RESOLVED, f"{slug} 대상 일치", said
 
 
 def _seen(db: Session, slug: str) -> dict[str, str]:
@@ -134,35 +161,152 @@ def _seen(db: Session, slug: str) -> dict[str, str]:
 
 
 def watch_late(db: Session, now: datetime | None = None) -> list[str]:
-    """일정 타이머(`scripts/relay_due.py`)가 부른다 — 늦음 갈래가 바뀐 파이프라인에 알린다.
-    알린 slug 를 돌려준다. **부르는 쪽이 커밋한다.**"""
-    told: list[str] = []
+    """일정 타이머(`scripts/relay_due.py`)가 부른다 — 지연 갈래가 바뀐 파이프라인에 알린다.
+    알린 slug 를 돌려준다. **부르는 쪽이 커밋한다.**
+
+    한 번의 확인에서 `GROUP_AT` 개 이상이 함께 지연(또는 재개)되면 알림 1건으로 묶는다 — 작업
+    워커가 멈추면 실행 주기가 있는 파이프라인이 한꺼번에 지연된다."""
+    changed: list[tuple[str, str, str]] = []
     for found in services.catalog(db):
         reason = services.lateness(db, found, now)
         state = "late" if reason else "ok"
         seen = _seen(db, found.slug)
         if seen.get("late") == state:
             continue
-        if state == "late":
-            kind, title, body = notifications.RELAY_RUN_LATE, f"{found.slug} 실행 늦음", reason
-        else:
-            kind, title = notifications.RELAY_RUN_RECOVERED, f"{found.slug} 실행 재개"
-            body = (
-                "늦어지던 실행이 다시 끝났습니다 — 결과는 파이프라인 상세의 실행 이력에서 "
-                "확인하세요."
-            )
-        notifications.notify_system_admins(
-            db,
-            kind=kind,
-            title=title,
-            body=body[:BODY_MAX],
-            link=f"/relay/pipelines/{found.slug}",
-        )
+        changed.append((found.slug, state, reason))
         Workdir(get_settings().relay_work_dir, found.slug).write_json(
             FILE, {**seen, "late": state}
         )
-        told.append(found.slug)
-    return told
+    for state in ("late", "ok"):
+        slugs = [slug for slug, one, _reason in changed if one == state]
+        if len(slugs) >= GROUP_AT:
+            _tell_late_group(db, state, slugs)
+            continue
+        for slug, one, reason in changed:
+            if one == state:
+                _tell_late(db, slug, state, reason)
+    return [slug for slug, _state, _reason in changed]
+
+
+def _tell_late(db: Session, slug: str, state: str, reason: str) -> None:
+    if state == "late":
+        kind, title, body = notifications.RELAY_RUN_LATE, f"{slug} 실행 지연", reason
+    else:
+        kind, title = notifications.RELAY_RUN_RECOVERED, f"{slug} 실행 재개"
+        body = (
+            "지연되던 실행이 완료되었습니다. 결과는 파이프라인 상세의 실행 이력에서 "
+            "확인하세요."
+        )
+    _tell(db, kind=kind, title=title, body=body[:BODY_MAX], link=f"/relay/pipelines/{slug}")
+
+
+def _tell_late_group(db: Session, state: str, slugs: list[str]) -> None:
+    listed = f"대상: {', '.join(slugs)}"
+    if state == "late":
+        kind, title = notifications.RELAY_RUN_LATE, f"실행 지연 — 파이프라인 {len(slugs)}개"
+        body = (
+            "실행 주기상 완료되었어야 할 실행이 여러 파이프라인에서 끝나지 않았습니다. "
+            f"작업 워커와 실행 주기 타이머의 동작을 먼저 확인하세요.\n{listed}"
+        )
+        link = "/relay/pipelines?status=late"
+    else:
+        kind, title = (
+            notifications.RELAY_RUN_RECOVERED,
+            f"실행 재개 — 파이프라인 {len(slugs)}개",
+        )
+        body = f"지연되던 실행이 완료되었습니다.\n{listed}"
+        link = "/relay/pipelines"
+    _tell(db, kind=kind, title=title, body=body[:BODY_MAX], link=link)
+
+
+def _groups_file() -> Path:
+    return get_settings().relay_work_dir.parent / GROUPS_FILE
+
+
+def _load_groups() -> dict[str, dict[str, Any]]:
+    file = _groups_file()
+    if not file.is_file():
+        return {}
+    body = json.loads(file.read_text(encoding="utf-8"))
+    return {key: one for key, one in body.items() if isinstance(one, dict)}
+
+
+def _save_groups(groups: dict[str, dict[str, Any]]) -> None:
+    file = _groups_file()
+    file.parent.mkdir(parents=True, exist_ok=True)
+    file.write_text(json.dumps(groups, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _run_failed(slug: str) -> bool:
+    """그 파이프라인의 실행 갈래가 지금 실패인가 — 지난번 알린 상태(잠금 없이 읽기만)."""
+    file = get_settings().relay_work_dir / slug / FILE
+    if not file.is_file():
+        return False
+    return bool(json.loads(file.read_text(encoding="utf-8")).get("run") == "failed")
+
+
+def _grouped_run(db: Session, slug: str, state: str, job: Job) -> bool:
+    """실행 갈래의 바뀜을 원천 시스템 묶음이 맡았으면 참 — 그때는 개별 알림을 보내지 않는다.
+
+    실패(`failed`)와 복구(`ok`)만 묶는다. 중단(`blocked`)은 파이프라인마다 사유가 달라 개별로
+    알린다."""
+    if state not in ("failed", "ok"):
+        return False
+    catalog = services.catalog(db)
+    mine = next((one for one in catalog if one.slug == slug), None)
+    if mine is None:
+        return False
+    system = mine.system or mine.source
+    others = [
+        one.slug
+        for one in catalog
+        if (one.system or one.source) == system and one.slug != slug
+    ]
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"{LOCK}:system:{system}"}
+    )
+    groups = _load_groups()
+    group = groups.get(system)
+    failing = [one for one in others if _run_failed(one)]
+    link = "/relay/pipelines?" + urlencode({"status": "failed", "q": system})
+    if state == "failed":
+        if group:
+            group["slugs"] = sorted({*group.get("slugs", []), slug})
+            _save_groups(groups)
+            return True
+        members = sorted({slug, *failing})
+        if len(members) < GROUP_AT:
+            return False
+        error = f"\n최근 오류({slug}): {job.error[:150]}" if job.error else ""
+        _tell(
+            db,
+            kind=notifications.RELAY_RUN_FAILED,
+            title=f"{system} 실행 실패 — 파이프라인 {len(members)}개",
+            body=(
+                f"같은 원천 시스템의 파이프라인 {len(members)}개가 실행에 실패했습니다. 원천 "
+                "시스템의 연결 상태를 먼저 확인하세요. 이후 이 시스템의 실패와 복구는 개별로 "
+                "알리지 않고, 모두 복구되면 한 번 알립니다."
+                f"\n대상: {', '.join(members)}{error}"
+            )[:BODY_MAX],
+            link=link,
+        )
+        groups[system] = {"slugs": members, "at": datetime.now(UTC).isoformat()}
+        _save_groups(groups)
+        return True
+    if not group:
+        return False
+    if failing:
+        return True  # 같은 시스템에 아직 실패 중인 파이프라인이 있다 — 묶음을 유지한다
+    _tell(
+        db,
+        kind=notifications.RELAY_RUN_RECOVERED,
+        title=f"{system} 실행 복구 — 파이프라인 {len(group.get('slugs', []))}개",
+        body="같은 원천 시스템에서 실패하던 파이프라인의 실행이 모두 복구되었습니다.",
+        link="/relay/pipelines?" + urlencode({"q": system}),
+    )
+    del groups[system]
+    _save_groups(groups)
+    return True
 
 
 def after_job(db: Session, job: Job) -> None:
@@ -189,7 +333,9 @@ def after_job(db: Session, job: Job) -> None:
         if said is None:
             continue
         kind, title, body = said
-        notifications.notify_system_admins(
+        if lane == "run" and _grouped_run(db, slug, state, job):
+            continue  # 원천 시스템 묶음이 대신 알렸다
+        _tell(
             db,
             kind=kind,
             title=title,

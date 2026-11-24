@@ -23,7 +23,7 @@ VENDOR = Path(__file__).resolve().parents[2] / "vendor" / "sp_pipeline"
 def _modules() -> tuple[Any, Any]:
     if not (VENDOR / "sp_pipeline.py").exists():
         raise RuntimeError(
-            f"SP 정제 도구가 없습니다: {VENDOR} — scripts/sync_sp_pipeline.sh 로 가져오세요."
+            f"SP 정제 도구가 없습니다: {VENDOR}. scripts/sync_sp_pipeline.sh로 가져오세요."
         )
     where = str(VENDOR)
     if where not in sys.path:

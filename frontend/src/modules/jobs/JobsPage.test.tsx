@@ -199,14 +199,14 @@ describe('작업 화면', () => {
 
     await userEvent.click(second)
     expect(screen.getByText(/「K-1」/)).toBeInTheDocument()
-    expect(screen.getByText(/막히는 것이 있거나 이동할 것이 없어/)).toBeInTheDocument()
+    expect(screen.getByText(/이동을 막는 항목이 있거나 이동할 자료가 없어/)).toBeInTheDocument()
   })
 
   it('링크의 작업이 목록에 없으면 그렇다고 말한다 — 조용히 아무것도 안 열리지 않게', async () => {
     window.history.replaceState(null, '', '/jobs?job=다른-계정의-것')
     try {
       await mount([job({ result: CLEAN_PLAN })])
-      expect(await screen.findByText('링크의 작업이 이 목록에 없습니다')).toBeInTheDocument()
+      expect(await screen.findByText('링크의 작업을 찾을 수 없음')).toBeInTheDocument()
     } finally {
       window.history.replaceState(null, '', '/')
     }
@@ -218,7 +218,7 @@ describe('작업 화면', () => {
     expect(screen.queryByText('적용 대기')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: '펼치기' }))
     expect(screen.queryByRole('button', { name: '적용' })).not.toBeInTheDocument()
-    expect(screen.getByText(/적용했습니다 — 적용 작업/)).toBeInTheDocument()
+    expect(screen.getByText(/적용 완료\(적용 작업/)).toBeInTheDocument()
   })
 
   it('내보내기는 파일을 받는다', async () => {
@@ -232,7 +232,7 @@ describe('작업 화면', () => {
       }),
     ])
     await userEvent.click(screen.getByRole('button', { name: '펼치기' }))
-    await userEvent.click(screen.getByRole('button', { name: /파일 받기/ }))
+    await userEvent.click(screen.getByRole('button', { name: /파일 다운로드/ }))
     await waitFor(() => expect(jobsApi.download).toHaveBeenCalled())
   })
 
@@ -240,7 +240,7 @@ describe('작업 화면', () => {
     await mount([job({ result: CLEAN_PLAN })])
     expect(jobsApi.list).toHaveBeenCalledWith(expect.objectContaining({ mine: true }))
 
-    await userEvent.click(screen.getByLabelText('내가 시킨 것만'))
+    await userEvent.click(screen.getByLabelText('내가 요청한 작업만'))
     await waitFor(() =>
       expect(jobsApi.list).toHaveBeenLastCalledWith(expect.objectContaining({ mine: false })),
     )
@@ -255,7 +255,7 @@ describe('작업 화면', () => {
 
   it('워커가 하나도 없으면 그것부터 말한다', async () => {
     await mount([job({ status: 'queued', result: null })], false)
-    await waitFor(() => expect(screen.getByText('워커가 살아 있지 않습니다')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('실행 중인 워커 없음')).toBeInTheDocument())
     // 도는 중인 작업은 펼칠 것이 없다.
     expect(screen.getByRole('button', { name: '펼치기' })).toBeDisabled()
   })
@@ -268,7 +268,7 @@ describe('작업 화면 · 고른 것을 한 번에', () => {
     jobsApi.cancelMany.mockResolvedValue([{ id: 'j9', status: 'ok', message: '취소를 요청했습니다.', job_id: null }])
     await mount([running, finished])
 
-    await userEvent.click(screen.getByRole('checkbox', { name: '이 쪽 전부 선택' }))
+    await userEvent.click(screen.getByRole('checkbox', { name: '이 페이지 전체 선택' }))
     await userEvent.click(screen.getByRole('button', { name: /선택 취소/ }))
     const dialog = screen.getByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: '취소 요청' }))

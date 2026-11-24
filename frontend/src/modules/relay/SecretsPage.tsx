@@ -88,12 +88,12 @@ function SecretDialog({
         <form onSubmit={submit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>
-              비밀 {replacing ? '바꾸기' : '입력'} — <span className="font-mono">{secret?.name}</span>
+              인증 정보 {replacing ? '변경' : '입력'} — <span className="font-mono">{secret?.name}</span>
             </DialogTitle>
             <DialogDescription>
-              한 줄로 넣습니다. 저장하면 화면 · 감사 기록 어디에도 값이 다시 보이지 않습니다
-              {replacing ? ' — 지금 값은 새 값으로 바뀝니다' : ''}. 다음 실행 · 시험부터 이 값을
-              씁니다.
+              값은 한 줄로 입력합니다. 저장한 값은 화면과 감사 기록 어디에도 다시 표시되지 않습니다.
+              {replacing ? ' 현재 값은 새 값으로 변경됩니다.' : ''} 다음 실행과 테스트부터 이 값을
+              사용합니다.
             </DialogDescription>
           </DialogHeader>
           {secret && secret.uses.length > 0 && (
@@ -123,7 +123,7 @@ function SecretDialog({
               취소
             </Button>
             <Button type="submit" disabled={busy || !value}>
-              {busy ? '저장하는 중…' : '저장'}
+              {busy ? '저장 중…' : '저장'}
             </Button>
           </DialogFooter>
         </form>
@@ -160,20 +160,20 @@ export default function SecretsPage() {
   return (
     <div className="space-y-4">
       <PageHeader
-        title="비밀"
-        description="원천 · 대상의 토큰 · 비밀번호를 넣는 자리입니다. 파이프라인 정의에는 비밀의 이름만 있고, 값은 여기서 사람이 넣습니다. 넣은 값은 다시 보이지 않습니다."
+        title="인증 정보"
+        description="원천과 대상의 토큰, 비밀번호를 입력하는 화면입니다. 파이프라인 정의에는 인증 정보의 이름만 있으며, 값은 이 화면에서 사람이 입력합니다. 입력한 값은 다시 표시되지 않습니다."
       />
       <ErrorNotice error={list.error} />
-      {list.loading && !list.data && <p className="text-muted-foreground text-sm">읽는 중…</p>}
+      {list.loading && !list.data && <p className="text-muted-foreground text-sm">불러오는 중…</p>}
       {missing.length > 0 && (
         <p className="text-destructive text-sm" data-testid="secrets-missing">
-          비어 있는 비밀 {missing.length}개 — 이 비밀을 쓰는 원천 · 대상에 닿지 못합니다.
+          미입력 인증 정보 {missing.length}개. 이 인증 정보를 사용하는 원천과 대상에 연결할 수 없습니다.
         </p>
       )}
       {list.data && list.data.length === 0 && (
         <EmptyState
-          title="쓰는 비밀이 없습니다"
-          hint="파이프라인 정의(초안 포함)가 token_env · password_env 같은 칸으로 비밀 이름을 가리키면 여기에 나옵니다."
+          title="사용 중인 인증 정보 없음"
+          hint="파이프라인 정의(초안 포함)의 token_env, password_env 등에 지정한 인증 정보 이름이 이 목록에 표시됩니다."
         />
       )}
       {list.data && list.data.length > 0 && (
@@ -182,7 +182,7 @@ export default function SecretsPage() {
             <TableRow>
               <TableHead>이름</TableHead>
               <TableHead>상태</TableHead>
-              <TableHead>쓰는 곳</TableHead>
+              <TableHead>사용처</TableHead>
               <TableHead>마지막 입력</TableHead>
               {admin && <TableHead className="text-right">동작</TableHead>}
             </TableRow>
@@ -200,7 +200,7 @@ export default function SecretsPage() {
                   )}
                   {secret.forbidden && (
                     <p className="text-destructive mt-0.5 text-xs">
-                      이 플랫폼 자신의 설정 이름입니다 — 화면에서 넣을 수 없습니다.
+                      이 플랫폼의 설정 이름이므로 화면에서 입력할 수 없습니다.
                     </p>
                   )}
                 </TableCell>
@@ -247,12 +247,12 @@ export default function SecretsPage() {
                         variant={secret.status === 'missing' ? 'default' : 'outline'}
                         onClick={() => setEditing(secret.name)}
                       >
-                        {secret.status === 'screen' ? '바꾸기' : '입력'}
+                        {secret.status === 'screen' ? '변경' : '입력'}
                       </Button>
                     )}
                     {secret.status === 'screen' && (
                       <Button size="sm" variant="ghost" onClick={() => setRemoving(secret)}>
-                        지우기
+                        삭제
                       </Button>
                     )}
                   </TableCell>
@@ -272,18 +272,17 @@ export default function SecretsPage() {
       />
       <ConfirmDialog
         open={removing !== null}
-        title={`비밀 지우기 — ${removing?.name ?? ''}`}
+        title={`인증 정보 삭제 — ${removing?.name ?? ''}`}
         description={
           <>
-            화면에서 넣은 값을 지웁니다. 서버 설정(.env)에 같은 이름이 있으면 그 값을 쓰고, 없으면
-            이 비밀을 쓰는 원천 · 대상에 닿지 못합니다
+            화면에서 입력한 값을 삭제합니다. 서버 설정(.env)에 같은 이름이 있으면 그 값을 사용하고,
+            없으면 이 인증 정보를 사용하는 원천과 대상에 연결할 수 없습니다.
             {removing && removing.uses.length > 0
-              ? ` (${removing.uses.map((use) => use.pipeline).filter(Boolean).join(', ')})`
+              ? ` 해당 파이프라인: ${removing.uses.map((use) => use.pipeline).filter(Boolean).join(', ')}`
               : ''}
-            .
           </>
         }
-        confirmLabel="지우기"
+        confirmLabel="삭제"
         destructive
         onConfirm={async () => {
           if (removing) await relayApi.deleteSecret(removing.name)

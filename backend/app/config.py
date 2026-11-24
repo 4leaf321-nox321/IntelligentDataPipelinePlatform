@@ -275,6 +275,18 @@ class Settings(BaseSettings):
     시스템 관리자에게 알린다(`relay.alerts.watch_late`, 일정 타이머가 5분마다 본다). 작업
     워커가 멈추거나 실행이 걸려 있으면 실패도 멈춤도 아니라서 **아무 알림도 가지 않던** 자리다.
     첫 적재처럼 오래 걸리는 실행보다 넉넉히 둔다. 0 이면 끔."""
+    relay_target_fresh_seconds: int = 600
+    """**대상 상태의 저장값을 쓰는 시간**(초) — 연결 지도 · 목록은 5분 타이머가 조회해 둔 대상
+    SP 상태(`relay/targets.py`)를 읽고, 이보다 오래된 대상만 지금 조회한다. 대상마다 요청
+    안에서 차례로 조회하면 대상이 늘수록 첫 화면이 느려지고, 연결되지 않는 대상 하나가 화면
+    전체를 늦춘다. 0 이면 늘 지금 조회한다."""
+    relay_digest_at: str = "08:30"
+    """**중계 일일 요약**의 시각(HH:MM) — 확인이 필요한 파이프라인을 매일 한 번 알림 1건으로
+    보낸다(`relay/digest.py`, 0건이면 보내지 않는다). 빈 값이면 미사용."""
+    relay_alert_webhook_url: str = ""
+    """중계 알림을 **사내 메신저의 수신 웹훅**으로도 보낼 주소(`relay/webhook.py`) — JSON 의
+    `text` 를 읽는 웹훅(Slack · Mattermost 등). 주소에 토큰이 들어 있으므로 서버 `.env` 에만
+    둔다. 빈 값이면 미사용."""
     relay_keep_runs: int = 10
     """작업 폴더에 남길 **지난 실행의 수** — 파이프라인마다 `runs/`(실행의 전체 출력) ·
     `sends/`(보낸 묶음) · `work/`(변환 중간 표)의 최근 이만큼과, 상태가 가리키는 것(기준 출력 ·
@@ -401,7 +413,8 @@ class Settings(BaseSettings):
         """slug 를 검사하고, 비워 둔 것들을 slug 에서 채운다."""
         if not re.fullmatch(r"[a-z][a-z0-9]{0,31}", self.app_slug):
             raise ValueError(
-                f"APP_SLUG 는 소문자·숫자 한 덩어리 32자 이내여야 합니다: {self.app_slug!r}"
+                "APP_SLUG는 영문 소문자로 시작하는 소문자와 숫자 32자 이내여야 합니다: "
+                f"{self.app_slug!r}"
             )
         if not self.app_tagline and self.app_name == DEFAULT_APP_NAME:
             self.app_tagline = DEFAULT_APP_TAGLINE
@@ -418,16 +431,25 @@ class Settings(BaseSettings):
         # 틀린 대조 시각 · 간격은 조용히 안 도는 대조가 된다 — 뜰 때 거절한다.
         if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", self.relay_reconcile_at):
             raise ValueError(
-                f"RELAY_RECONCILE_AT 은 HH:MM(24시)이어야 합니다: {self.relay_reconcile_at!r}"
+                "RELAY_RECONCILE_AT은 HH:MM(24시간) 형식이어야 합니다: "
+                f"{self.relay_reconcile_at!r}"
             )
         if self.relay_reconcile_days < 0:
-            raise ValueError("RELAY_RECONCILE_DAYS 는 0(끔) 이상입니다.")
+            raise ValueError("RELAY_RECONCILE_DAYS는 0 이상이어야 합니다(0은 미사용).")
         if self.relay_keep_runs < 0:
-            raise ValueError("RELAY_KEEP_RUNS 는 0(안 지움) 이상입니다.")
+            raise ValueError("RELAY_KEEP_RUNS는 0 이상이어야 합니다(0은 삭제하지 않음).")
         if self.relay_late_minutes < 0:
-            raise ValueError("RELAY_LATE_MINUTES 는 0(끔) 이상입니다.")
+            raise ValueError("RELAY_LATE_MINUTES는 0 이상이어야 합니다(0은 미사용).")
+        if self.relay_target_fresh_seconds < 0:
+            raise ValueError("RELAY_TARGET_FRESH_SECONDS는 0 이상이어야 합니다(0은 늘 조회).")
+        digest_at = self.relay_digest_at.strip()
+        if digest_at and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", digest_at):
+            raise ValueError(
+                "RELAY_DIGEST_AT은 HH:MM(24시간) 형식이거나 빈 값이어야 합니다: "
+                f"{self.relay_digest_at!r}"
+            )
         if not 0 < self.relay_llm_min_confidence <= 1:
-            raise ValueError("RELAY_LLM_MIN_CONFIDENCE 는 0 보다 크고 1 이하입니다.")
+            raise ValueError("RELAY_LLM_MIN_CONFIDENCE는 0보다 크고 1 이하여야 합니다.")
         return self
 
     @property

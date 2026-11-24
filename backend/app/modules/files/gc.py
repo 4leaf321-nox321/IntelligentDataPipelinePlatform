@@ -100,7 +100,7 @@ def scan(db: Session, *, now: datetime | None = None, progress: Progress = None)
     )
     for index, top in enumerate(tops):
         if progress is not None:
-            progress("훑기", index, len(tops))
+            progress("탐색", index, len(tops))
         if top.name == JOBS:
             continue
         if top.name == INCOMING:

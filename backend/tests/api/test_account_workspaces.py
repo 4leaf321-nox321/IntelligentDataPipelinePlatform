@@ -119,7 +119,7 @@ def test_마지막_관리자는_빼지_않고_소속_아닌_부서는_대표가_
         client, admin, one["id"], workspace_slugs=[solo.slug], home_workspace_slug=hq.slug
     )
     assert wrong.status_code == 409
-    assert "소속이 아닙니다" in wrong.json()["error"]["message"]
+    assert "소속 부서가 아닙니다" in wrong.json()["error"]["message"]
 
     # 비우는 길은 없다 — 소속 없는 계정은 설 자리가 없다.
     empty = _set(client, admin, one["id"], workspace_slugs=[])

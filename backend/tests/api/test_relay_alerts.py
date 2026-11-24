@@ -107,7 +107,7 @@ def test_실행이_나빠질_때와_다시_될_때만_관리자에게_알린다(
 
     assert _bell(db, admin.email, slug) == [
         ("relay.run.failed", f"{slug} 실행 실패"),
-        ("relay.run.failed", f"{slug} 실행 멈춤"),
+        ("relay.run.failed", f"{slug} 실행 중단"),
         ("relay.run.recovered", f"{slug} 실행 복구"),
     ]
     assert _bell(db, member.email, slug) == []  # 고칠 수 없는 사람에게는 안 간다
@@ -165,9 +165,9 @@ def test_대조가_어긋나면_한_번_보정을_적용해_같아지면_한_번
     bell = _bell(db, admin.email, slug)
     assert bell == [
         ("relay.drift", f"{slug} 대조 실패"),
-        ("relay.drift", f"{slug} 대상과 어긋남 1건"),
+        ("relay.drift", f"{slug} 대상 불일치 1건"),
         ("relay.plan.waiting", f"{slug} 적용 대기"),  # 보정 계획이 사람을 기다린다
-        ("relay.drift.resolved", f"{slug} 대상과 일치"),
+        ("relay.drift.resolved", f"{slug} 대상 일치"),
     ], bell
 
 
@@ -241,7 +241,7 @@ def test_적용할_계획이_생길_때_한_번_알리고_적용되면_조용하
     assert bell == [
         ("relay.plan.waiting", f"{slug} 적용 대기"),
         ("relay.plan.waiting", f"{slug} 적용 대기"),
-        ("relay.run.failed", f"{slug} 실행 멈춤"),
+        ("relay.run.failed", f"{slug} 실행 중단"),
     ], bell
 
     from app.modules.notifications.models import Notification
@@ -252,4 +252,4 @@ def test_적용할_계획이_생길_때_한_번_알리고_적용되면_조용하
             Notification.link == f"/relay/pipelines/{slug}",
         )
     ).first()
-    assert first == "계획 — 생성 2 · 변경 1 · 삭제 0"  # 무엇이 바뀌는지 — 대상 요약이 아니라
+    assert first == "계획: 생성 2 · 변경 1 · 삭제 0"  # 무엇이 바뀌는지 — 대상 요약이 아니라

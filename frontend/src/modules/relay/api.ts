@@ -171,6 +171,10 @@ export interface PipelineNodeDetail {
   late?: string
   /** 받기 점검이 멈춘 까닭 — 비면 멈추지 않았다. */
   held?: string[]
+  /** 마지막 실행 · 적용 작업의 시각 — 목록의 '마지막 실행' 열. */
+  last_job_at?: string | null
+  /** 마지막 실행 · 적용 작업이 실패했으면 그 오류(200자까지). */
+  last_error?: string
 }
 
 /** 대조의 네 갈래 — 화면의 차례도 이것이다. */
@@ -178,16 +182,16 @@ export const DRIFT_KINDS = ['missing', 'deprecated', 'changed', 'extra'] as cons
 export type DriftKind = (typeof DRIFT_KINDS)[number]
 
 export const DRIFT_LABEL: Record<DriftKind, string> = {
-  missing: '빠짐',
-  deprecated: '안 씀',
-  changed: '다름',
-  extra: '대상에만',
+  missing: '누락',
+  deprecated: '사용 중지',
+  changed: '값 불일치',
+  extra: '대상에만 존재',
 }
 
 /** 거꾸로 보기의 「마지막 대조에서」 — 어긋남 넷에 같음 · 견주지 못함을 더한다. */
 export function traceStateLabel(state: string): string {
   if (state in DRIFT_LABEL) return DRIFT_LABEL[state as DriftKind]
-  return state === 'same' ? '대상과 같음' : '대조하지 못함'
+  return state === 'same' ? '일치' : '대조 결과 없음'
 }
 
 /**
@@ -547,7 +551,8 @@ const recipePath = (slug: string, version: number) => `${slugPath(slug)}/recipes
 const definitionPath = (slug: string, version: number) => `${slugPath(slug)}/definitions/${version}`
 
 export const relayApi = {
-  map: () => api.get<RelayMap>('/relay/map'),
+  /** `probe` — 대상 상태를 저장값 대신 지금 조회한다([대상 다시 조회]). */
+  map: (probe = false) => api.get<RelayMap>(probe ? '/relay/map?probe=true' : '/relay/map'),
   pipeline: (slug: string) => api.get<PipelineDetail>(slugPath(slug)),
   /** 작업으로 넣는다(202) — 원천 · 대상이 느리면 요청이 끊기므로 요청 안에서 안 돌린다. */
   run: (slug: string, humanEdits: HumanEdits, accept = false, full = false) =>

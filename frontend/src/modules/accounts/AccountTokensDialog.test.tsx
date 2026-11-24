@@ -113,6 +113,6 @@ describe('계정 › 액세스 토큰', () => {
     accountApi.tokens.mockResolvedValue([])
     const { AccountTokensDialog } = await import('@/modules/accounts/AccountTokensDialog')
     render(<AccountTokensDialog account={ACCOUNT} onClose={vi.fn()} />)
-    expect(await screen.findByText('발급한 토큰이 없습니다')).toBeInTheDocument()
+    expect(await screen.findByText('발급한 토큰 없음')).toBeInTheDocument()
   })
 })

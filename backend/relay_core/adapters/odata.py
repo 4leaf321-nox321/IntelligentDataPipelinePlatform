@@ -102,7 +102,7 @@ def same_origin(current: str, link: str) -> str:
     there = here.join(link)
     if (there.scheme, there.host, there.port) != (here.scheme, here.host, here.port):
         raise SourceError(
-            f"다음 쪽 주소가 다른 곳을 가리킵니다 — 따라가지 않습니다: {link:.200}"
+            f"다음 페이지 주소가 다른 곳을 가리켜 요청하지 않습니다: {link:.200}"
         )
     return str(there)
 
@@ -182,14 +182,14 @@ class ODataAdapter:
             inner = body["d"]
             items = inner if isinstance(inner, list) else inner.get("results", [])
         else:
-            raise SourceError("OData 봉투(value · d)가 아닙니다")
+            raise SourceError("OData 응답 형식(value 또는 d)이 아닙니다")
         first = (
             ", 식별자 "
             + KEY_JOIN.join(as_text(value_at(items[0], one)) for one in key_paths(source.key))
             if items
             else ""
         )
-        return f"응답 정상 — {len(items)}줄{first}"
+        return f"응답 정상 · {len(items)}행{first}"
 
     def metadata(self) -> list[dict[str, Any]]:
         """`$metadata`(CSDL) — 엔티티 셋마다 타입 · 식별자 · 속성 · 탐색 속성. v2 · v4 같은
@@ -204,7 +204,7 @@ class ODataAdapter:
             auth=source.auth.http_auth() or httpx.USE_CLIENT_DEFAULT,
         )
         if got.status_code != 200:
-            raise SourceError(f"$metadata 를 못 읽었습니다: {got.status_code}")
+            raise SourceError(f"$metadata를 읽을 수 없습니다: {got.status_code}")
         parser = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False)
         root = etree.fromstring(got.content, parser=parser)
         types: dict[str, Any] = {}
@@ -241,7 +241,7 @@ class ODataAdapter:
         try:
             out["entity_sets"] = self.metadata()
         except Exception as failure:
-            out["metadata_note"] = f"$metadata 를 못 읽었습니다: {failure}"
+            out["metadata_note"] = f"$metadata를 읽을 수 없습니다: {failure}"
         if self.source.entity_set:
             source = self.source
             version = source.version if source.version in ("2", "4") else "4"
@@ -289,7 +289,7 @@ class ODataAdapter:
                 items = inner if isinstance(inner, list) else inner.get("results", inner)
                 nxt = inner.get("__next") if isinstance(inner, dict) else None
             else:
-                raise SourceError(f"OData 봉투(value · d)가 아닙니다: {body!r:.300}")
+                raise SourceError(f"OData 응답 형식(value 또는 d)이 아닙니다: {body!r:.300}")
             if not isinstance(items, list):
                 raise SourceError(f"OData 행이 목록이 아닙니다: {items!r:.300}")
             for item in items:
@@ -305,6 +305,9 @@ class ODataAdapter:
             else:
                 break
         else:
-            raise SourceError(f"쪽이 {source.max_pages}개를 넘었습니다 — 끝을 알 수 없습니다.")
+            raise SourceError(
+                f"페이지가 {source.max_pages}개를 초과했습니다. 마지막 페이지를 확인할 수 "
+                "없습니다."
+            )
         watermark = records.latest or since
         return Fetched(records=records, watermark=watermark, complete=True, full=not since)

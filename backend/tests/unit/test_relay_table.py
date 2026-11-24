@@ -215,10 +215,10 @@ def test_원천_표의_검사와_인코딩은_틀과_같다(tmp_path: Path) -> N
 
     bad = tmp_path / "bad.csv"
     bad.write_text("A,A\n1,2\n", encoding="utf-8")
-    with pytest.raises(sp.table.Stop, match="같은 이름이 둘 이상"):
+    with pytest.raises(sp.table.Stop, match="중복된 열 이름"):
         table.read_table(bad)
     bad.write_text("A,B\n1,2,3\n", encoding="utf-8")
-    with pytest.raises(sp.table.Stop, match="2행: 머리글보다 칸이 많습니다"):
+    with pytest.raises(sp.table.Stop, match="2행: 머리글보다 열이 많습니다"):
         table.read_table(bad)
 
 
@@ -368,5 +368,5 @@ def test_옛_판의_미러도_읽고_차례가_어긋나면_멈춘다(tmp_path: 
 
     lines = ["[", '{"key": "B", "values": {}},', '{"key": "A", "values": {}}', "]"]
     work.path("mirror.json").write_text("\n".join(lines), encoding="utf-8")
-    with pytest.raises(ValueError, match="차례가 어긋났습니다"):
+    with pytest.raises(ValueError, match="정렬 순서가 올바르지 않습니다"):
         work.merge_mirror(Fetched(records=[], complete=True))

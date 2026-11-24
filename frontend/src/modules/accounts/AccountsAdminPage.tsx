@@ -110,22 +110,22 @@ export default function AccountsAdminPage() {
     <div className="space-y-6">
       <PageHeader
         title="계정"
-        description="가입 승인과 권한을 다룹니다. 부서 멤버 관리는 부서 화면에서 하고, 승인 대기 계정은 승인한 뒤에 관리자 지정 · 소속 변경을 할 수 있습니다."
+        description="가입 승인과 권한을 관리합니다. 부서 멤버는 [부서 멤버] 화면에서 관리합니다. 승인 대기 계정은 승인한 후에 관리자 지정, 소속 변경을 할 수 있습니다."
       />
 
       {/* **관리자가 하나뿐이면 말한다.** 그 사람이 잠기는 순간 복구 경로가 서버
           콘솔뿐이고, 그때는 화면에서 할 수 있는 것이 하나도 없다. */}
       {summary.data && onlyOneAdmin && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          활성 시스템 관리자가 1명입니다. 그 계정이 잠기면 서버 콘솔로만 복구할 수 있습니다 — 한 명
-          더 지정해 두세요.
+          활성 시스템 관리자가 1명입니다. 이 계정이 잠기면 서버 콘솔로만 복구할 수 있습니다. 시스템
+          관리자를 1명 더 지정하세요.
         </div>
       )}
 
       {issued && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
           <p className="font-medium">
-            {issued.email} 의 임시 비밀번호입니다. 지금 전달하세요 — 다시 볼 수 없습니다.
+            {issued.email}의 임시 비밀번호입니다. 다시 표시되지 않으므로 지금 전달하세요.
           </p>
           <p className="mt-1 font-mono text-xs">{issued.password}</p>
         </div>
@@ -178,8 +178,8 @@ export default function AccountsAdminPage() {
             value={newWorkspace || null}
             onChange={setNewWorkspace}
             placeholder="부서를 선택하세요"
-            searchPlaceholder="부서 이름이나 주소로 검색"
-            emptyText="그런 부서가 없습니다"
+            searchPlaceholder="부서 이름 또는 주소로 검색"
+            emptyText="일치하는 부서 없음"
             options={(workspaces.data ?? []).map((one) => ({
               value: one.slug,
               label: one.name,
@@ -213,13 +213,13 @@ export default function AccountsAdminPage() {
       {list.data && rows.length === 0 ? (
         status ? (
           <EmptyState
-            title={`${STATUS_FILTERS.find((one) => one.value === status)?.label} 계정이 없습니다`}
-            hint="상태 거르기를 「전체」 로 바꾸면 다른 계정이 보입니다."
+            title={`'${STATUS_FILTERS.find((one) => one.value === status)?.label}' 계정 없음`}
+            hint="상태 필터를 '전체'로 변경하면 다른 계정이 표시됩니다."
           />
         ) : (
           <EmptyState
-            title="계정이 없습니다"
-            hint="설치 스크립트로 만든 관리자 계정만 있는 상태일 수 있습니다."
+            title="계정 없음"
+            hint="설치 스크립트로 생성한 관리자 계정만 있는 상태일 수 있습니다."
           />
         )
       ) : (
@@ -256,7 +256,7 @@ export default function AccountsAdminPage() {
                         .map((room) => (room.is_home ? `★ ${room.name}` : room.name))
                         .join(', ')
                     : (one.requested_workspace_name ??
-                      (one.status === 'pending' ? '희망 부서 없음 — 승인할 때 선택' : '—'))}
+                      (one.status === 'pending' ? '희망 부서 없음(승인 시 선택)' : '—'))}
                 </TableCell>
                 <TableCell className="text-sm">
                   {shownDate(one.decided_at ?? one.created_at)}
@@ -371,20 +371,20 @@ export default function AccountsAdminPage() {
         open={promoting !== null}
         title={
           promoting?.is_system_admin
-            ? `${promoting?.email} 의 시스템 관리자를 해제합니다`
-            : `${promoting?.email} 를 시스템 관리자로 지정합니다`
+            ? `시스템 관리자 해제 — ${promoting?.email}`
+            : `시스템 관리자 지정 — ${promoting?.email}`
         }
         description={
           promoting?.is_system_admin ? (
             <>
-              이 계정은 더 이상 계정 · 서버 설정 · 확장 모듈을 다루지 못하고, 부서 밖 자료를
-              고치지 못합니다. <b>마지막 관리자는 해제되지 않습니다</b> — 서버가 막습니다.
+              이 계정은 더 이상 계정, 서버 설정, 확장 모듈을 관리할 수 없고 부서 밖 자료를 수정할 수
+              없습니다. <b>마지막 관리자는 해제되지 않습니다.</b> 서버가 해제를 거부합니다.
             </>
           ) : (
             <>
-              이 계정은 <b>모든 부서의 자료</b>를 보고 고칠 수 있게 됩니다. 계정을 만들고
-              지우고, 서버 설정과 확장 모듈을 켜고 끄며, 감사 기록을 읽습니다. 되돌리려면 같은
-              자리에서 해제합니다.
+              이 계정은 <b>모든 부서의 자료</b>를 조회하고 수정할 수 있습니다. 계정 생성과 삭제,
+              서버 설정 변경, 확장 모듈의 사용 · 미사용 설정, 감사 기록 조회가 가능합니다. 되돌리려면
+              같은 화면에서 해제하세요.
             </>
           )
         }
@@ -404,9 +404,9 @@ export default function AccountsAdminPage() {
         description={
           <div className="space-y-2">
             <p>
-              {approving?.display_name}({approving?.email}) 의 신청에는 희망 부서가 없습니다 — HWAX
-              포털로 들어온 신청이거나, 신청한 부서가 없어졌습니다. 소속할 부서를 선택하세요. 이
-              부서가 그 사람의 대표 소속이 됩니다.
+              {approving?.display_name}({approving?.email})의 신청에 희망 부서가 없습니다. HWAX
+              포털로 접수된 신청이거나 신청한 부서가 삭제된 경우입니다. 소속 부서를 선택하세요. 선택한
+              부서가 이 사용자의 대표 소속이 됩니다.
             </p>
             <SearchablePicker
               id="approve-workspace"
@@ -414,8 +414,8 @@ export default function AccountsAdminPage() {
               value={approveTo || null}
               onChange={setApproveTo}
               placeholder="부서를 선택하세요"
-              searchPlaceholder="부서 이름이나 주소로 검색"
-              emptyText="그런 부서가 없습니다"
+              searchPlaceholder="부서 이름 또는 주소로 검색"
+              emptyText="일치하는 부서 없음"
               options={(workspaces.data ?? []).map((one) => ({
                 value: one.slug,
                 label: one.name,
@@ -441,9 +441,9 @@ export default function AccountsAdminPage() {
         title="가입 거절"
         description={
           <div className="space-y-2">
-            <p>{rejecting?.email} 의 신청을 거절합니다.</p>
+            <p>{rejecting?.email}의 가입 신청을 거절합니다.</p>
             <p className="text-muted-foreground">
-              메일 통보가 없으므로 여기 적은 사유가 신청자에게 보이는 전부입니다.
+              메일로 통보하지 않으므로 여기에 입력한 사유만 신청자에게 표시됩니다.
             </p>
             <Input
               value={note}

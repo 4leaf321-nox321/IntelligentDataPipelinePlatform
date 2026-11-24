@@ -159,8 +159,8 @@ def check_secret(name: str, role: str, url: str, fenced: Fence) -> None:
     where = " · ".join(f"{r} {h}" for r, h in sorted(fenced.bound[name]))
     raise Forbidden(
         code("RELAY", 21),
-        f"{name} 은 사용 중인 정의가 {where} 에 쓰는 비밀입니다 — {role} {host} 에 실어 "
-        "보낼 수 없습니다. 그 시스템의 토큰을 담을 환경 변수를 따로 두세요.",
+        f"{name}은 사용 중인 정의가 {where}에 사용하는 인증 정보입니다. {role} {host}에는 "
+        "전송할 수 없습니다. 해당 시스템의 토큰을 담을 환경 변수를 별도로 지정하세요.",
     )
 
 
@@ -182,21 +182,21 @@ def check_url(
     if parts.scheme not in schemes or not parts.netloc:
         raise AppError(
             code("RELAY", 9),
-            f"{where}: {' · '.join(schemes)} 주소여야 합니다: {url!r}",
+            f"{where}: {', '.join(schemes)} 주소여야 합니다: {url!r}",
             status=422,
         )
     netloc = host_of(url)
     if not _host_ok(netloc, allowed):
         place = (
-            "「대상 SP」(설정은 RELAY_TARGET_HOSTS)"
+            "[대상 SP](서버 설정 RELAY_TARGET_HOSTS)"
             if target
-            else "「원천」(설정은 RELAY_SOURCE_HOSTS)"
+            else "[원천](서버 설정 RELAY_SOURCE_HOSTS)"
         )
         raise Forbidden(
             code("RELAY", 10),
-            f"{where}: {netloc} 는 이 서버가 AI 요청으로 호출할 수 있는 주소가 아닙니다 — "
-            f"사용 중인 정의의 주소이거나 허용 주소여야 합니다. 사람에게 화면 › 중계 › 허용 "
-            f"주소 의 {place} 에 더해 달라고 하세요(재시작 없음).",
+            f"{where}: {netloc}는 AI 요청으로 호출할 수 있는 주소가 아닙니다. 사용 중인 "
+            f"정의의 주소이거나 허용 주소여야 합니다. 사람에게 [중계 › 허용 주소] 화면의 "
+            f"{place}에 주소 추가를 요청하세요. 재시작은 필요하지 않습니다.",
         )
 
 
@@ -209,7 +209,7 @@ def check_file(location: str) -> None:
     if not head or not Path(head).is_absolute():
         raise AppError(
             code("RELAY", 11),
-            f"adapter.location 은 절대 경로여야 합니다: {location!r}",
+            f"adapter.location은 절대 경로여야 합니다: {location!r}",
             status=422,
         )
     real = Path(head).resolve()
@@ -217,8 +217,8 @@ def check_file(location: str) -> None:
     if not any(real == root or real.is_relative_to(root) for root in roots):
         raise Forbidden(
             code("RELAY", 11),
-            f"{location} 는 읽어도 되는 폴더(RELAY_FILE_ROOTS: "
-            f"{', '.join(str(one) for one in roots)}) 밖입니다.",
+            f"{location}는 허용 폴더(RELAY_FILE_ROOTS: "
+            f"{', '.join(str(one) for one in roots)}) 밖에 있습니다.",
         )
 
 
@@ -247,8 +247,8 @@ def check_source(kind: str, spec: dict[str, Any], fenced: Fence) -> None:
             if name in fenced.bound:
                 raise Forbidden(
                     code("RELAY", 21),
-                    f"{name} 은 사용 중인 정의가 쓰는 비밀입니다 — 보내 주는 원천의 비밀은 "
-                    "따로 둡니다.",
+                    f"{name}은 사용 중인 정의의 인증 정보입니다. 푸시 원천의 인증 정보는 "
+                    "별도로 지정하세요.",
                 )
     # 토큰 주소는 따로 본다 — 원천 주소의 갈래(원격 · 로컬 파일)와 섞으면 한쪽이 빠진다
     # (smb 원천이 로컬 경로 검사에 걸렸다, 2026-11-08 보안 점검).
@@ -291,8 +291,8 @@ def check_env(body: Any) -> None:
     if bad:
         raise Forbidden(
             code("RELAY", 13),
-            f"{', '.join(bad)} 는 이 플랫폼 자신의 설정입니다 — 원천 · 대상의 비밀로 사용하지 "
-            "않습니다. 그 시스템의 토큰을 담을 환경 변수를 따로 두세요.",
+            f"{', '.join(bad)}는 이 플랫폼의 설정입니다. 원천, 대상의 인증 정보로 사용할 수 "
+            "없습니다. 해당 시스템의 토큰을 담을 환경 변수를 별도로 지정하세요.",
         )
 
 
@@ -309,8 +309,8 @@ def check_no_secrets(body: Any, where: str = "") -> None:
             if key in SECRET_FIELDS or named:
                 raise AppError(
                     code("RELAY", 9),
-                    f"{here}: 비밀은 정의에 적지 않습니다 — 환경 변수 이름(token_env)을 "
-                    "적으세요.",
+                    f"{here}: 인증 정보는 정의에 입력하지 않습니다. 환경 변수 "
+                    "이름(token_env)을 입력하세요.",
                     status=422,
                 )
             check_no_secrets(value, here)
@@ -320,7 +320,7 @@ def check_no_secrets(body: Any, where: str = "") -> None:
     elif isinstance(body, str) and _LOOKS_SECRET.search(body):
         raise AppError(
             code("RELAY", 9),
-            f"{where}: 비밀처럼 보이는 값입니다(주소 안의 비밀번호 · 인증 머리글 · 질의의 "
-            "키) — 정의에는 환경 변수 이름만 적습니다.",
+            f"{where}: 인증 정보로 보이는 값입니다(주소 안의 비밀번호, 인증 헤더, 쿼리 "
+            "키). 정의에는 환경 변수 이름만 입력하세요.",
             status=422,
         )

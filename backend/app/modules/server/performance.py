@@ -419,9 +419,7 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
         items.append(
             extensions.MaintenanceItem(
                 key="slow_requests",
-                label=(
-                    f"느린 요청 — 최근 24시간 p95 가 {limits.p95_ms / 1000:g}초를 넘은 경로"
-                ),
+                label=f"느린 요청(최근 24시간 p95 {limits.p95_ms / 1000:g}초 초과 경로)",
                 count=slow,
                 link="/admin/server?tab=performance&period=24h&sort=p95",
             )
@@ -431,8 +429,8 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
             extensions.MaintenanceItem(
                 key="large_responses",
                 label=(
-                    "큰 응답 — 최근 24시간 "
-                    f"{get_settings().large_response_mb:g}MB 를 넘은 응답을 낸 경로"
+                    "큰 응답(최근 24시간 "
+                    f"{get_settings().large_response_mb:g}MB 초과 응답 경로)"
                 ),
                 count=large,
                 link="/admin/server?tab=performance&period=24h&sort=max_bytes",
@@ -445,10 +443,7 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
         items.append(
             extensions.MaintenanceItem(
                 key="cut_questions",
-                label=(
-                    "끊긴 질문 — 최근 24시간 시간 상한 · 크기에 걸려 답을 못 받은 물음"
-                    "(모양 수)"
-                ),
+                label="중단된 조회(최근 24시간 시간 · 크기 상한 초과, 형태 수)",
                 count=cut,
                 link="/admin/server?tab=performance&period=24h",
             )

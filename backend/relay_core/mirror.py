@@ -205,7 +205,9 @@ class Merge:
         last: str | None = None
         for old in existing:
             if last is not None and old.key <= last:
-                raise ValueError(f"미러의 차례가 어긋났습니다({last!r} 뒤에 {old.key!r})")
+                raise ValueError(
+                    f"미러의 정렬 순서가 올바르지 않습니다({last!r} 다음에 {old.key!r})"
+                )
             last = old.key
             self.tally.before += 1
             self.tally.old_filled.update(c for c, v in old.values.items() if _has(v))

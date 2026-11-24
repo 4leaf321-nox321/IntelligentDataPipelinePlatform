@@ -85,13 +85,13 @@ def _clean(kind: str, given: list[str]) -> list[str]:
     if bad:
         raise AppError(
             code("RELAY", 39),
-            "주소는 host 또는 host:port 로 적습니다(http:// · 경로 없이): "
+            "주소는 host 또는 host:port 형식으로 입력하세요(http://와 경로 제외): "
             + ", ".join(bad[:5]),
             status=422,
         )
     if len(out) > MAX_HOSTS:
         raise AppError(
-            code("RELAY", 39), f"{kind} 주소는 {MAX_HOSTS}개까지입니다.", status=422
+            code("RELAY", 39), f"{kind} 주소는 최대 {MAX_HOSTS}개입니다.", status=422
         )
     return out
 
@@ -139,8 +139,8 @@ def put(
     if getattr(request.state, "token_scopes", None) is not None:
         raise Forbidden(
             code("RELAY", 39),
-            "허용 주소는 사람이 화면에서 바꿉니다 — 토큰(MCP)으로는 못 바꿉니다. 사람에게 "
-            "화면 › 중계 › 허용 주소 에서 더해 달라고 하세요.",
+            "허용 주소는 사람이 화면에서만 변경합니다. 토큰(MCP)으로는 변경할 수 없습니다. "
+            "사람에게 [중계 › 허용 주소] 화면에서 주소 추가를 요청하세요.",
         )
     wanted = {"source": _clean("원천", source), "target": _clean("대상", target)}
     with _locked():

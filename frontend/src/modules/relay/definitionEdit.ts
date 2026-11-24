@@ -73,7 +73,7 @@ export function withAt(doc: DefinitionDoc, path: string[], value: unknown): Defi
  */
 export function changes(before: unknown, after: unknown, prefix = '', depth = 3): string[] {
   if (same(before, after)) return []
-  const label = prefix || '본문'
+  const label = prefix || '원문'
   if (depth === 0 || !isPlain(before) || !isPlain(after)) {
     if (before === undefined) return [`${label}(추가)`]
     if (after === undefined) return [`${label}(삭제)`]
@@ -171,19 +171,19 @@ function leaks(value: unknown, names: Set<string>, path: string, out: string[]) 
 export function blockers(doc: unknown, slug: string, secretFields: string[]): string[] {
   if (!isPlain(doc)) return ['정의는 JSON 객체여야 합니다.']
   const out: string[] = []
-  if (doc.format !== 'relay-pipeline/1') out.push('format 은 relay-pipeline/1 이어야 합니다.')
+  if (doc.format !== 'relay-pipeline/1') out.push('format은 relay-pipeline/1이어야 합니다.')
   if (doc.slug !== slug) {
-    out.push(`slug 는 바꿀 수 없습니다(${slug}) — 다른 파이프라인은 「새 연결」 에서 만듭니다.`)
+    out.push(`slug는 변경할 수 없습니다(${slug}). 다른 파이프라인은 [새 연결]에서 생성하세요.`)
   }
   if (!isPlain(doc.adapter) || !doc.adapter.kind) out.push('adapter.kind(어댑터 종류)가 필요합니다.')
   else if (!at(doc, ['adapter', 'key'])) out.push('adapter.key(식별자)가 필요합니다.')
   if (!isPlain(doc.target) || !doc.target.server || !doc.target.token_env) {
-    out.push('target 에 server(대상 SP 주소)와 token_env(토큰의 환경 변수 이름)가 필요합니다.')
+    out.push('target에 server(대상 SP 주소)와 token_env(토큰의 환경 변수 이름)가 필요합니다.')
   }
   const found: string[] = []
   leaks(doc, new Set(secretFields.map((one) => one.toLowerCase())), '', found)
   for (const one of found) {
-    out.push(`${one}: 비밀은 정의에 적지 않습니다 — 환경 변수의 이름(token_env)만 적으세요.`)
+    out.push(`${one}: 인증 정보의 값은 정의에 입력할 수 없습니다. 환경 변수 이름(token_env)만 입력하세요.`)
   }
   return out
 }

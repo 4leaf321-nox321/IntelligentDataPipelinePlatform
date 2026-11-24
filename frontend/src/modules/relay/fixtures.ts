@@ -30,7 +30,7 @@ const edge = (source: string, target: string, weight = 0, status = ''): MapEdge 
 export function sampleMap(): RelayMap {
   return {
     generated_at: '2026-11-05T01:00:00+00:00',
-    problems: ['제조 데이터허브(http://mfg)에 닿지 않습니다.'],
+    problems: ['제조 데이터허브(http://mfg)에 연결할 수 없습니다.'],
     nodes: [
       node({ id: 'system:plm', kind: 'system', label: 'PLM', sub: 'plm' }),
       node({ id: 'endpoint:tasks', kind: 'endpoint', label: 'GET /tasks · plm.local', sub: 'http://plm.local/tasks' }),
@@ -75,7 +75,7 @@ export function sampleMap(): RelayMap {
         status_label: '실패',
         link: '/relay/pipelines/mes-lots',
       }),
-      node({ id: 'target:mfg', kind: 'target', label: '제조 데이터허브', sub: 'http://mfg', status: 'unreachable', status_label: '닿지 않음' }),
+      node({ id: 'target:mfg', kind: 'target', label: '제조 데이터허브', sub: 'http://mfg', status: 'unreachable', status_label: '연결 불가' }),
       node({ id: 'type:mfg:lot', kind: 'type', label: 'lot', sub: '제조 데이터허브' }),
       node({ id: 'downstream:hub:report', kind: 'downstream', label: '리포트 아카이브', sub: '마지막 수신 2026-11-04T08:00' }),
     ],
@@ -139,7 +139,7 @@ export function sampleReconcile(over: Partial<ReconcileReport> = {}): ReconcileR
     baseline: 'runs/20261104T090000Z',
     source: 'plm',
     drift: 29,
-    summary: '대상과 어긋남 29건(빠짐 25 · 안 씀 1 · 다름 1 · 대상에만 2) — 기준 객체 40건. 확인 못 한 참조 칸 2.',
+    summary: '대상 불일치 29건(누락 25 · 사용 중지 1 · 값 불일치 1 · 대상에만 존재 2) · 기준 객체 40건. 미확인 참조 2건.',
     problems: [],
     types: {
       plm_task: {

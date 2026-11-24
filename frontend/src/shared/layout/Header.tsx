@@ -70,7 +70,7 @@ export function Header({ onToggleSidebar, workspaceSlug }: HeaderProps) {
         variant="ghost"
         size="icon"
         onClick={onToggleSidebar}
-        aria-label="사이드바 접기/확장"
+        aria-label="사이드바 축소/확장"
       >
         <PanelLeft className="size-4" />
       </Button>
@@ -118,7 +118,7 @@ export function Header({ onToggleSidebar, workspaceSlug }: HeaderProps) {
       ) : (
         // **소속이 없다는 것을 말한다.** 빈 칸으로 두면 사람은 목록이 안 뜬 줄
         // 알고 새로고침을 반복한다 — 실제로는 관리자가 배정해 줘야 하는 상태다.
-        <span className="text-muted-foreground text-sm">소속된 부서가 없습니다</span>
+        <span className="text-muted-foreground text-sm">소속 부서 없음</span>
       )}
 
       {current?.role === 'manager' && (

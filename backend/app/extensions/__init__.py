@@ -74,16 +74,16 @@ def load(name: str) -> Extension:
     """이름으로 확장을 찾는다. 없거나 `register` 가 없으면 **기동에서 멈춘다** — `.env` 의
     오타가 「메뉴가 안 보이는」 조용한 고장으로 남지 않게."""
     if not name.isidentifier() or name.startswith("_"):
-        raise RuntimeError(f"EXTENSIONS 의 이름이 이상합니다: {name!r}")
+        raise RuntimeError(f"EXTENSIONS의 확장 이름이 올바르지 않습니다: {name!r}")
     try:
         module = importlib.import_module(f"app.extensions.{name}")
     except ModuleNotFoundError as missing:
         if missing.name and missing.name.startswith(f"app.extensions.{name}"):
             raise RuntimeError(
-                f"확장 {name!r} 이 없습니다 (app/extensions/{name}/). "
-                ".env 의 EXTENSIONS 를 확인하세요."
+                f"확장 모듈을 찾을 수 없습니다: {name!r}(app/extensions/{name}/). "
+                ".env의 EXTENSIONS를 확인하세요."
             ) from missing
         raise
     if not callable(getattr(module, "register", None)):
-        raise RuntimeError(f"확장 {name!r} 에 register(router) 가 없습니다.")
+        raise RuntimeError(f"확장 {name!r}에 register(router)가 없습니다.")
     return module  # type: ignore[return-value]

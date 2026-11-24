@@ -66,13 +66,15 @@ def check_xml(method: str, soap_action: str, envelope: str, content_type: str) -
     """XML 원천은 **읽기만** — GET, 또는 SOAP 봉투를 실은 POST. 봉투 없는 POST · SOAPAction
     은 남의 API 를 부르는 길이 된다(대상 SP 의 적용도 POST 다)."""
     if method.upper() not in ("GET", "POST"):
-        raise SourceError(f"XML 원천의 method 는 GET · POST 만 됩니다: {method!r}")
+        raise SourceError(f"XML 원천의 method는 GET, POST만 지원합니다: {method!r}")
     if not envelope and (method.upper() == "POST" or soap_action):
-        raise SourceError("POST · soap_action 은 SOAP 봉투(envelope)가 있을 때만 됩니다.")
+        raise SourceError(
+            "POST와 soap_action은 SOAP 봉투(envelope)가 있을 때만 사용할 수 있습니다."
+        )
     if "xml" not in content_type.lower():
-        raise SourceError(f"content_type 은 XML 이어야 합니다: {content_type!r}")
+        raise SourceError(f"content_type은 XML 형식이어야 합니다: {content_type!r}")
     if any(ch in soap_action + content_type for ch in "\r\n"):
-        raise SourceError("soap_action · content_type 에 줄바꿈을 넣을 수 없습니다.")
+        raise SourceError("soap_action, content_type에는 줄바꿈을 입력할 수 없습니다.")
 
 
 def _text(found: Any) -> str:
@@ -145,23 +147,23 @@ class XmlAdapter:
                     auth=source.auth.http_auth() or httpx.USE_CLIENT_DEFAULT,
                 )
             except httpx.HTTPError as failure:
-                last = f"닿지 않습니다: {failure}"
+                last = f"연결할 수 없습니다: {failure}"
             else:
                 if got.status_code == 200:
                     return self._parse(got.content)
                 last = f"{got.status_code} {scrub(got.text[:2000], secret, hidden)[:300]}"
                 if got.status_code < 500 and got.status_code != 429:
-                    raise SourceError(f"원천이 거절했습니다({source.url}): {last}")
+                    raise SourceError(f"원천이 요청을 거부했습니다({source.url}): {last}")
             self._sleep(min(2**attempt, 10))
         raise SourceError(
-            f"원천에 {source.retries}번 물었지만 실패했습니다({source.url}): {last}"
+            f"원천 요청이 {source.retries}회 모두 실패했습니다({source.url}): {last}"
         )
 
     def _parse(self, raw: bytes) -> Any:
         try:
             root = etree.fromstring(raw, parser=_PARSER)
         except etree.XMLSyntaxError as failure:
-            raise SourceError(f"XML 이 아닙니다: {failure}") from None
+            raise SourceError(f"XML 형식이 아닙니다: {failure}") from None
         fault = root.xpath("//*[local-name()='Fault']")
         if fault:
             raise SourceError(f"SOAP Fault: {_text(fault[0])[:300]}")
@@ -172,23 +174,23 @@ class XmlAdapter:
             found = root.xpath(self.source.rows_xpath, namespaces=dict(self.source.namespaces))
         except etree.XPathError as failure:
             raise SourceError(
-                f"rows_xpath 가 틀렸습니다({self.source.rows_xpath}): {failure}"
+                f"rows_xpath가 올바르지 않습니다({self.source.rows_xpath}): {failure}"
             ) from None
         if not isinstance(found, list):
-            raise SourceError("rows_xpath 가 요소 목록을 주지 않습니다.")
+            raise SourceError("rows_xpath의 결과가 요소 목록이 아닙니다.")
         return [one for one in found if isinstance(one, etree._Element)]
 
     def _value(self, row: Any, path: str) -> str:
         try:
             return _text(row.xpath(path, namespaces=dict(self.source.namespaces)))
         except etree.XPathError as failure:
-            raise SourceError(f"자리가 틀렸습니다({path}): {failure}") from None
+            raise SourceError(f"위치(XPath)가 올바르지 않습니다({path}): {failure}") from None
 
     def _record(self, row: Any) -> SourceRecord:
         source = self.source
         parts = [self._value(row, one).strip() for one in key_paths(source.key)]
         if not parts or not all(parts):
-            raise SourceError(f"식별자({source.key})가 빈 행이 있습니다.")
+            raise SourceError(f"식별자({source.key}) 값이 비어 있는 행이 있습니다.")
         key = KEY_JOIN.join(parts)
         deleted = bool(source.deleted) and truthy(self._value(row, source.deleted or ""))
         values = (
@@ -217,7 +219,7 @@ class XmlAdapter:
                 break
             page += 1
         else:
-            raise SourceError(f"쪽이 {source.max_pages}개를 넘었습니다.")
+            raise SourceError(f"페이지가 {source.max_pages}개를 초과했습니다.")
         return Fetched(
             records=records,
             watermark=records.latest or since,
@@ -233,7 +235,7 @@ class XmlAdapter:
             if rows
             else ""
         )
-        return f"응답 정상 — 행 {len(rows)}개{first}"
+        return f"응답 정상 · {len(rows)}행{first}"
 
     def discover(self) -> dict[str, Any]:
         """첫 행들의 자식 요소 · 속성 자리 → 열 제안(행 요소 기준 XPath)."""

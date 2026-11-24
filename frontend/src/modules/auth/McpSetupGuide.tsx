@@ -114,7 +114,7 @@ export function Snippet({ text, label }: { text: string; label: string }) {
         </Button>
         {done === 'ok' && <span className="text-muted-foreground text-xs">복사됨</span>}
         {done === 'fail' && (
-          <span className="text-destructive text-xs">복사 실패 — 직접 선택해 복사하세요</span>
+          <span className="text-destructive text-xs">복사 실패. 직접 선택해 복사하세요.</span>
         )}
       </div>
     </div>
@@ -129,16 +129,16 @@ export function McpSetupGuide({ token }: { token: string | null }) {
       <div>
         <h3 className="text-sm font-semibold">AI 도구 연결</h3>
         <p className="text-muted-foreground mt-1 text-xs">
-          사용하는 도구의 탭을 선택해 복사하세요. 네 도구 모두 <b>Node.js</b> 가 있어야 합니다 —{' '}
-          <span className="font-mono">npx mcp-remote</span> 다리로 붙습니다. MCP 주소:{' '}
+          사용하는 도구의 탭을 선택해 복사하세요. 네 도구 모두 <b>Node.js</b>가 필요합니다(
+          <span className="font-mono">npx mcp-remote</span> 브리지로 연결). MCP 주소:{' '}
           <span className="font-mono">{url}</span>
         </p>
       </div>
       {!token && (
         <div className="bg-muted/40 text-muted-foreground rounded-md border border-dashed px-3 py-2 text-xs">
-          아직 토큰을 발급하지 않았습니다. 아래는 예시 형식이고 토큰 자리에{' '}
-          <span className="font-mono">{TOKEN_PLACEHOLDER}</span> 이 들어 있습니다. 위에서 발급하면
-          실제 토큰이 채워집니다.
+          아직 토큰을 발급하지 않았습니다. 아래는 예시 형식이며 토큰 위치에 자리표시자(
+          <span className="font-mono">{TOKEN_PLACEHOLDER}</span>)가 있습니다. 위에서 발급하면 실제
+          토큰으로 채워집니다.
         </div>
       )}
       <Tabs defaultValue="claude-code" className="w-full">
@@ -156,25 +156,26 @@ export function McpSetupGuide({ token }: { token: string | null }) {
         </TabsContent>
         <TabsContent value="desktop" className="space-y-2">
           <p className="text-muted-foreground text-xs">
-            설정 → 개발자 → 「설정 편집」으로{' '}
-            <span className="font-mono">claude_desktop_config.json</span> 을 열고, 아래 항목을{' '}
-            <span className="font-mono">{'"mcpServers": { }'}</span> 중괄호 안에 붙여넣은 뒤 Claude
-            Desktop 을 완전히 종료했다가 다시 켭니다. 다른 항목이 이미 있으면 사이에 쉼표.
+            [설정] › [개발자] › [설정 편집]으로{' '}
+            <span className="font-mono">claude_desktop_config.json</span>을 열고, 아래 항목을{' '}
+            <span className="font-mono">{'"mcpServers": { }'}</span> 중괄호 안에 붙여넣은 후 Claude
+            Desktop을 완전히 종료했다가 다시 실행하세요. 다른 항목이 이미 있으면 항목 사이에 쉼표를
+            넣으세요.
           </p>
           <Snippet text={s.desktop} label="항목" />
         </TabsContent>
         <TabsContent value="gemini" className="space-y-2">
           <p className="text-muted-foreground text-xs">
-            <span className="font-mono">~/.gemini/settings.json</span> 의{' '}
-            <span className="font-mono">{'"mcpServers": { }'}</span> 안에 붙여넣습니다(Claude
-            Desktop 과 같은 모양). 확인: <span className="font-mono">gemini</span> 실행 후{' '}
+            <span className="font-mono">~/.gemini/settings.json</span>의{' '}
+            <span className="font-mono">{'"mcpServers": { }'}</span> 안에 붙여넣으세요(Claude
+            Desktop과 같은 형식). 확인: <span className="font-mono">gemini</span> 실행 후{' '}
             <span className="font-mono">/mcp</span>
           </p>
           <Snippet text={s.gemini} label="항목" />
         </TabsContent>
         <TabsContent value="codex" className="space-y-2">
           <p className="text-muted-foreground text-xs">
-            <span className="font-mono">~/.codex/config.toml</span> 끝에 붙여넣습니다.
+            <span className="font-mono">~/.codex/config.toml</span> 끝에 붙여넣으세요.
           </p>
           <Snippet text={s.codex} label="설정" />
         </TabsContent>

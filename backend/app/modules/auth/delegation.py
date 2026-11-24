@@ -180,10 +180,10 @@ refusals = _Refusals()
 
 #: 거절한 숫자의 뜻 — 이 프로세스가 본 거절이 아닐 때 서버 화면이 쓴다.
 _MEANING = {
-    400: "누구의 토큰인지 알 수 없었다(이메일 머리 없음) 또는 client 모양이 틀렸다",
-    401: "게이트웨이의 비밀이 HEAX_SSO_SECRET 과 다르다",
-    403: "승인된 계정이 없다(처음 보는 사람 · 승인 대기 · 정지 · 삭제) 또는 허용 주소 밖",
-    404: "위임이 꺼져 있었다(HEAX_SSO_SECRET 없음)",
+    400: "토큰 소유자 확인 불가(이메일 헤더 없음) 또는 client 형식 오류",
+    401: "게이트웨이 비밀 키와 HEAX_SSO_SECRET 불일치",
+    403: "승인된 계정 없음(미등록 · 승인 대기 · 정지 · 삭제) 또는 허용 주소 외 요청",
+    404: "위임 미사용(HEAX_SSO_SECRET 없음)",
 }
 
 
@@ -233,34 +233,34 @@ def _check_origin(request: Request, settings: Settings) -> None:
         _refuse(
             PlainTextError(
                 code("AUTH", 19),
-                f"{name} 의 위임 허용 주소 설정을 읽지 못해 받지 않습니다 — {name} 관리자에게 "
-                "알려 주세요.",
+                f"{name}의 위임 허용 주소 설정에 오류가 있어 위임 요청을 처리할 수 없습니다. "
+                f"{name} 관리자에게 문의하세요.",
                 status=403,
             ),
-            f"HEAX_SSO_ALLOWED_IPS 에 못 읽은 값 {invalid} — 오타 하나로 제한이 풀리지 않게 "
-            f"전부 거절한다(원격 {remote})",
+            f"HEAX_SSO_ALLOWED_IPS에 해석 불가 값 있음: {invalid}. 전체 거절(원격 {remote})",
         )
     if settings.trust_proxy and any(one in request.headers for one in _PROXY_HEADERS):
         _refuse(
             PlainTextError(
                 code("AUTH", 19),
-                f"{name} 은 프록시를 거친 위임 요청을 받지 않습니다 — 게이트웨이는 앱 "
-                "포트로 직접 부릅니다(포털 담당: 위임 주소를 확인해 주세요).",
+                f"프록시를 거친 위임 요청은 {name}에서 처리하지 않습니다. 게이트웨이는 앱 "
+                "포트로 직접 요청해야 합니다. 포털 담당자는 위임 주소를 확인하세요.",
                 status=403,
             ),
-            f"프록시 머리가 붙은 요청(보이는 원격 {remote}) — TRUST_PROXY 라 원래 주소를 "
-            "알 수 없다",
+            f"프록시 헤더가 포함된 요청(표시된 원격 주소 {remote}). TRUST_PROXY 사용 중이라 "
+            "원래 주소 확인 불가",
         )
     address = _address(remote)
     if address is None or not any(address in network for network in networks):
         _refuse(
             PlainTextError(
                 code("AUTH", 19),
-                f"{name} 은 이 주소에서 오는 위임 요청을 받지 않습니다 — 포털 담당과 {name} "
-                "관리자가 허용 주소(HEAX_SSO_ALLOWED_IPS)를 맞춥니다.",
+                f"이 주소에서 보낸 위임 요청은 {name}에서 허용하지 않습니다. 포털 담당자와 "
+                f"{name} 관리자에게 허용 주소(HEAX_SSO_ALLOWED_IPS) 확인을 요청하세요.",
                 status=403,
             ),
-            f"허용 IP 밖: {remote or '(모름)'} — 허용 {settings.heax_sso_allowed_ips}",
+            f"허용 IP 외 주소: {remote or '(알 수 없음)'}"
+            f"(허용 {settings.heax_sso_allowed_ips})",
         )
 
 
@@ -274,11 +274,11 @@ def _check_secret(request: Request, settings: Settings) -> None:
         _refuse(
             PlainTextError(
                 code("AUTH", 12),
-                f"{name} 의 게이트웨이 비밀이 맞지 않습니다 — 포털 담당에게 알려 주세요"
-                f"(게이트웨이의 위임 비밀과 {name} 의 HEAX_SSO_SECRET 이 다릅니다).",
+                f"{name}의 게이트웨이 비밀 키가 일치하지 않습니다. 포털 담당자에게 문의하세요"
+                f"(게이트웨이의 위임 비밀 키와 {name}의 HEAX_SSO_SECRET이 다름).",
                 status=401,
             ),
-            f"비밀이 다르다(원격 {_remote(request)}, 머리 {'있음' if given else '없음'})",
+            f"비밀 키 불일치(원격 {_remote(request)}, 헤더 {'있음' if given else '없음'})",
         )
 
 
@@ -291,10 +291,10 @@ def _guard(request: Request, settings: Settings) -> None:
         _refuse(
             NotFound(
                 code("AUTH", 11),
-                "HWAX 게이트웨이 위임이 꺼져 있습니다 — 이 설치의 .env 에 HEAX_SSO_SECRET 이 "
-                "없습니다.",
+                "HWAX 게이트웨이 위임이 미사용 상태입니다. 이 설치의 .env에 HEAX_SSO_SECRET이 "
+                "설정되지 않았습니다.",
             ),
-            "꺼짐(HEAX_SSO_SECRET 없음)",
+            "미사용(HEAX_SSO_SECRET 없음)",
         )
     _check_origin(request, settings)
     _check_secret(request, settings)
@@ -309,10 +309,10 @@ def _gate(request: Request, settings: Settings) -> tuple[str, str]:
         _refuse(
             PlainTextError(
                 code("AUTH", 14),
-                "X-Heax-Client 는 영문 · 숫자 · 「. _ -」 40자 이내여야 합니다.",
+                "X-Heax-Client는 영문, 숫자, '. _ -' 40자 이내여야 합니다.",
                 status=400,
             ),
-            f"client 모양이 틀렸다: {client[:60]!r}",
+            f"client 형식 오류: {client[:60]!r}",
         )
 
     # 위임 머리가 먼저다 — 게이트웨이는 X-Heax-User-Email 이 도중의 프록시(Caddy)에서 서비스
@@ -330,10 +330,10 @@ def _gate(request: Request, settings: Settings) -> tuple[str, str]:
         _refuse(
             PlainTextError(
                 code("AUTH", 13),
-                "누구의 토큰인지 알 수 없습니다 — X-Heax-User-Email 머리가 없습니다.",
+                "토큰 소유자를 확인할 수 없습니다. X-Heax-User-Email 헤더가 없습니다.",
                 status=400,
             ),
-            f"이메일 머리가 없거나 길다({len(login)}자, 원격 {_remote(request)})",
+            f"이메일 헤더 없음 또는 길이 초과({len(login)}자, 원격 {_remote(request)})",
         )
     return login, client
 
@@ -344,10 +344,10 @@ def _signup_hint(settings: Settings) -> str:
     launch = settings.portal_launch_url.strip()
     if launch and settings.portal_jwks_url.strip():
         return (
-            f"HWAX 포털에서 「{name}」 을 한 번 열면({launch}) 가입 신청이 되고, "
-            "관리자가 승인한 뒤 쓸 수 있습니다."
+            f"HWAX 포털에서 '{name}' 타일을 한 번 열면({launch}) 가입 신청이 접수됩니다. "
+            "관리자 승인 후 사용할 수 있습니다."
         )
-    return f"「{name}」 화면에서 가입 신청하세요 — 관리자가 승인한 뒤 쓸 수 있습니다."
+    return f"{name} 화면에서 가입 신청하세요. 관리자 승인 후 사용할 수 있습니다."
 
 
 def _approved(db: Session, login: str, settings: Settings) -> User:
@@ -359,16 +359,16 @@ def _approved(db: Session, login: str, settings: Settings) -> User:
         _refuse(
             PlainTextError(
                 code("AUTH", 15),
-                f"{name}에 가입 승인된 계정이 없습니다({login}) — {_signup_hint(settings)}",
+                f"{name}에 가입 승인된 계정이 없습니다({login}). {_signup_hint(settings)}",
                 status=403,
             ),
-            f"처음 보는 사람 {login} — 계정을 만들지 않는다(JIT 없음)",
+            f"미등록 사용자 {login}(계정 자동 생성 미지원)",
         )
     if user.deleted_at is not None:
         _refuse(
             PlainTextError(
                 code("AUTH", 18),
-                f"{name}에서 삭제된 계정입니다({login}) — {name} 관리자에게 문의하세요.",
+                f"{name}에서 삭제된 계정입니다({login}). {name} 관리자에게 문의하세요.",
                 status=403,
             ),
             f"삭제된 계정 {login}",
@@ -377,7 +377,7 @@ def _approved(db: Session, login: str, settings: Settings) -> User:
         _refuse(
             PlainTextError(
                 code("AUTH", 16),
-                f"{name} 가입 승인을 기다리는 중입니다({login}) — 관리자가 승인하면 쓸 수 "
+                f"{name} 가입 승인 대기 중입니다({login}). 관리자가 승인하면 사용할 수 "
                 "있습니다.",
                 status=403,
             ),
@@ -387,7 +387,7 @@ def _approved(db: Session, login: str, settings: Settings) -> User:
         _refuse(
             PlainTextError(
                 code("AUTH", 17),
-                f"{name}에서 정지된 계정입니다({login}) — {name} 관리자에게 문의하세요.",
+                f"{name}에서 정지된 계정입니다({login}). {name} 관리자에게 문의하세요.",
                 status=403,
             ),
             f"정지된 계정({user.status}) {login}",
@@ -520,13 +520,14 @@ def problems(settings: Settings) -> list[str]:
     secret = settings.heax_sso_secret.strip()
     if len(secret) < SECRET_MIN_CHARS:
         found.append(
-            f"HEAX_SSO_SECRET 이 {len(secret)}자로 짧습니다 — openssl rand -hex 32(64자)로 "
-            "다시 만들고 포털 담당에게 다시 전하세요(게이트웨이의 위임 비밀과 같아야 합니다)."
+            f"HEAX_SSO_SECRET이 {len(secret)}자로 너무 짧습니다. openssl rand -hex 32(64자)로 "
+            "다시 생성하고 포털 담당자에게 전달하세요. 게이트웨이의 위임 비밀 키와 같아야 "
+            "합니다."
         )
     _networks, invalid = allowed_networks(settings)
     if invalid:
         found.append(
-            "HEAX_SSO_ALLOWED_IPS 에 읽지 못한 값이 있어 게이트웨이 위임 발급을 모두 "
+            "HEAX_SSO_ALLOWED_IPS에 해석할 수 없는 값이 있어 게이트웨이 위임 발급을 모두 "
             "거절합니다: " + ", ".join(invalid)
         )
     return found
@@ -586,5 +587,5 @@ def _last_refusal(db: Session) -> GatewayRefusalOut | None:
         reason = seen.reason
     else:
         meaning = _MEANING.get(status_code, f"HTTP {status_code}")
-        reason = f"{meaning} — 자세한 사유는 앱 로그의 「게이트웨이 위임 거절」"
+        reason = f"{meaning}. 자세한 사유는 앱 로그의 '게이트웨이 위임 거절' 항목 참조"
     return GatewayRefusalOut(at=at, status=status_code, reason=reason)

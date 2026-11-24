@@ -125,7 +125,7 @@ def test_작업함은_멈춘_실행의_참조에_대상의_후보를_붙이고_�
     url = f"/api/relay/pipelines/{slug}/unresolved"
     assert client.get(url, headers=member.headers).status_code == 403  # 원천 표기가 나온다
     never = client.get(url, headers=admin.headers).json()
-    assert never["references"] == [] and "실행한 적이 없습니다" in never["note"]
+    assert never["references"] == [] and "실행하지 않았습니다" in never["note"]
 
     _blocked(slug)
     got = client.get(url, headers=admin.headers)
@@ -148,7 +148,7 @@ def test_작업함은_멈춘_실행의_참조에_대상의_후보를_붙이고_�
         State(history=[{"at": "2026-11-07T02:00:00Z", "event": "nothing"}])
     )
     later = client.get(url, headers=admin.headers).json()
-    assert later["references"] == [] and "멈춘 실행이 없습니다" in later["note"]
+    assert later["references"] == [] and "중단된 실행이 없습니다" in later["note"]
 
 
 def test_승인한_대응은_레시피_판_초안이_되고_대상에_있는_키만_받는다(
@@ -178,7 +178,7 @@ def test_승인한_대응은_레시피_판_초안이_되고_대상에_있는_키
     version = saved.json()["version"]
     row = client.get(f"/api/relay/pipelines/{slug}/recipes/{version}", headers=admin.headers)
     body = row.json()
-    assert body["status"] == "draft" and "미해결 작업함" in body["note"]
+    assert body["status"] == "draft" and "미해결 처리함" in body["note"]
     assert body["body"]["relay_aliases"] == {"t_site": {"서울시험소": "S-SEOUL"}}
     assert body["body"]["types"] == RECIPE["types"]  # 나머지는 지금 레시피 그대로
 
@@ -262,7 +262,7 @@ def test_값이_갈리는_칸은_모으는_칸으로_초안에_더한다(
         "join": {"column": "MODEL_NAME"},
         "separator": "; ",
     }
-    assert "모으는 칸 1개" in row["note"]
+    assert "집계 속성 1개" in row["note"]
     wrong = {"aggregates": [{"type_slug": "t_model", "field": "key", "mode": "join"}]}
     refused = client.post(url, json=wrong, headers=admin.headers)
     assert refused.status_code == 422 and "식별자" in refused.text

@@ -64,7 +64,7 @@ describe('알림', () => {
     await open()
     const counted = client.get.mock.calls.filter(([path]) => path === '/notifications/unread-count')
     const before = counted.length
-    await userEvent.click(screen.getByRole('link', { name: '보러 가기' }))
+    await userEvent.click(screen.getByRole('link', { name: '이동' }))
     await waitFor(() => expect(client.post).toHaveBeenCalledWith('/notifications/n1/read'))
     await waitFor(() =>
       expect(

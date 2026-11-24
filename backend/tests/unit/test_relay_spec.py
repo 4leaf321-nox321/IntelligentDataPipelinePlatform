@@ -264,7 +264,7 @@ def test_받기는_인증을_싣고_크기를_잘라_멈추며_비밀을_글에�
     raw, kind = fetch("https://mes/openapi.json", auth, client=client)
     assert raw == b"{}" and kind == "application/json"
     assert seen[0].url.params["api_key"] == "s3cret-key"
-    for path, said in (("/big", "넘습니다"), ("/no", "403")):
+    for path, said in (("/big", "초과"), ("/no", "403")):
         try:
             fetch(f"https://mes{path}", auth, client=client)
         except Exception as failure:

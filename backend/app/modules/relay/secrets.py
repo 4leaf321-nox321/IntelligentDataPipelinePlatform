@@ -130,7 +130,7 @@ def uses(db: Session) -> dict[str, list[dict[str, str]]]:
     for one in services.catalog(db):
         add(one.slug, one.body, "초안" if one.draft else "사용 중")
     for row in db.scalars(select(RelayDefinition).where(RelayDefinition.status == "draft")):
-        add(row.pipeline_slug, row.body, f"초안 판 {row.version}")
+        add(row.pipeline_slug, row.body, f"초안 버전 {row.version}")
     for name, info in _read(_wanted_path()).items():
         if isinstance(info, dict) and name not in found:
             found[name] = [
@@ -149,14 +149,16 @@ def request(db: Session, user: User, pipeline: str, names: list[str], role: str)
     bad = [one for one in names if not NAME.fullmatch(one)]
     if bad:
         raise AppError(
-            code("RELAY", 37), f"비밀 이름의 꼴이 아닙니다: {', '.join(bad)}", status=422
+            code("RELAY", 37),
+            f"인증 정보 이름 형식이 올바르지 않습니다: {', '.join(bad)}",
+            status=422,
         )
     clash = sorted(one for one in names if one.upper() in guard.forbidden_env())
     if clash:
         raise Forbidden(
             code("RELAY", 13),
-            f"{', '.join(clash)} 는 이 플랫폼 자신의 설정입니다 — 원천 · 대상의 비밀 이름으로 "
-            "쓰지 않습니다.",
+            f"{', '.join(clash)}는 이 플랫폼의 설정입니다. 원천, 대상의 인증 정보 이름으로 "
+            "사용할 수 없습니다.",
         )
     with _locked():
         wanted = _read(_wanted_path())
@@ -181,17 +183,21 @@ def listing(db: Session) -> list[dict[str, Any]]:
     out = []
     for name, where in uses(db).items():
         if name in os.environ:
-            status, note = "server", "서버의 프로세스 환경 변수에 있습니다 — 그 값을 씁니다."
+            status, note = (
+                "server",
+                "서버의 프로세스 환경 변수에 있습니다. 이 값을 사용합니다.",
+            )
         elif name in screen:
             status, note = "screen", ""
             if name in server:
-                note = "서버 설정(.env)에도 있습니다 — 화면에서 넣은 값을 씁니다."
+                note = "서버 설정(.env)에도 있습니다. 화면에서 입력한 값을 사용합니다."
         elif name in server:
             status, note = "server", "서버 설정(.env)에 있습니다."
         else:
             status, note = (
                 "missing",
-                "아직 넣지 않았습니다 — 이 비밀을 쓰는 원천 · 대상에 닿지 못합니다.",
+                "아직 입력하지 않았습니다. 이 인증 정보를 사용하는 원천, 대상에 연결할 수 "
+                "없습니다.",
             )
         given = meta.get(name)
         info: dict[str, Any] = given if isinstance(given, dict) else {}
@@ -213,8 +219,8 @@ def _human_only(request: Request) -> None:
     if getattr(request.state, "token_scopes", None) is not None:
         raise Forbidden(
             code("RELAY", 36),
-            "비밀은 사람이 화면에서 넣습니다 — 토큰(MCP)으로는 넣거나 지울 수 없습니다. "
-            "사람에게 화면 › 중계 › 비밀 에서 입력을 부탁하세요.",
+            "인증 정보는 사람이 화면에서만 입력합니다. 토큰(MCP)으로는 입력하거나 삭제할 수 "
+            "없습니다. 사람에게 [중계 › 인증 정보] 화면에서 입력을 요청하세요.",
         )
 
 
@@ -222,19 +228,20 @@ def _check_name(db: Session, name: str) -> None:
     if not NAME.fullmatch(name):
         raise AppError(
             code("RELAY", 37),
-            f"비밀 이름은 대문자 · 숫자 · _ 로(대문자로 시작, 64자 이내): {name!r}",
+            "인증 정보 이름은 대문자, 숫자, _로 입력하세요(대문자로 시작, 64자 이내): "
+            f"{name!r}",
             status=422,
         )
     if name.upper() in guard.forbidden_env():
         raise Forbidden(
             code("RELAY", 13),
-            f"{name} 는 이 플랫폼 자신의 설정입니다 — 화면에서 넣을 수 없습니다.",
+            f"{name}는 이 플랫폼의 설정입니다. 화면에서 입력할 수 없습니다.",
         )
     if name not in uses(db):
         raise AppError(
             code("RELAY", 37),
-            f"{name} 를 쓰는 정의가 없습니다 — 정의(초안 포함)가 이 이름을 가리킨 뒤에 "
-            "넣습니다.",
+            f"{name}를 사용하는 정의가 없습니다. 정의(초안 포함)에서 이 이름을 지정한 후 "
+            "입력하세요.",
             status=422,
         )
 
@@ -245,7 +252,7 @@ def put(db: Session, user: User, request: Request, name: str, value: str) -> dic
     if not value or len(value) > VALUE_MAX or "\n" in value or "\r" in value:
         raise AppError(
             code("RELAY", 37),
-            f"값은 한 줄 · {VALUE_MAX}자 이내여야 합니다(비우려면 삭제).",
+            f"값은 한 줄, {VALUE_MAX}자 이내여야 합니다. 값을 비우려면 삭제하세요.",
             status=422,
         )
     with _locked():
@@ -274,7 +281,9 @@ def delete(db: Session, user: User, request: Request, name: str) -> dict[str, An
     with _locked():
         body = stored()
         if name not in body:
-            raise AppError(code("RELAY", 37), f"화면에서 넣은 {name} 가 없습니다.", status=404)
+            raise AppError(
+                code("RELAY", 37), f"화면에서 입력한 {name}가 없습니다.", status=404
+            )
         del body[name]
         _write(path(), body)
         meta = _read(_meta_path())

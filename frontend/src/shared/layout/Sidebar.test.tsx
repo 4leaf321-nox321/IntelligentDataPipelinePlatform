@@ -41,15 +41,15 @@ describe('사이드바 묶음 접기', () => {
   it('접힌 묶음 안에 지금 보는 화면이 있으면 점을 찍는다', async () => {
     await mount('/jobs')
     const head = screen.getByRole('button', { name: /내 활동/ })
-    expect(within(head).queryByTitle(/지금 보는 화면/)).not.toBeInTheDocument()
+    expect(within(head).queryByTitle(/현재 화면/)).not.toBeInTheDocument()
 
     await userEvent.click(head)
-    expect(within(head).getByTitle(/지금 보는 화면/)).toBeInTheDocument()
+    expect(within(head).getByTitle(/현재 화면/)).toBeInTheDocument()
 
     // 다른 화면을 보고 있으면 점이 없다.
     screen.getByRole('button', { name: /공통/ }).click()
     expect(
-      within(screen.getByRole('button', { name: /공통/ })).queryByTitle(/지금 보는 화면/),
+      within(screen.getByRole('button', { name: /공통/ })).queryByTitle(/현재 화면/),
     ).not.toBeInTheDocument()
   })
 

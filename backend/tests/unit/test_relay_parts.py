@@ -67,7 +67,7 @@ def test_큰_묶음은_조각으로_나뉘고_적용이_차례로_미리_보고_
     pending = work.load_state().pending
     assert first.status == "planned" and pending is not None, first.message
     folders = [work.path(one) for one in pending.parts]
-    assert len(folders) >= 3 and "나눠 보냅니다" in first.message
+    assert len(folders) >= 3 and "개로 전송합니다" in first.message
     # **첫 조각만** 미리 본다 — 뒤 조각은 앞 조각이 들어간 뒤에.
     assert fake.previews == [folders[0]]
 
@@ -140,7 +140,7 @@ def test_뒤_조각의_미리_보기_오류에서_멈추고_다시_적용하면_
     runner.run(pipeline, work, fake)  # type: ignore[arg-type]
 
     stopped = runner.apply(pipeline, work, fake)  # type: ignore[arg-type]
-    assert stopped.status == "blocked" and "조각 2/" in stopped.message
+    assert stopped.status == "blocked" and "분할 번들 2/" in stopped.message
     state = work.load_state()
     assert state.pending is not None and state.pending.part == 1
     assert not state.pending.ok and state.applied_run is None
@@ -148,7 +148,7 @@ def test_뒤_조각의_미리_보기_오류에서_멈추고_다시_적용하면_
 
     # 같은 원천으로 다시 실행해도 계획을 갈아 치우지 않는다 — 이어 보내기를 기다린다.
     again = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
-    assert again.status == "waiting" and "조각 1/" in again.message
+    assert again.status == "waiting" and "분할 번들 1/" in again.message
 
     resumed = runner.apply(pipeline, work, fake)  # type: ignore[arg-type]
     assert resumed.status == "applied", resumed.message
@@ -168,7 +168,7 @@ def test_대상_화면에서_조각을_적용하면_다음_조각으로_넘긴�
     fake.applied_jobs.add("job-1")  # 사람이 대상 SP 화면에서 첫 조각을 적용했다
 
     waiting = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
-    assert waiting.status == "waiting" and "조각 1/" in waiting.message
+    assert waiting.status == "waiting" and "분할 번들 1/" in waiting.message
     pending = work.load_state().pending
     assert pending is not None and pending.part == 1 and pending.job_id == ""
     assert work.load_state().applied_run is None  # 다 들어가야 기준이 된다
@@ -230,7 +230,7 @@ def test_나눠_보내는_계획은_자동으로_적용하지_않는다(
     outcome = runner.run(_split_pipeline(tmp_path, _rows()), work, FakeSubmitter())  # type: ignore[arg-type]
     policy = autoapply.Policy(after_manual=0, max_changes=10_000)
     reasons = autoapply.decide(policy, work.load_state(), outcome)
-    assert reasons and "나눠 보내는" in reasons[0]
+    assert reasons and "분할 번들" in reasons[0]
 
 
 def test_작은_묶음은_나누지_않는다(tmp_path: Path) -> None:
@@ -342,4 +342,4 @@ def test_선이_많으면_바이트가_작아도_나눈다(
     assert pending is not None and pending.parts  # 8MB 에는 한참 못 미친다
     edges = [len(_keys(work.path(one))[1]) for one in pending.parts]
     assert max(edges) <= 8 and sum(edges) == 30
-    assert "선 8줄 이하" in pending.summary
+    assert "관계 8건 이하" in pending.summary

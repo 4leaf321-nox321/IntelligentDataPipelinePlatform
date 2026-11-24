@@ -46,7 +46,7 @@ describe('Chart', () => {
 
   it('계열이 하나도 없어도 빈 그림을 안 그린다', () => {
     render(<Chart kind="line" data={DATA} x="name" series={[]} />)
-    expect(screen.getByText('그릴 것이 없습니다.')).toBeInTheDocument()
+    expect(screen.getByText('표시할 데이터 없음')).toBeInTheDocument()
   })
 
   it('그림에 이름을 붙인다 — 낭독기에는 이것만 들린다', () => {

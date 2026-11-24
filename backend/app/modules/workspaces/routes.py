@@ -86,7 +86,7 @@ def import_workspaces(
     if not rows:
         raise Conflict(code("WORKSPACES", 30), "행이 없습니다.")
     if len(rows) > 2000:
-        raise Conflict(code("WORKSPACES", 30), "한 번에 2,000행까지입니다.")
+        raise Conflict(code("WORKSPACES", 30), "한 번에 최대 2,000행까지 입력할 수 있습니다.")
     plan = (
         services.apply_import(db, rows, actor=user)
         if payload.apply

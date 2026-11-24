@@ -31,14 +31,14 @@ export default function SourcesPage() {
     <div className="space-y-4">
       <PageHeader
         title="원천 시스템"
-        description="데이터를 내주는 레거시 시스템과 그 API 입니다. 파이프라인 정의에서 읽으며, 인증 비밀은 보이지 않습니다."
+        description="데이터를 제공하는 레거시 시스템과 그 API입니다. 파이프라인 정의에서 가져오며, 인증 정보는 표시하지 않습니다."
       />
       <ErrorNotice error={map.error} />
-      {map.loading && !map.data && <p className="text-muted-foreground text-sm">읽는 중…</p>}
+      {map.loading && !map.data && <p className="text-muted-foreground text-sm">불러오는 중…</p>}
       {rows && rows.length === 0 && (
         <EmptyState
-          title="원천 시스템이 없습니다"
-          hint="원천은 파이프라인 정의의 system · adapter 에서 나옵니다 — 서버의 파이프라인 폴더(RELAY_PIPELINES_DIR)에 정의를 두면 보입니다."
+          title="원천 시스템 없음"
+          hint="원천은 파이프라인 정의의 system, adapter에서 가져옵니다. 서버의 파이프라인 폴더(RELAY_PIPELINES_DIR)에 정의를 두면 표시됩니다."
         />
       )}
       {rows && rows.length > 0 && (

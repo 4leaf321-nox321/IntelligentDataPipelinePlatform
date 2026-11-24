@@ -193,7 +193,7 @@ describe('느린 요청 · 큰 응답', () => {
     // 작업 종류마다 — 이름 · 소요 · 아직 대기인 것.
     expect(await screen.findByText('객체 일괄 입력')).toBeInTheDocument()
     expect(screen.getByText('1분 15초')).toBeInTheDocument()
-    expect(screen.getByText('가장 오래 대기 10분')).toBeInTheDocument()
+    expect(screen.getByText('최장 대기 10분')).toBeInTheDocument()
   })
 
   it('줄을 클릭하면 그 경로의 최악 사례(누가 · 요청 ID)를 연다', async () => {
@@ -226,13 +226,13 @@ describe('느린 요청 · 큰 응답', () => {
     await waitFor(() =>
       expect(calls('/server/performance/jobs')).toContain('/server/performance/jobs?period=7d'),
     )
-    await userEvent.click(screen.getByRole('button', { name: '큰 순' }))
+    await userEvent.click(screen.getByRole('button', { name: '응답 크기순' }))
     await waitFor(() =>
       expect(calls('/server/performance/requests?')).toContain(
         '/server/performance/requests?period=7d&sort=max_bytes&limit=50&offset=0',
       ),
     )
-    expect(screen.getByRole('button', { name: '큰 순' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '응답 크기순' })).toHaveAttribute('aria-pressed', 'true')
     await userEvent.click(await screen.findByRole('button', { name: '/api/jobs' }))
     await screen.findByText('김운영')
     expect(calls('/server/performance/requests/cases').at(-1)).toContain('order=bytes')
@@ -245,8 +245,8 @@ describe('느린 요청 · 큰 응답', () => {
         <Performance />
       </MemoryRouter>,
     )
-    expect(await screen.findByText('아직 기록이 없습니다')).toBeInTheDocument()
-    expect(await screen.findByText('이 기간에 들어온 작업이 없습니다')).toBeInTheDocument()
+    expect(await screen.findByText('기록 없음')).toBeInTheDocument()
+    expect(await screen.findByText('이 기간에 등록된 작업 없음')).toBeInTheDocument()
     unmount()
 
     answer(stats({ items: [], total: 0 }))
@@ -255,7 +255,7 @@ describe('느린 요청 · 큰 응답', () => {
         <Performance initialPeriod="1h" />
       </MemoryRouter>,
     )
-    expect(await screen.findByText('이 기간에 기록된 요청이 없습니다')).toBeInTheDocument()
+    expect(await screen.findByText('이 기간에 기록된 요청 없음')).toBeInTheDocument()
   })
 
   it('기록이 너무 많아 최근 쪽만 셌으면 그렇게 말한다', async () => {
@@ -265,7 +265,7 @@ describe('느린 요청 · 큰 응답', () => {
         <Performance initialPeriod="7d" />
       </MemoryRouter>,
     )
-    expect(await screen.findByText(/최근 기록만 셌습니다/)).toBeInTheDocument()
+    expect(await screen.findByText(/최근 기록만 집계했습니다/)).toBeInTheDocument()
   })
 
   it('끊긴 질문을 모양과 함께 많이 끊긴 것부터 보인다', async () => {
@@ -275,7 +275,7 @@ describe('느린 요청 · 큰 응답', () => {
         <Performance />
       </MemoryRouter>,
     )
-    const heading = await screen.findByRole('heading', { name: '끊긴 질문' })
+    const heading = await screen.findByRole('heading', { name: '중단된 조회' })
     const section = heading.closest('section') as HTMLElement
     // 머리 줄이 먼저 그려진다 — 몸통 둘까지 기다린다(부하가 걸리면 그 사이에 찾기가 끝났다).
     await waitFor(() => expect(within(section).getAllByRole('row')).toHaveLength(3))
@@ -284,7 +284,7 @@ describe('느린 요청 · 큰 응답', () => {
     expect(within(rows[1]).getByText('ref.model.ref.task.ref.project.label')).toBeInTheDocument()
     expect(within(rows[1]).getByText('ref.parts.label eq')).toBeInTheDocument()
     expect(within(rows[1]).getByText('7')).toBeInTheDocument()
-    expect(within(rows[2]).getByText('기본(기록 타입 뺌)')).toBeInTheDocument()
+    expect(within(rows[2]).getByText('기본(기록 타입 제외)')).toBeInTheDocument()
     expect(within(rows[2]).getByText(/sp:svc_case/)).toBeInTheDocument()
   })
 
@@ -295,10 +295,10 @@ describe('느린 요청 · 큰 응답', () => {
         <Performance />
       </MemoryRouter>,
     )
-    expect(await screen.findByText('이 기간에 끊긴 질문이 없습니다')).toBeInTheDocument()
+    expect(await screen.findByText('이 기간에 중단된 조회 없음')).toBeInTheDocument()
     expect(shapeParts({ q: true, under: true })).toEqual([
       { label: '검색어', value: '있음' },
-      { label: '트리', value: '가지 하나' },
+      { label: '트리', value: '하위 트리 1개' },
     ])
   })
 

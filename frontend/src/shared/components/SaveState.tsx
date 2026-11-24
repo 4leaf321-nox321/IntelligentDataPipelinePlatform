@@ -43,7 +43,7 @@ export function SaveState({
         <>
           <AlertCircle className="text-destructive size-3" />
           <span className="text-destructive" title={error?.message}>
-            저장 실패{error?.message ? ` — ${error.message}` : ''}
+            저장 실패{error?.message ? `: ${error.message}` : ''}
           </span>
           {onRetry && (
             <button

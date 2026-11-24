@@ -60,11 +60,11 @@ def test_백엔드의_거절은_코드와_말로(monkeypatch: pytest.MonkeyPatch
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             409,
-            json={"error": {"code": "DRL-RELAY-0008", "message": "아직 받은 것이 없습니다"}},
+            json={"error": {"code": "DRL-RELAY-0008", "message": "수신 데이터가 없습니다."}},
         )
 
     monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(handler))
-    with pytest.raises(server.RelayError, match="409 DRL-RELAY-0008 아직 받은 것이 없습니다"):
+    with pytest.raises(server.RelayError, match="409 DRL-RELAY-0008 수신 데이터가 없습니다"):
         asyncio.run(server.recipe_test(_ctx(), "plm-model", 1))
 
 
@@ -79,7 +79,7 @@ def test_slug_로_다른_경로를_부르지_못한다(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(handler))
     for slug in ("plm-model/apply?", "../jobs/1/apply", "plm-model#", "plm model", "a%2Fb"):
-        with pytest.raises(server.RelayError, match="쓸 수 없는 글자"):
+        with pytest.raises(server.RelayError, match="사용할 수 없는 문자"):
             asyncio.run(server.recipe_test(_ctx(), slug, 1))
     assert seen == []
     asyncio.run(server.recipe_test(_ctx(), "plm-model", 1))
@@ -89,7 +89,7 @@ def test_slug_로_다른_경로를_부르지_못한다(monkeypatch: pytest.Monke
 def test_가이드는_절로_돌려준다() -> None:
     assert server.get_guide("start").startswith("## start")
     assert "sp-table/1" in server.get_guide("recipe")
-    assert "되는 것" in server.get_guide("없음")
+    assert "사용할 수 있는 topic" in server.get_guide("없음")
     assert "source_discover" in server.get_guide("adapter")
     assert "source" in server.get_guide("types")
 
@@ -150,6 +150,7 @@ def test_값을_모르고도_쓰는_도구들은_제_길로_간다(monkeypatch: 
     csv = asyncio.run(server.alias_requests(ctx, "mes-lots"))
     asyncio.run(server.pipeline_trend(ctx, "mes-lots", limit=5))
     asyncio.run(server.type_draft(ctx, "mes_lot", "LOT_ID", {"LOT_ID": ["L1"]}))
+    asyncio.run(server.relay_overview(ctx))
     assert [(one.method, one.url.path) for one in seen] == [
         ("POST", "/api/relay/source-spec"),
         ("POST", "/api/relay/pipelines/mes-lots/scaffold"),
@@ -159,6 +160,7 @@ def test_값을_모르고도_쓰는_도구들은_제_길로_간다(monkeypatch: 
         ("GET", "/api/relay/pipelines/mes-lots/aliases.csv"),
         ("GET", "/api/relay/pipelines/mes-lots/trend"),
         ("POST", "/api/relay/type-draft"),
+        ("GET", "/api/relay/overview"),
     ]
     assert csv.startswith("타입,표기,키")
     # 목록을 그대로 내면 MCP 가 원소마다 따로 싣는다 — 「무엇이 비었나」 를 묶어서.
@@ -169,7 +171,7 @@ def test_값을_모르고도_쓰는_도구들은_제_길로_간다(monkeypatch: 
     assert not {
         name for name in names if "secret" in name and ("put" in name or "set" in name)
     }
-    with pytest.raises(server.RelayError, match="쓸 수 없는 글자"):
+    with pytest.raises(server.RelayError, match="사용할 수 없는 문자"):
         asyncio.run(server.alias_requests(ctx, "../jobs"))
 
 
@@ -192,3 +194,32 @@ def test_백엔드의_오류는_요청_ID_를_글에_붙인다(monkeypatch: pyte
     monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(handler))
     with pytest.raises(server.RelayError, match=r"요청 ID abc123def456"):
         asyncio.run(server.relay_map(_ctx()))
+
+
+#: AI 가 읽고 사람에게 그대로 전하는 말에서 물러난 말(docs/용어.md 「바뀐 말」, 2026-11-24).
+_RETIRED = (
+    "「",
+    "」",
+    "걷어내",
+    "다시 켜",
+    "한 번에 초안",
+    "지침서",
+    "받기 점검",
+    "작업함",
+    "값 갈림",
+    "사이드바 묶음",
+    "쪽 넘김",
+    "견본 행",
+    "어긋남",
+    "지금 실행",
+)
+
+
+def test_안내와_도구_설명은_화면과_같은_말을_쓴다() -> None:
+    """안내문 · 도구 설명 · 가이드는 AI 가 사람에게 그대로 옮긴다 — 옛 말이 남으면 화면과
+    다른 이름으로 안내한다."""
+    texts = {"instructions": server.INSTRUCTIONS, "GUIDE.md": server.GUIDE.read_text("utf-8")}
+    for tool in server.mcp._tool_manager.list_tools():
+        texts[tool.name] = tool.description or ""
+    found = {name: [word for word in _RETIRED if word in text] for name, text in texts.items()}
+    assert {name: words for name, words in found.items() if words} == {}

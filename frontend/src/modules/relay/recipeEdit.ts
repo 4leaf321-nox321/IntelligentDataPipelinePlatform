@@ -113,27 +113,27 @@ export function changes(before: RecipeDoc, after: RecipeDoc): string[] {
     const newFields = new Map(fieldsOf(one))
     for (const name of names) {
       if (!same(oldFields.get(name), newFields.get(name))) {
-        if (!oldFields.has(name) || oldFields.get(name) === undefined) out.push(`${slug}.${name}(칸 추가)`)
-        else if (!newFields.has(name) || newFields.get(name) === undefined) out.push(`${slug}.${name}(칸 삭제)`)
+        if (!oldFields.has(name) || oldFields.get(name) === undefined) out.push(`${slug}.${name}(속성 추가)`)
+        else if (!newFields.has(name) || newFields.get(name) === undefined) out.push(`${slug}.${name}(속성 삭제)`)
         else out.push(`${slug}.${name}`)
       }
     }
     const rest = (t: RecipeType) => ({ ...t, key: undefined, label: undefined, fields: undefined })
-    if (!same(rest(old), rest(one))) out.push(`${slug}(타입의 그 밖)`)
+    if (!same(rest(old), rest(one))) out.push(`${slug}(타입의 기타 항목)`)
   }
   for (const slug of was.keys()) if (!now.has(slug)) out.push(`${slug}(타입 삭제)`)
   if (!same(before.relations, after.relations)) out.push('관계')
   const top = (d: RecipeDoc) => ({ ...d, types: undefined, relations: undefined })
-  if (!same(top(before), top(after))) out.push('그 밖(title · dictionaries …)')
+  if (!same(top(before), top(after))) out.push('기타(title · dictionaries …)')
   return out
 }
 
 /** 저장 전에 막을 것 — 서버도 보지만, 빈 열 이름 같은 것은 시험까지 가기 전에 여기서 말한다. */
 export function blockers(doc: RecipeDoc): string[] {
   const out: string[] = []
-  if (doc.format !== 'sp-table/1') out.push('format 이 sp-table/1 이어야 합니다.')
+  if (doc.format !== 'sp-table/1') out.push('format은 sp-table/1이어야 합니다.')
   const types = typesOf(doc)
-  if (types.length === 0) out.push('types 가 비었습니다 — 무엇을 만들지 적어야 합니다.')
+  if (types.length === 0) out.push('types가 비어 있습니다. 생성할 타입을 입력하세요.')
   const slugs = new Set(types.map((one) => one.type_slug))
   for (const one of types) {
     for (const [name, spec] of fieldsOf(one)) {
@@ -143,10 +143,10 @@ export function blockers(doc: RecipeDoc): string[] {
       }
       const kind = ruleKind(spec)
       if (kind === 'column' && !String(spec.column ?? '').trim()) {
-        out.push(`${one.type_slug}.${name}: 열 이름이 비었습니다.`)
+        out.push(`${one.type_slug}.${name}: 열 이름을 입력하세요.`)
       }
       if (kind === 'key_of' && !slugs.has(String(spec.key_of ?? ''))) {
-        out.push(`${one.type_slug}.${name}: 다른 타입 「${String(spec.key_of ?? '')}」 이 레시피에 없습니다.`)
+        out.push(`${one.type_slug}.${name}: '${String(spec.key_of ?? '')}' 타입이 레시피에 없습니다.`)
       }
     }
   }

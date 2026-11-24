@@ -57,7 +57,7 @@ describe('허용 주소', () => {
         ['mfghub.corp.local:8040', 'other:1'],
       ),
     )
-    expect(await screen.findByText(/지금부터 쓰입니다/)).toBeInTheDocument()
+    expect(await screen.findByText(/지금부터 사용됩니다/)).toBeInTheDocument()
   })
 
   it('관리자가 아니면 고치지 못한다', async () => {

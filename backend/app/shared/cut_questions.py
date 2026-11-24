@@ -26,8 +26,8 @@ log = logging.getLogger(__name__)
 
 KIND_LABELS = {
     "timeout": "시간 상한",
-    "too_big": "그래프가 큼",
-    "records": "빠진 기록 타입",
+    "too_big": "그래프 크기 초과",
+    "records": "기록 타입 누락",
 }
 
 

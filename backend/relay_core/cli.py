@@ -38,26 +38,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("definition", type=Path)
     parser.add_argument("--work", type=Path, default=DEFAULT_WORK)
     parser.add_argument(
-        "--plan", action="store_true", help="reconcile: 어긋난 줄의 보정 계획까지 생성한다"
+        "--plan", action="store_true", help="reconcile: 불일치 항목의 보정 계획까지 생성"
     )
     parser.add_argument("--type", dest="type_slug", help="trace: 대상 타입 slug")
-    parser.add_argument("--key", help="trace: 그 타입 안의 식별자")
+    parser.add_argument("--key", help="trace: 해당 타입의 식별자")
     parser.add_argument(
         "--human-edits",
         choices=["keep", "overwrite"],
         default=None,
         help=(
-            "대상 SP 에서 사람이 수정한 칸 — keep(기본, 비켜 가고 계획에 적음) · "
-            "overwrite(원천 값으로 덮음)"
+            "대상 SP에서 사람이 수정한 속성의 처리 방식: keep(기본, 유지 후 계획에 기록) · "
+            "overwrite(원천 값으로 덮어쓰기)"
         ),
     )
     parser.add_argument(
         "--accept",
         action="store_true",
-        help="run: 받기 점검이 멈춘 것(대량 삭제 · 빈 칸)을 확인하고 그만큼까지 진행한다",
+        help="run: 수신 검증 중단 사유(대량 삭제, 빈 필드)를 확인하고 해당 건수까지 진행",
     )
     parser.add_argument(
-        "--full", action="store_true", help="run: 워터마크를 두고 전량을 다시 받는다"
+        "--full", action="store_true", help="run: 워터마크를 무시하고 전체 재수신"
     )
     args = parser.parse_args(argv)
     try:
@@ -82,7 +82,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "trace":
             if not args.type_slug or not args.key:
-                print("멈춤: trace 에는 --type 과 --key 가 필요합니다.", file=sys.stderr)
+                print("오류: trace에는 --type과 --key가 필요합니다.", file=sys.stderr)
                 return 2
             got = trace.trace(work, pipeline.recipe, args.type_slug, args.key)
             print(json.dumps(got.to_json(), ensure_ascii=False, indent=2))
@@ -93,8 +93,8 @@ def main(argv: list[str] | None = None) -> int:
             for slug, one in report.types.items():
                 if one.drift:
                     print(
-                        f"  {slug}: 빠짐 {one.missing[:5]} · 안 씀 {one.deprecated[:5]} · "
-                        f"다름 {sorted(one.changed)[:5]} · 대상에만 {one.extra[:5]}"
+                        f"  {slug}: 누락 {one.missing[:5]} · 사용 중지 {one.deprecated[:5]} · "
+                        f"값 불일치 {sorted(one.changed)[:5]} · 대상에만 존재 {one.extra[:5]}"
                     )
             return 2 if report.problems else (1 if report.drift else 0)
         if args.command == "reconcile":
@@ -105,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.accept:
                 accept = intake.Accept.of(work.load_state().held, by="relay CLI")
                 if accept is None:
-                    print("멈춤: 받기 점검에서 멈춘 것이 없습니다.", file=sys.stderr)
+                    print("오류: 수신 검증으로 중단된 실행이 없습니다.", file=sys.stderr)
                     return 2
             outcome = runner.run(
                 pipeline, work, options=options, accept=accept, full=args.full
@@ -119,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         reconcile.ReconcileError,
         trace.TraceError,
     ) as failure:
-        print(f"멈춤: {failure}", file=sys.stderr)
+        print(f"오류: {failure}", file=sys.stderr)
         return 2
     print(f"[{outcome.status}] {outcome.message}")
     if outcome.link:
@@ -141,7 +141,7 @@ def check(pipeline: Pipeline) -> int:
         print(f"원천  {pipeline.source:8s} {pipeline.adapter.probe()}")
     except SourceError as failure:
         ok = False
-        print(f"원천  {pipeline.source:8s} 실패 — {failure}")
+        print(f"원천  {pipeline.source:8s} 실패: {failure}")
     target = pipeline.target
     try:
         health = httpx.get(f"{target.server}/api/health", timeout=10).json()
@@ -151,18 +151,18 @@ def check(pipeline: Pipeline) -> int:
             timeout=10,
         )
         who = (
-            me.json().get("email") if me.status_code == 200 else f"토큰 거절({me.status_code})"
+            me.json().get("email") if me.status_code == 200 else f"토큰 거부({me.status_code})"
         )
         admin = me.status_code == 200 and me.json().get("is_system_admin")
         print(
-            f"대상  {target.name or target.server} — slug {health.get('slug')} · 판 "
+            f"대상  {target.name or target.server} · slug {health.get('slug')} · 버전 "
             f"{health.get('version')} · 토큰 {who}"
-            + ("" if admin else " · ⚠ 시스템 관리자가 아님")
+            + ("" if admin else " · ⚠ 시스템 관리자 권한 없음")
         )
         ok = ok and me.status_code == 200 and bool(admin)
     except (httpx.HTTPError, ValueError) as failure:
         ok = False
-        print(f"대상  {target.server} 실패 — {failure}")
+        print(f"대상  {target.server} 실패: {failure}")
     return 0 if ok else 2
 
 

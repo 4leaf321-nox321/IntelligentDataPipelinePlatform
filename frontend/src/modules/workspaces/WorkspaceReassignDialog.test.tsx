@@ -132,11 +132,11 @@ describe('자료 이동', () => {
     const onDone = await open()
     workspaceApi.reassign.mockResolvedValue(job('p1', 'queued'))
     jobsApi.waitFor.mockResolvedValueOnce(job('p1', 'done', plan()))
-    await userEvent.click(screen.getByRole('button', { name: '미리 보기 — 7건' }))
+    await userEvent.click(screen.getByRole('button', { name: '미리 보기(7건)' }))
     await waitFor(() =>
       expect(workspaceApi.reassign).toHaveBeenCalledWith('old', 'new', ['members', 'objects']),
     )
-    expect(await screen.findByText(/계획\(아직 아무것도 이동하지 않았습니다\)/)).toBeInTheDocument()
+    expect(await screen.findByText(/계획\(아직 이동하지 않음\)/)).toBeInTheDocument()
     expect(onDone).not.toHaveBeenCalled()
 
     jobsApi.apply.mockResolvedValue(job('a1', 'queued'))
@@ -157,9 +157,9 @@ describe('자료 이동', () => {
         }),
       )
     })
-    await userEvent.click(screen.getByRole('button', { name: '적용 — 7건 이동' }))
+    await userEvent.click(screen.getByRole('button', { name: '적용(7건 이동)' }))
     await waitFor(() => expect(jobsApi.apply).toHaveBeenCalledWith('p1'))
-    expect(await screen.findByText('합쳐지는 팀 으로 옮겼습니다.')).toBeInTheDocument()
+    expect(await screen.findByText('합쳐지는 팀 부서로 이동했습니다.')).toBeInTheDocument()
     expect(onDone).toHaveBeenCalled()
   })
 
@@ -173,17 +173,17 @@ describe('자료 이동', () => {
         plan({ ok: false, errors: ['객체: 옮겨 갈 부서에 같은 것이 이미 있어 … 「K-1」'] }),
       ),
     )
-    await userEvent.click(screen.getByRole('button', { name: '미리 보기 — 7건' }))
+    await userEvent.click(screen.getByRole('button', { name: '미리 보기(7건)' }))
     expect(await screen.findByText(/「K-1」/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '적용 — 7건 이동' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '적용(7건 이동)' })).toBeDisabled()
   })
 
   it('도는 동안 진행을 보이고 취소하면 아무것도 옮기지 않았다고 말한다', async () => {
     await open()
     workspaceApi.reassign.mockResolvedValue(job('p1', 'queued'))
     jobsApi.waitFor.mockResolvedValueOnce(job('p1', 'done', plan()))
-    await userEvent.click(screen.getByRole('button', { name: '미리 보기 — 7건' }))
-    await screen.findByRole('button', { name: '적용 — 7건 이동' })
+    await userEvent.click(screen.getByRole('button', { name: '미리 보기(7건)' }))
+    await screen.findByRole('button', { name: '적용(7건 이동)' })
 
     let finish: (value: Job) => void = () => {}
     jobsApi.apply.mockResolvedValue(job('a1', 'queued'))
@@ -195,14 +195,14 @@ describe('자료 이동', () => {
         finish = resolve
       })
     })
-    await userEvent.click(screen.getByRole('button', { name: '적용 — 7건 이동' }))
+    await userEvent.click(screen.getByRole('button', { name: '적용(7건 이동)' }))
     expect(await screen.findByText('객체 이동 2 / 7건')).toBeInTheDocument()
     jobsApi.cancel.mockResolvedValue(job('a1', 'running'))
     await userEvent.click(screen.getByRole('button', { name: '이동 취소' }))
     await waitFor(() => expect(jobsApi.cancel).toHaveBeenCalledWith('a1'))
     finish(job('a1', 'cancelled'))
     expect(
-      await screen.findByText('취소했습니다 — 아무것도 이동하지 않았습니다.'),
+      await screen.findByText('이동을 취소했습니다. 이동된 자료는 없습니다.'),
     ).toBeInTheDocument()
   })
 })

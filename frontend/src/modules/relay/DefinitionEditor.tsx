@@ -50,9 +50,9 @@ const fail = (caught: unknown) => (caught instanceof Error ? caught : new Error(
 
 /** 출발 판의 이름 — 목록의 상태를 붙인다. */
 function startLabel(one: DefinitionVersion): string {
-  if (one.status === 'active') return `사용 중인 판 ${one.version}`
+  if (one.status === 'active') return `사용 중인 버전 ${one.version}`
   const state = one.status === 'draft' ? '초안' : '사용 종료'
-  return `판 ${one.version}(${state}${one.note ? ` · ${one.note}` : ''})`
+  return `버전 ${one.version}(${state}${one.note ? ` · ${one.note}` : ''})`
 }
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -108,7 +108,7 @@ function JsonField({
             onChange(JSON.parse(next))
             setBad('')
           } catch (caught) {
-            setBad(`JSON 으로 읽지 못했습니다 — ${fail(caught).message}`)
+            setBad(`JSON 형식이 올바르지 않습니다. ${fail(caught).message}`)
           }
         }}
       />
@@ -129,7 +129,7 @@ function AdapterInput({
 }) {
   const [text, setText] = useState(() => textOf(value))
   const [bad, setBad] = useState('')
-  const fallback = field.default === null || field.default === '' ? '' : `기본 ${textOf(field.default)}`
+  const fallback = field.default === null || field.default === '' ? '' : `기본값 ${textOf(field.default)}`
   return (
     <Row label={`${field.name}${field.required ? ' *' : ''}`} hint={field.doc || undefined}>
       <Input
@@ -168,9 +168,9 @@ function ColumnsTable({ rows, onChange }: { rows: [string, string][]; onChange: 
           />
           <span className="text-muted-foreground text-xs">←</span>
           <Input
-            aria-label={`열 ${index + 1} 원천의 자리`}
+            aria-label={`열 ${index + 1} 원천 위치`}
             className="h-8 flex-1 font-mono text-xs"
-            placeholder="원천의 자리(LotId · steps.Seq)"
+            placeholder="원천 위치(LotId, steps.Seq)"
             value={path}
             onChange={(event) => set(index, 1, event.target.value)}
           />
@@ -222,7 +222,8 @@ function DefinitionFields({
     <div className="space-y-3">
       <Group title={`원천 — 어댑터 ${String(adapter.kind ?? '?')}`}>
         <p className="text-muted-foreground text-xs">
-          어댑터 종류는 「본문(JSON)」 에서 바꿉니다 — 종류마다 칸이 다릅니다. 비운 칸은 서버의 기본값을 씁니다.
+          어댑터 종류는 [JSON 편집]에서 변경합니다. 종류마다 항목이 다릅니다. 입력하지 않은 항목은
+          서버의 기본값을 사용합니다.
         </p>
         {fields.map((field) => (
           <AdapterInput
@@ -232,7 +233,10 @@ function DefinitionFields({
             onChange={(next) => put(['adapter', field.name], next)}
           />
         ))}
-        <Row label="식별자 *" hint="안 바뀌는 칸 — 여럿이면 , 로 나눕니다(값을 | 로 이은 여러 칸 식별자).">
+        <Row
+          label="식별자 *"
+          hint="값이 변경되지 않는 필드. 여러 필드는 쉼표(,)로 구분하며 값을 |로 결합한 복합 식별자로 사용"
+        >
           <Input
             aria-label="식별자"
             className="h-8 font-mono text-xs"
@@ -240,10 +244,10 @@ function DefinitionFields({
             onChange={(event) => put(['adapter', 'key'], keyOf(event.target.value))}
           />
         </Row>
-        <Row label="열" hint="레시피가 읽을 열 이름 ← 원천의 자리.">
+        <Row label="열" hint="레시피가 읽는 열 이름 ← 원천 위치">
           {rows === null ? (
             <span className="font-mono text-xs">
-              {textOf(adapter.columns)} — 파일의 모든 열을 그대로 읽습니다(「본문(JSON)」 에서 수정).
+              {textOf(adapter.columns)}: 파일의 모든 열 사용([JSON 편집]에서 수정)
             </span>
           ) : (
             <ColumnsTable
@@ -275,9 +279,9 @@ function DefinitionFields({
           </select>
         </Row>
         {kind !== 'none' && (
-          <Row label="비밀의 환경 변수 이름" hint="값은 서버의 .env 에 둡니다 — 여기에는 이름만.">
+          <Row label="인증 정보의 환경 변수 이름" hint="값은 서버의 .env에 설정. 여기에는 이름만 입력">
             <Input
-              aria-label="비밀의 환경 변수 이름"
+              aria-label="인증 정보의 환경 변수 이름"
               className="h-8 font-mono text-xs"
               value={authText('token_env')}
               onChange={(event) => putAuth('token_env', event.target.value)}
@@ -296,19 +300,19 @@ function DefinitionFields({
         ))}
       </Group>
 
-      <Group title="계산 칸 · 받기 점검">
+      <Group title="계산 필드 · 수신 검증">
         <JsonField
-          label="계산 칸(computed)"
-          hint='{"새 열": {"template": "{A}|{B}"}} — template · number · datetime · replace · first. 비우면 계산 칸이 없습니다.'
+          label="계산 필드(computed)"
+          hint='예: {"새 열": {"template": "{A}|{B}"}}. 종류는 template, number, datetime, replace, first. 미입력 시 계산 필드 없음'
           value={doc.computed}
           onChange={(next) => put(['computed'], next)}
         />
-        <Row label="받기 점검" hint="받은 것이 이상하면(대량 삭제 · 늘 있던 값이 빔) 변환 전에 멈춥니다.">
+        <Row label="수신 검증" hint="수신 데이터에 대량 삭제 또는 빈 필드가 있으면 변환 전에 실행 중단">
           <span className="flex flex-wrap items-center gap-3 text-sm">
             <label className="flex items-center gap-1">
               <input
                 type="checkbox"
-                aria-label="받기 점검 사용"
+                aria-label="수신 검증 사용"
                 checked={intakeOn}
                 onChange={(event) => put(['intake'], event.target.checked ? undefined : false)}
               />
@@ -319,12 +323,12 @@ function DefinitionFields({
                 [
                   ['delete_ratio', '삭제 비율(0.05)'],
                   ['delete_rows', '삭제 건수(10)'],
-                  ['blank_rows', '빈 칸 행(3)'],
+                  ['blank_rows', '빈 필드 행(3)'],
                 ] as const
               ).map(([name, label]) => (
                 <Input
                   key={name}
-                  aria-label={`받기 점검 ${name}`}
+                  aria-label={`수신 검증 ${name}`}
                   className="h-8 w-32 font-mono text-xs"
                   placeholder={label}
                   defaultValue={textOf(at(intake, [name]))}
@@ -339,11 +343,11 @@ function DefinitionFields({
         </Row>
       </Group>
 
-      <Group title="일정 · 대상">
-        <Row label="일정">
+      <Group title="실행 주기 · 대상">
+        <Row label="실행 주기">
           <span className="flex flex-wrap items-center gap-2">
             <select
-              aria-label="일정"
+              aria-label="실행 주기"
               className={SELECT}
               value={scheduleKind}
               onChange={(event) => {
@@ -353,7 +357,7 @@ function DefinitionFields({
             >
               <option value="manual">수동</option>
               <option value="daily">매일</option>
-              <option value="every">몇 분마다</option>
+              <option value="every">N분마다</option>
             </select>
             {scheduleKind === 'daily' && (
               <Input
@@ -366,7 +370,7 @@ function DefinitionFields({
             )}
             {scheduleKind === 'every' && (
               <Input
-                aria-label="몇 분마다"
+                aria-label="분 간격"
                 className="h-8 w-24 font-mono text-xs"
                 value={textOf(at(doc.schedule, ['every_minutes']))}
                 onChange={(event) => put(['schedule'], withSchedule(doc.schedule, 'every', event.target.value))}
@@ -374,9 +378,9 @@ function DefinitionFields({
             )}
           </span>
         </Row>
-        <Row label="원천 시스템의 이름(system)">
+        <Row label="원천 시스템 이름(system)">
           <Input
-            aria-label="원천 시스템의 이름"
+            aria-label="원천 시스템 이름"
             className="h-8"
             value={textOf(doc.system)}
             onChange={(event) => put(['system'], event.target.value || undefined)}
@@ -438,7 +442,7 @@ export function DefinitionEditor({
           ? (await relayApi.definitionFile(slug)).body
           : (await relayApi.definition(slug, Number(which))).body
       if (!isPlain(body)) {
-        throw new Error('같은 slug 의 정의 파일이 없습니다 — 다른 출발 판을 선택하세요.')
+        throw new Error('같은 slug의 정의 파일이 없습니다. 다른 원본 버전을 선택하세요.')
       }
       setBase(clone(body))
       setDraft(clone(body))
@@ -469,7 +473,7 @@ export function DefinitionEditor({
       setMode('fields')
       return parsed
     } catch (caught) {
-      setParseError(`본문을 JSON 으로 읽지 못했습니다 — ${fail(caught).message}`)
+      setParseError(`원문의 JSON 형식이 올바르지 않습니다. ${fail(caught).message}`)
       return null
     }
   }
@@ -506,7 +510,7 @@ export function DefinitionEditor({
       <div className="flex flex-wrap items-center gap-2">
         <span className="text-sm font-medium">초안 작성</span>
         <select
-          aria-label="정의 출발 판"
+          aria-label="정의 원본 버전"
           className={SELECT}
           value={start}
           onChange={(event) => setStart(event.target.value)}
@@ -526,7 +530,7 @@ export function DefinitionEditor({
         </Button>
         {busy && <Loader2 className="size-4 animate-spin" />}
         <span className="text-muted-foreground text-xs">
-          불러온 판은 바뀌지 않습니다 — 고친 것은 새 초안으로 저장됩니다.
+          원본 버전은 변경되지 않습니다. 수정 내용은 새 초안으로 저장됩니다.
         </span>
       </div>
       <ErrorNotice error={error ?? kinds.error} />
@@ -540,7 +544,7 @@ export function DefinitionEditor({
               aria-pressed={mode === 'fields'}
               onClick={() => mode === 'json' && toFields()}
             >
-              칸
+              항목 편집
             </Button>
             <Button
               size="sm"
@@ -548,7 +552,7 @@ export function DefinitionEditor({
               aria-pressed={mode === 'json'}
               onClick={() => mode === 'fields' && toJson()}
             >
-              본문(JSON)
+              JSON 편집
             </Button>
           </div>
 
@@ -562,7 +566,7 @@ export function DefinitionEditor({
           )}
           {mode === 'json' && (
             <Textarea
-              aria-label="정의 본문"
+              aria-label="정의 원문"
               className="min-h-72 font-mono text-xs"
               value={text}
               onChange={(event) => setText(event.target.value)}
@@ -572,7 +576,7 @@ export function DefinitionEditor({
 
           {mode === 'fields' && (
             <p className="text-muted-foreground text-sm" data-testid="definition-changes">
-              {changed.length ? `출발 판에서 바뀐 것: ${changed.join(' · ')}` : '출발 판에서 바뀐 것이 없습니다.'}
+              {changed.length ? `원본 대비 변경 사항: ${changed.join(' · ')}` : '원본 대비 변경 사항 없음'}
             </p>
           )}
           {blocked.length > 0 && (
@@ -590,7 +594,7 @@ export function DefinitionEditor({
             <Input
               aria-label="정의 메모"
               className="h-8 w-80"
-              placeholder="메모 — 무엇을 왜 수정했나"
+              placeholder="메모(수정 내용과 사유)"
               value={note}
               onChange={(event) => setNote(event.target.value)}
             />

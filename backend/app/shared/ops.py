@@ -54,7 +54,7 @@ def backup_status(*, now: datetime | None = None) -> BackupStatus:
             # 적으면 백업을 한 번도 안 건 설치가 조용히 지나간다.
             stale=True,
             problem=(
-                "BACKUP_DIR 설정이 없습니다 — .env 에 백업 폴더를 적으세요. "
+                "BACKUP_DIR 설정이 없습니다. .env에 백업 폴더를 설정하세요. "
                 "예: BACKUP_DIR=/home/<계정>/backup/<slug>"
             ),
         )
@@ -67,7 +67,7 @@ def backup_status(*, now: datetime | None = None) -> BackupStatus:
             last_at=None,
             age_hours=None,
             stale=True,
-            problem="백업 폴더가 없습니다. 백업 스크립트가 한 번도 안 돌았습니다.",
+            problem="백업 폴더가 없습니다. 백업 스크립트가 한 번도 실행되지 않았습니다.",
         )
 
     newest: float | None = None
@@ -87,7 +87,9 @@ def backup_status(*, now: datetime | None = None) -> BackupStatus:
             last_at=None,
             age_hours=None,
             stale=True,
-            problem="백업 폴더에 덤프가 없습니다. 백업 스크립트가 한 번도 안 돌았습니다.",
+            problem=(
+                "백업 폴더에 덤프가 없습니다. 백업 스크립트가 한 번도 실행되지 않았습니다."
+            ),
         )
 
     at = datetime.fromtimestamp(newest, tz=UTC)
@@ -100,7 +102,7 @@ def backup_status(*, now: datetime | None = None) -> BackupStatus:
         age_hours=round(age, 1),
         stale=stale,
         problem=(
-            f"마지막 백업이 {int(age)}시간 전입니다. 작업 스케줄러가 도는지 확인하세요."
+            f"마지막 백업이 {int(age)}시간 전입니다. 작업 스케줄러가 실행 중인지 확인하세요."
             if stale
             else None
         ),
@@ -124,7 +126,7 @@ def maintenance(db: object, viewer: User) -> list[extensions.MaintenanceItem]:
     return [
         extensions.MaintenanceItem(
             key="backup_stale",
-            label=status.problem or "백업이 오래됐습니다",
+            label=status.problem or "최근 백업 없음",
             count=1,
             link="/admin/server",
             severity="warning",

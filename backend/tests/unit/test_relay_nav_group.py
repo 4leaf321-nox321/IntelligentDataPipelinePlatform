@@ -37,7 +37,7 @@ def test_없으면_이름이_같은_묶음_그것도_없으면_새로() -> None:
         "slug": "erp",
         "label": "ERP",
         "new": True,
-        "why": "맞는 묶음이 없어 새로 — 원천의 이름으로",
+        "why": "해당 그룹이 없어 원천 이름으로 새 그룹 생성",
     }
     assert suggest_group([], {}, "9x", "")["slug"] == "g_9x"
 
@@ -73,7 +73,7 @@ def test_타입_정의_초안이_묶음을_싣는다() -> None:
         ({"slug": "erp"}, "이름"),
         ({"slug": "erp", "label": "ERP", "audience": "boss"}, "audience"),
         ({"slug": "erp", "label": "ERP", "color": "red"}, "color"),
-        ({"slug": "erp", "label": "ERP", "owner": "me"}, "모르는 칸"),
+        ({"slug": "erp", "label": "ERP", "owner": "me"}, "지원하지 않는 항목"),
     ],
 )
 def test_새_묶음의_모양(group: dict[str, Any], said: str) -> None:

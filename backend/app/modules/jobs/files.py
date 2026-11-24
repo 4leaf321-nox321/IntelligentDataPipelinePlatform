@@ -68,11 +68,13 @@ def too_big(
     size: int, cap: int, *, output: bool = False, label: str | None = None
 ) -> AppError:
     """상한을 넘은 파일 — 413. `size` 는 받은 데까지(받는 도중에 멈추면 그만큼)."""
-    advice = "조건으로 좁혀 나눠 내보내세요" if output else "나눠 업로드하세요"
+    advice = (
+        "조건을 좁혀 여러 번에 나누어 내보내세요" if output else "파일을 분할해 업로드하세요"
+    )
     what = f"{label}은(는) " if label else ""
     return AppError(
         code("JOBS", 1),
-        f"파일이 너무 큽니다({size // _MB:,}MB). {what}한 번에 {cap // _MB:,}MB 까지 — "
+        f"파일이 너무 큽니다({size // _MB:,}MB). {what}한 번에 최대 {cap // _MB:,}MB입니다. "
         f"{advice}.",
         status=413,
         details={"size_bytes": size, "max_bytes": cap},
@@ -185,7 +187,7 @@ def _resolve(relative: str) -> Path:
     target = (filestore.root() / relative).resolve()
     if base not in target.parents:
         raise AppError(
-            code("JOBS", 29), f"작업 파일의 경로가 이상합니다: {relative}", status=409
+            code("JOBS", 29), f"작업 파일의 경로가 올바르지 않습니다: {relative}", status=409
         )
     return target
 
@@ -203,8 +205,8 @@ def local_path(row: JobFile) -> Path | None:
 def _missing(row: JobFile) -> AppError:
     return AppError(
         code("JOBS", 30),
-        f"작업 파일 「{row.name}」 이(가) 저장소에 없습니다({row.path}). 서버 두 대가 같은 "
-        "저장소(FILESTORE_DIR)를 쓰는지 확인하세요 — 지워졌다면 다시 업로드하세요.",
+        f"저장소에 작업 파일이 없습니다: '{row.name}'({row.path}). 서버 두 대가 같은 "
+        "저장소(FILESTORE_DIR)를 사용하는지 확인하세요. 삭제된 경우 다시 업로드하세요.",
         status=409,
     )
 

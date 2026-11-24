@@ -131,7 +131,7 @@ def all_kinds() -> list[Kind]:
 
 def _user(work: Work) -> User:
     if work.user is None:
-        raise Conflict(code("JOBS", 14), "이 종류의 작업은 시킨 사람이 있어야 합니다.")
+        raise Conflict(code("JOBS", 14), "이 종류의 작업은 요청자가 있어야 합니다.")
     return work.user
 
 
@@ -144,7 +144,9 @@ def filestore_gc(work: Work) -> dict[str, Any]:
     from app.modules.files import gc
 
     if work.user is not None and not work.user.is_system_admin:
-        raise Forbidden(code("JOBS", 23), "첨부 저장소 정리는 시스템 관리자만 합니다.")
+        raise Forbidden(
+            code("JOBS", 23), "첨부 저장소 정리는 시스템 관리자만 실행할 수 있습니다."
+        )
     found = gc.scan(work.db, progress=work.progress)
     size = _megabytes(found.orphan_bytes + found.temp_bytes)
     if not work.params.get("apply"):
@@ -158,12 +160,12 @@ def filestore_gc(work: Work) -> dict[str, Any]:
             "scanned": found.scanned,
             "sample": [relative for relative, _ in found.orphans[: gc.SAMPLE]],
             "summary": (
-                f"지울 것 — 고아 파일 {len(found.orphans):,}개 · 임시 파일 "
-                f"{len(found.temp):,}개({size}) · 훑은 파일 {found.scanned:,}개 · 하루가 안 "
-                f"지나 남길 것 {found.recent:,}개"
+                f"삭제 예정: 고아 파일 {len(found.orphans):,}개 · 임시 파일 "
+                f"{len(found.temp):,}개({size}) · 탐색한 파일 {found.scanned:,}개 · "
+                f"생성 후 1일 미만이라 유지 {found.recent:,}개"
             ),
         }
-    work.progress("지우기", 0, 0)
+    work.progress("삭제", 0, 0)
     done = gc.clean(work.db, found)
     return {
         "applied": True,
@@ -172,9 +174,9 @@ def filestore_gc(work: Work) -> dict[str, Any]:
         "temp": done.temp,
         "kept": done.kept,
         "summary": (
-            f"지움 — 고아 파일 {done.files:,}개({_megabytes(done.bytes)}) · 임시 파일 "
+            f"삭제 완료: 고아 파일 {done.files:,}개({_megabytes(done.bytes)}) · 임시 파일 "
             f"{done.temp:,}개"
-            + (f" · 다시 보니 쓰여 남김 {done.kept:,}개" if done.kept else "")
+            + (f" · 재확인 결과 사용 중이라 유지 {done.kept:,}개" if done.kept else "")
         ),
     }
 

@@ -71,7 +71,7 @@ function Members() {
     <div className="space-y-6">
       <PageHeader
         title="부서 멤버"
-        description="관리자는 이 부서의 자료와 멤버를 고칠 수 있습니다."
+        description="부서 관리자는 이 부서의 자료와 멤버를 수정할 수 있습니다."
       />
 
       {canEdit && (
@@ -99,8 +99,8 @@ function Members() {
 
       {list.data && list.data.length === 0 ? (
         <EmptyState
-          title="멤버가 없습니다"
-          hint="계정을 만들 때 부서를 정하거나, 위에서 아이디로 추가하세요."
+          title="멤버 없음"
+          hint="계정 생성 시 부서를 지정하거나, 위에서 아이디로 추가하세요."
         />
       ) : (
         <Table>
@@ -110,7 +110,7 @@ function Members() {
               <TableHead>아이디</TableHead>
               <TableHead>계정 상태</TableHead>
               <TableHead>역할</TableHead>
-              <TableHead>합류</TableHead>
+              <TableHead>합류일</TableHead>
               <TableHead />
             </TableRow>
           </TableHeader>
@@ -152,7 +152,7 @@ function Members() {
                       size="sm"
                       onClick={() => act(() => workspaceApi.removeMember(slug, one.user_id))}
                     >
-                      빼기
+                      제외
                     </Button>
                   )}
                 </TableCell>

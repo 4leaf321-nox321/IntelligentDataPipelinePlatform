@@ -142,7 +142,7 @@ def test_같은_부서로는_못_옮긴다(client: TestClient, admin: Signed) ->
         headers=admin.headers,
     )
     assert unknown.status_code == 422
-    assert "아는 것" in unknown.json()["error"]["message"]
+    assert "이동 가능" in unknown.json()["error"]["message"]
 
 
 def test_시스템_관리자만_옮긴다(client: TestClient, member: Signed) -> None:

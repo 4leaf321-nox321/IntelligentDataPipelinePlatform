@@ -43,7 +43,7 @@ export function movingRows(trial: Pick<RecipeTrial, 'would_send'>) {
 
 export function RecipeTrialView({
   trial,
-  title = `판 ${trial.version} 시험`,
+  title = `레시피 버전 ${trial.version} 테스트`,
 }: {
   trial: TrialShape
   title?: string
@@ -57,12 +57,12 @@ export function RecipeTrialView({
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="font-medium">{title}</span>
         <StatusBadge kind="relay_trial" value={trial.clean ? 'clean' : 'blocked'} />
-        <span className="text-muted-foreground text-xs">대상에는 아무것도 보내지 않았습니다.</span>
+        <span className="text-muted-foreground text-xs">대상에는 아무것도 전송하지 않았습니다.</span>
       </div>
 
       {trial.error && (
         <Alert variant="destructive">
-          <AlertTitle>변환이 멈췄습니다</AlertTitle>
+          <AlertTitle>변환 중단</AlertTitle>
           <AlertDescription>{trial.error}</AlertDescription>
         </Alert>
       )}
@@ -81,7 +81,7 @@ export function RecipeTrialView({
 
       {rows.length > 0 && (
         <p className="text-sm">
-          <span className="text-muted-foreground">만든 줄 — </span>
+          <span className="text-muted-foreground">변환 행: </span>
           {rows.map(([type, count]) => `${type} ${count.toLocaleString()}`).join(' · ')}
         </p>
       )}
@@ -89,15 +89,15 @@ export function RecipeTrialView({
       {trial.would_send ? (
         <div className="space-y-1">
           <p className="text-sm font-medium">
-            사용하면 보낼 것
+            사용 시 전송 예정
             {trial.against && (
               <span className="text-muted-foreground ml-1 text-xs font-normal">
-                — 견준 것: {trial.against}
+                (비교 기준: {trial.against})
               </span>
             )}
           </p>
           {moving.length === 0 ? (
-            <p className="text-muted-foreground text-sm">바뀌는 것이 없습니다.</p>
+            <p className="text-muted-foreground text-sm">변경 사항 없음</p>
           ) : (
             <Table>
               <TableHeader>
@@ -130,7 +130,7 @@ export function RecipeTrialView({
       {(trial.unresolved_count ?? 0) > 0 && (
         <div className="space-y-1">
           <p className="text-destructive text-sm">
-            미해결 {trial.unresolved_count?.toLocaleString()}건 — 사용하면 그 실행은 멈춥니다. 앞의{' '}
+            미해결 {trial.unresolved_count?.toLocaleString()}건. 사용하면 실행이 중단됩니다. 처음{' '}
             {Math.min(UNRESOLVED_SHOWN, unresolved.length)}건:
           </p>
           <pre className="bg-muted/30 max-h-48 overflow-auto rounded-md border p-2 text-xs">
@@ -144,7 +144,7 @@ export function RecipeTrialView({
 
       {trial.report && (
         <details className="rounded-md border">
-          <summary className="cursor-pointer px-2 py-1 text-sm">변환 보고 펼치기</summary>
+          <summary className="cursor-pointer px-2 py-1 text-sm">변환 보고서</summary>
           <pre className="bg-muted/30 max-h-80 overflow-auto border-t p-2 text-xs whitespace-pre-wrap">
             {trial.report}
           </pre>

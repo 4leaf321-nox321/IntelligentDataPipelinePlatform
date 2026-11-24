@@ -112,7 +112,7 @@ def _check_role(role: str) -> None:
     if role not in WORKSPACE_ROLES:
         raise AppError(
             code("ACCOUNTS", 10),
-            f"모르는 역할입니다: {role} ({' · '.join(WORKSPACE_ROLES)} 중 하나)",
+            f"지원하지 않는 역할입니다: {role}(사용 가능: {', '.join(WORKSPACE_ROLES)})",
             status=400,
             details={"allowed": list(WORKSPACE_ROLES)},
         )
@@ -150,7 +150,7 @@ def signup(
     """가입 신청. 승인 전까지는 로그인할 수 없다(status=pending)."""
     normalized = auth_services.normalize_login_id(email)
     if db.scalar(select(User).where(User.email == normalized)) is not None:
-        raise Conflict(code("ACCOUNTS", 2), "이미 있는 아이디입니다.")
+        raise Conflict(code("ACCOUNTS", 2), "이미 사용 중인 아이디입니다.")
 
     workspace = workspace_by_slug(db, workspace_slug)
     user = User(
@@ -207,7 +207,7 @@ def create_account(
     _check_role(role)
     normalized = auth_services.normalize_login_id(email)
     if db.scalar(select(User).where(User.email == normalized)) is not None:
-        raise Conflict(code("ACCOUNTS", 2), "이미 있는 아이디입니다.")
+        raise Conflict(code("ACCOUNTS", 2), "이미 사용 중인 아이디입니다.")
 
     workspace = workspace_by_slug(db, workspace_slug)
     temporary = secrets.token_urlsafe(9)
@@ -278,7 +278,7 @@ def approve(
         if requested is None:
             raise AppError(
                 code("ACCOUNTS", 4),
-                "신청한 부서가 없어졌습니다. 배정할 부서를 골라 주세요.",
+                "신청한 부서를 찾을 수 없습니다. 배정할 부서를 선택하세요.",
                 status=400,
             )
         slug = requested.slug
@@ -308,7 +308,7 @@ def approve(
         db,
         user_id=user.id,
         kind=notifications.ACCOUNT_APPROVED,
-        title="가입이 승인되었습니다",
+        title="가입 승인",
         body=f"{workspace.name} 소속으로 등록되었습니다.",
         link=f"/w/{workspace.slug}",
     )
@@ -362,16 +362,17 @@ def _guard_last_admin(db: Session, user: User, *, what: str) -> None:
     if user.is_system_admin and user.status == "active" and active_system_admin_count(db) <= 1:
         raise Conflict(
             code("ACCOUNTS", 5),
-            f"마지막 활성 시스템 관리자입니다. 다른 사람을 지정한 뒤에 {what}세요.",
+            f"마지막 활성 시스템 관리자는 {what}할 수 없습니다. "
+            "다른 시스템 관리자를 지정한 후 진행하세요.",
         )
 
 
 def set_status(db: Session, *, user_id: uuid.UUID, status: str, actor: User) -> User:
     if status not in USER_STATUSES:
-        raise AppError(code("ACCOUNTS", 6), f"모르는 상태입니다: {status}", status=400)
+        raise AppError(code("ACCOUNTS", 6), f"지원하지 않는 상태입니다: {status}", status=400)
     user = get_account(db, user_id)
     if status != "active":
-        _guard_last_admin(db, user, what="정지하")
+        _guard_last_admin(db, user, what="정지")
 
     before = user.status
     user.status = status
@@ -405,7 +406,7 @@ def set_status(db: Session, *, user_id: uuid.UUID, status: str, actor: User) -> 
 def set_system_admin(db: Session, *, user_id: uuid.UUID, grant: bool, actor: User) -> User:
     user = get_account(db, user_id)
     if not grant:
-        _guard_last_admin(db, user, what="해제하")
+        _guard_last_admin(db, user, what="해제")
 
     before = user.is_system_admin
     user.is_system_admin = grant
@@ -503,8 +504,8 @@ def set_memberships(
             leaving = db.get(Workspace, workspace_id)
             raise Conflict(
                 code("ACCOUNTS", 8),
-                f"{leaving.name if leaving else '그 부서'}의 마지막 관리자입니다. "
-                "다른 사람을 관리자로 올린 뒤에 빼세요.",
+                f"{leaving.name if leaving else '해당 부서'}의 마지막 관리자입니다. "
+                "다른 멤버를 관리자로 지정한 후 소속에서 제외하세요.",
             )
 
     for workspace_id, member in current.items():
@@ -520,8 +521,8 @@ def set_memberships(
         if chosen.id not in seen:
             raise Conflict(
                 code("ACCOUNTS", 9),
-                f"{chosen.name}은(는) 이 계정의 소속이 아닙니다 — 대표 소속은 소속 중에서 "
-                "고릅니다.",
+                f"{chosen.name}은(는) 이 계정의 소속 부서가 아닙니다. "
+                "대표 소속은 소속 부서 중에서 선택하세요.",
             )
         home = chosen
     elif user.home_workspace_id in seen:
@@ -592,8 +593,8 @@ def delete_account(db: Session, *, user_id: uuid.UUID, actor: User) -> User:
     """
     user = get_account(db, user_id)
     if user.id == actor.id:
-        raise Conflict(code("ACCOUNTS", 7), "자기 계정은 지울 수 없습니다.")
-    _guard_last_admin(db, user, what="지우")
+        raise Conflict(code("ACCOUNTS", 7), "본인 계정은 삭제할 수 없습니다.")
+    _guard_last_admin(db, user, what="삭제")
 
     user.deleted_at = _now()
     user.status = "suspended"
@@ -646,11 +647,11 @@ def revoke_token(
     owner = get_account(db, user_id)
     pat = db.get(PersonalAccessToken, token_id)
     if pat is None or pat.user_id != owner.id:
-        raise NotFound(code("ACCOUNTS", 11), f"{owner.email} 의 토큰 중 해당 토큰이 없습니다.")
+        raise NotFound(code("ACCOUNTS", 11), f"{owner.email}의 토큰 중 해당 토큰이 없습니다.")
     if pat.revoked_at is not None:
         raise Conflict(
             code("ACCOUNTS", 12),
-            f"이미 폐기된 토큰입니다 — {pat.revoked_at:%Y-%m-%d %H:%M}(UTC)에 폐기되었습니다.",
+            f"이미 폐기된 토큰입니다(폐기 시각 {pat.revoked_at:%Y-%m-%d %H:%M} UTC).",
             details={"revoked_at": pat.revoked_at.isoformat()},
         )
     pat.revoked_at = _now()
@@ -677,10 +678,10 @@ def revoke_token(
             db,
             user_id=owner.id,
             kind=notifications.ACCOUNT_TOKEN_REVOKED,
-            title=f"액세스 토큰 「{pat.name}」 이 폐기되었습니다"[:200],
+            title=f"액세스 토큰 '{pat.name}' 폐기"[:200],
             body=(
                 f"시스템 관리자({actor.display_name or actor.email})가 폐기했습니다. "
-                "이 토큰을 사용하던 연동은 이제 인증에 실패합니다."
+                "이 토큰을 사용하는 연동은 더 이상 인증되지 않습니다."
                 + (f" 사유: {note}" if note else "")
             ),
             link="/me",

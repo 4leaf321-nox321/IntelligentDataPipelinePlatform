@@ -46,19 +46,19 @@ export function TokenRevokeDialog({ target, onClose, onRevoked }: Props) {
   return (
     <ConfirmDialog
       open={target !== null}
-      title={`액세스 토큰 「${target?.name ?? ''}」 폐기`}
+      title={`액세스 토큰 '${target?.name ?? ''}' 폐기`}
       description={
         <div className="space-y-2">
           <p>
-            <b>{target?.owner}</b> 의 토큰입니다. 이 토큰을 사용하는 연동 · 스크립트 · AI 도구는{' '}
-            <b>즉시 인증에 실패합니다</b> —{' '}
+            <b>{target?.owner}</b>의 토큰입니다. 이 토큰을 사용하는 연동, 스크립트, AI 도구는{' '}
+            <b>즉시 인증에 실패합니다.</b>{' '}
             {target?.lastUsedAt
-              ? `최종 사용 ${shownDateTime(target.lastUsedAt)}.`
-              : '아직 한 번도 사용되지 않은 토큰입니다.'}
+              ? `최종 사용 일시: ${shownDateTime(target.lastUsedAt)}`
+              : '사용 기록이 없는 토큰입니다.'}
           </p>
           <p className="text-muted-foreground">
-            되돌릴 수 없습니다. 다시 연결하려면 토큰 주인이 새 토큰을 발급해 연동 설정에 입력해야
-            합니다. 계정과 다른 토큰은 그대로입니다.
+            되돌릴 수 없습니다. 다시 연결하려면 토큰 소유자가 새 토큰을 발급해 연동 설정에 입력해야
+            합니다. 계정과 다른 토큰은 변경되지 않습니다.
           </p>
           <div className="space-y-1">
             <Label htmlFor="token-revoke-reason">폐기 사유</Label>
@@ -66,12 +66,12 @@ export function TokenRevokeDialog({ target, onClose, onRevoked }: Props) {
               id="token-revoke-reason"
               value={reason}
               onChange={(event) => setReason(event.target.value)}
-              placeholder="예: 퇴사 · 연동 종료 · 토큰 유출"
+              placeholder="예: 퇴사, 연동 종료, 토큰 유출"
               maxLength={500}
               autoFocus
             />
             <p className="text-muted-foreground text-xs">
-              감사 기록과 토큰 주인에게 가는 알림에 표시됩니다.
+              감사 기록과 토큰 소유자에게 보내는 알림에 표시됩니다.
             </p>
           </div>
         </div>

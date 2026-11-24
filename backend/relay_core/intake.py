@@ -62,19 +62,21 @@ def check(spec: Any) -> Policy | None:
     if spec is None or spec is True:
         return Policy()
     if not isinstance(spec, dict):
-        raise IntakeError("intake 는 false 또는 기준 객체입니다.")
+        raise IntakeError("intake는 false 또는 기준 객체여야 합니다.")
     unknown = sorted(set(spec) - _KEYS)
     if unknown:
-        raise IntakeError(f"intake: 모르는 칸입니다: {', '.join(unknown)}")
+        raise IntakeError(f"intake: 지원하지 않는 항목입니다: {', '.join(unknown)}")
     ratio = spec.get("delete_ratio", Policy.delete_ratio)
     rows = spec.get("delete_rows", Policy.delete_rows)
     blank = spec.get("blank_rows", Policy.blank_rows)
     if isinstance(ratio, bool) or not isinstance(ratio, int | float) or not 0 < ratio <= 1:
-        raise IntakeError("intake.delete_ratio 는 0 보다 크고 1 이하인 수입니다(0.05 = 5%).")
+        raise IntakeError(
+            "intake.delete_ratio는 0보다 크고 1 이하인 수여야 합니다(0.05 = 5%)."
+        )
     if isinstance(rows, bool) or not isinstance(rows, int) or rows < 0:
-        raise IntakeError("intake.delete_rows 는 0 이상의 정수입니다.")
+        raise IntakeError("intake.delete_rows는 0 이상의 정수여야 합니다.")
     if isinstance(blank, bool) or not isinstance(blank, int) or blank < 1:
-        raise IntakeError("intake.blank_rows 는 1 이상의 정수입니다.")
+        raise IntakeError("intake.blank_rows는 1 이상의 정수여야 합니다.")
     return Policy(delete_ratio=float(ratio), delete_rows=rows, blank_rows=blank)
 
 
@@ -82,8 +84,8 @@ def label(policy: Policy | None) -> str:
     if policy is None:
         return "미사용"
     return (
-        f"삭제 {policy.delete_rows}건 · 미러의 {policy.delete_ratio:.0%} 초과 · "
-        f"빈 칸 {policy.blank_rows}건 이상이면 멈춤"
+        f"삭제 {policy.delete_rows}건 · 미러의 {policy.delete_ratio:.0%} 초과 · 빈 필드 "
+        f"{policy.blank_rows}건 이상 시 중단"
     )
 
 
@@ -148,21 +150,21 @@ class Findings:
         out: list[str] = []
         if self.deleted:
             out.append(
-                f"대량 삭제 — 미러 {self.before:,}건 중 {self.deleted:,}건"
-                f"({self.deleted / self.before:.1%})이 이번 받기로 삭제됩니다. 원천이 일부만 "
-                "주지 않았는지(쪽 넘기기 · 권한 · 빈 응답) 확인하세요."
+                f"대량 삭제: 이번 수신으로 미러 {self.before:,}건 중 "
+                f"{self.deleted:,}건({self.deleted / self.before:.1%})이 삭제됩니다. 원천이 "
+                "데이터를 일부만 제공하지 않았는지(페이지 처리, 권한, 빈 응답) 확인하세요."
             )
         for one in self.blanks:
             earlier = (
-                f" — 앞선 실행들에서 이미 {one.carried:,}건이 같은 식으로 비었음(합쳐서 셈)"
+                f"(이전 실행에서 이미 빈 값이 된 {one.carried:,}건 포함)"
                 if one.carried
                 else ""
             )
             out.append(
-                f"빈 칸 {one.column} — 받은 행(삭제 표시 빼고 {self.received:,}건) 모두에서 "
-                f"비었고, 값이 있던 {one.lost:,}건이 비게 됩니다(미러의 {one.filled:,}건에 "
-                f"값이 있었음{earlier}). 원천에서 칸 이름이 바뀌지 않았는지(어댑터의 "
-                "columns) 확인하세요."
+                f"빈 필드 {one.column}: 수신 행 {self.received:,}건(삭제 표시 제외) 모두에서 "
+                f"값이 비어 있습니다. 값이 있던 {one.lost:,}건{earlier}이 빈 값이 됩니다. "
+                f"반영 전 미러에서 값이 있던 행은 {one.filled:,}건입니다. 원천의 필드 이름이 "
+                "변경되지 않았는지 어댑터의 columns를 확인하세요."
             )
         return out
 

@@ -142,7 +142,7 @@ export function WorkspaceTree({
                 <button
                   type="button"
                   className="hover:bg-muted rounded p-0.5"
-                  aria-label={collapsed ? '확장' : '접기'}
+                  aria-label={collapsed ? '확장' : '축소'}
                   onClick={() => onToggle(node.slug)}
                 >
                   {collapsed ? (
@@ -180,8 +180,8 @@ export function WorkspaceTree({
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label="위로"
-                  title="같은 상위 안에서 위로"
+                  aria-label="위로 이동"
+                  title="같은 상위 부서 안에서 위로 이동"
                   disabled={busy || index <= 0}
                   onClick={() => onReorder(node.slug, 'up')}
                 >
@@ -190,8 +190,8 @@ export function WorkspaceTree({
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label="아래로"
-                  title="같은 상위 안에서 아래로"
+                  aria-label="아래로 이동"
+                  title="같은 상위 부서 안에서 아래로 이동"
                   disabled={busy || index < 0 || index >= count - 1}
                   onClick={() => onReorder(node.slug, 'down')}
                 >
@@ -201,7 +201,7 @@ export function WorkspaceTree({
                   variant="ghost"
                   size="icon"
                   aria-label="수정"
-                  title="이름·하는 일·상위 부서"
+                  title="이름, 업무, 상위 부서 수정"
                   disabled={busy}
                   onClick={() => onEdit(node)}
                 >
@@ -211,7 +211,7 @@ export function WorkspaceTree({
                   variant="ghost"
                   size="icon"
                   aria-label="자료 이동"
-                  title="자료를 다른 부서로 통째 이동 (통폐합)"
+                  title="자료를 다른 부서로 일괄 이관(통폐합)"
                   disabled={busy}
                   onClick={() => onReassign(node)}
                 >
@@ -220,11 +220,11 @@ export function WorkspaceTree({
                 <Button
                   variant="ghost"
                   size="sm"
-                  title="보관하면 자료는 남고 새 활동만 막힙니다"
+                  title="보관하면 자료는 유지되고 새 활동만 제한됩니다."
                   disabled={busy}
                   onClick={() => onArchive(node)}
                 >
-                  {node.is_active ? '보관' : '되살리기'}
+                  {node.is_active ? '보관' : '복원'}
                 </Button>
                 <Button
                   variant="ghost"

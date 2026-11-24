@@ -167,7 +167,7 @@ export default function LoginPage() {
         </Button>
 
         <p className="text-muted-foreground text-center text-sm">
-          계정이 없나요?{' '}
+          계정이 없으면{' '}
           <Link to="/signup" className="hover:text-foreground underline">
             가입 신청
           </Link>

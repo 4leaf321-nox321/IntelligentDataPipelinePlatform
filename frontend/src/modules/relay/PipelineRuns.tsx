@@ -41,15 +41,15 @@ import { shownDateTime } from '@/shared/lib/datetime'
 const EVENT_LABEL: Record<string, string> = {
   planned: '계획 생성',
   applied: '적용',
-  part_applied: '조각 적용',
-  blocked: '멈춤',
-  held: '받기 점검 멈춤',
+  part_applied: '분할 번들 적용',
+  blocked: '중단',
+  held: '수신 검증 중단',
   held_accepted: '확인 후 진행',
-  nothing: '보낼 것 없음',
-  auto_skipped: '자동 적용 안 함',
+  nothing: '변경 사항 없음',
+  auto_skipped: '자동 적용 보류',
   reconciled: '대조',
-  retract_cancelled: '걷어내기 거둠',
-  resumed: '다시 켬',
+  retract_cancelled: '회수 계획 취소',
+  resumed: '재개',
 }
 
 /**
@@ -59,8 +59,8 @@ const EVENT_LABEL: Record<string, string> = {
 function eventLabel(one: HistoryEvent): string {
   if (one.event === 'applied' && one.by === 'auto') return '자동 적용'
   if (one.event === 'planned' && one.origin === 'reconcile') return '보정 계획'
-  if (one.event === 'planned' && one.origin === 'retract') return '걷어내기 계획'
-  if (one.event === 'blocked' && one.origin === 'retract') return '걷어내기 계획 오류'
+  if (one.event === 'planned' && one.origin === 'retract') return '회수 계획'
+  if (one.event === 'blocked' && one.origin === 'retract') return '회수 계획 오류'
   return EVENT_LABEL[one.event ?? ''] ?? one.event ?? '—'
 }
 
@@ -68,7 +68,7 @@ const JOB_KIND: Record<string, string> = {
   relay_run: '실행',
   relay_apply: '적용',
   relay_reconcile: '대조',
-  relay_retract: '걷어내기',
+  relay_retract: '회수',
 }
 
 /** 작업의 종류 — 대조 작업 중 보정 계획까지 간 것은 그렇다고 적는다. */
@@ -95,12 +95,12 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
       <Fact label="워터마크">
         <span className="font-mono text-xs">{state.watermark || '—'}</span>
         {state.watermark ? null : (
-          <span className="text-muted-foreground ml-1 text-xs">(다음 실행은 전량을 받습니다)</span>
+          <span className="text-muted-foreground ml-1 text-xs">(다음 실행 시 전체 수신)</span>
         )}
       </Fact>
       <Fact label="마지막 적용">{shownDateTime(state.applied_at)}</Fact>
       {state.stopped && (
-        <Fact label="멈춤">
+        <Fact label="중지">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge kind="relay_pipeline" value="stopped" />
@@ -109,15 +109,16 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
                 {state.stopped.by ? ` · ${state.stopped.by}` : ''}
               </span>
             </div>
-            {state.stopped.scope && <p className="text-xs">걷어낸 것: {state.stopped.scope}</p>}
+            {state.stopped.scope && <p className="text-xs">회수 대상: {state.stopped.scope}</p>}
             <p className="text-muted-foreground text-xs">
-              실행 · 타이머가 돌지 않습니다 — 원천에 그 행이 그대로 있으면 다음 실행이 다시 만들기 때문입니다.
+              실행과 실행 주기 타이머가 동작하지 않습니다. 원천에 해당 행이 남아 있으면 다음 실행이 다시
+              생성하기 때문입니다.
             </p>
           </div>
         </Fact>
       )}
       {state.held && (
-        <Fact label="받기 점검">
+        <Fact label="수신 검증">
           <div className="space-y-1">
             <div className="flex flex-wrap items-center gap-2">
               <StatusBadge kind="relay_pipeline" value="blocked" />
@@ -129,7 +130,7 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
               ))}
             </ul>
             <p className="text-muted-foreground text-xs">
-              미러 · 워터마크에 반영하지 않았습니다 — 다음 실행이 같은 것을 다시 받습니다.
+              미러와 워터마크에 반영하지 않았습니다. 다음 실행에서 같은 데이터를 다시 수신합니다.
             </p>
           </div>
         </Fact>
@@ -143,11 +144,11 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
                 <span className="text-xs font-medium">보정 계획</span>
               )}
               {pending.origin === 'retract' && (
-                <span className="text-xs font-medium">걷어내기 계획</span>
+                <span className="text-xs font-medium">회수 계획</span>
               )}
               {partsOf(pending) > 1 && (
                 <span className="text-xs font-medium">
-                  조각 {(pending.part ?? 0) + 1}/{partsOf(pending)}
+                  분할 번들 {(pending.part ?? 0) + 1}/{partsOf(pending)}
                 </span>
               )}
               <span className="text-muted-foreground text-xs">{shownDateTime(pending.at)}</span>
@@ -158,7 +159,7 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
                   rel="noreferrer"
                   className="inline-flex items-center gap-0.5 text-xs underline"
                 >
-                  대상 SP 에서 계획 보기
+                  대상 SP에서 계획 확인
                   <ExternalLink className="size-3" />
                 </a>
               )}
@@ -167,8 +168,8 @@ export function PipelineState({ detail }: { detail: PipelineDetail }) {
             {!pending.ok && (
               <p className="text-destructive text-xs">
                 {(pending.part ?? 0) > 0
-                  ? `조각 ${(pending.part ?? 0) + 1} 의 미리 보기에 오류가 있습니다 — 앞 조각 ${pending.part}개는 적용됐습니다. 원인을 해결한 뒤 「적용」 하면 이 조각부터 다시 보냅니다.`
-                  : '계획에 오류가 있어 적용할 수 없습니다 — 원인을 해결한 뒤 다시 실행하세요.'}
+                  ? `분할 번들 ${(pending.part ?? 0) + 1}의 미리 보기에 오류가 있습니다. 앞의 분할 번들 ${pending.part}개는 적용되었습니다. 원인을 해결한 후 [적용]하면 이 분할 번들부터 다시 전송합니다.`
+                  : '계획에 오류가 있어 적용할 수 없습니다. 원인을 해결한 후 다시 실행하세요.'}
               </p>
             )}
           </div>
@@ -185,7 +186,7 @@ export function PipelineHistory({ detail }: { detail: PipelineDetail }) {
   if (history.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        아직 실행한 적이 없습니다 — 시스템 관리자가 「지금 실행」 을 클릭하면 첫 줄이 생깁니다.
+        실행 이력이 없습니다. 시스템 관리자가 [즉시 실행]을 클릭하면 첫 항목이 기록됩니다.
       </p>
     )
   }
@@ -232,7 +233,7 @@ export function PipelineHistory({ detail }: { detail: PipelineDetail }) {
 
 export function PipelineJobs({ detail }: { detail: PipelineDetail }) {
   if (detail.jobs.length === 0) {
-    return <p className="text-muted-foreground text-sm">이 파이프라인의 작업이 아직 없습니다.</p>
+    return <p className="text-muted-foreground text-sm">이 파이프라인의 작업 없음</p>
   }
   return (
     <Table>

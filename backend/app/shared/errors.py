@@ -42,21 +42,21 @@ def code(module: str, number: int) -> str:
 #: 스키마 검증 실패 종류 -> 사람이 읽는 말.
 #: pydantic 의 영어 메시지를 그대로 내보내면 화면에서 아무도 안 읽는다.
 _VALIDATION_MESSAGES = {
-    "missing": "값이 빠졌습니다",
+    "missing": "필수 항목입니다",
     "string_too_short": "값이 필요합니다",
     "string_too_long": "너무 깁니다",
-    "string_pattern_mismatch": "쓸 수 없는 문자가 있습니다",
+    "string_pattern_mismatch": "사용할 수 없는 문자가 있습니다",
     "int_parsing": "정수여야 합니다",
     "float_parsing": "숫자여야 합니다",
     "bool_parsing": "예/아니오 값이어야 합니다",
     "value_error": "값이 올바르지 않습니다",
     "greater_than_equal": "너무 작습니다",
     "too_long": "너무 많습니다",
-    "too_short": "개수가 모자랍니다",
+    "too_short": "개수가 부족합니다",
     "less_than_equal": "너무 큽니다",
     # 모르는 칸을 거절하는 본문(`extra="forbid"`) — 옛 칸 · 오타를 말없이 버리면 보낸 쪽은
     # 저장된 줄 안다.
-    "extra_forbidden": "모르는 칸입니다",
+    "extra_forbidden": "지원하지 않는 항목입니다",
 }
 
 #: 한 번에 보여 줄 항목 수. 다 늘어놓으면 첫 줄부터 안 읽는다.
@@ -101,7 +101,7 @@ def describe_validation(errors: Sequence[Any]) -> str:
         if limit is not None and kind in ("too_long", "too_short"):
             reason = f"{reason} (최대 {limit}개)"
         label = where or "요청"
-        parts.append(f"{label} — {reason}")
+        parts.append(f"{label}: {reason}")
 
     more = len(errors) - len(parts)
     summary = " / ".join(parts)
@@ -193,7 +193,7 @@ def _body(code: str, message: str, details: dict[str, Any] | None = None) -> dic
 #: 405 가 나온다.** 이 문구를 보는 사람은 대개 "서버에 그 기능이 아직 없다" 를
 #: 겪는 중이다 — 그것을 말해 준다.
 _HTTP_MESSAGES = {
-    405: "이 주소는 그 방식의 요청을 받지 않습니다. 서버가 옛 버전일 수 있습니다.",
+    405: "이 주소는 해당 방식의 요청을 지원하지 않습니다. 서버가 이전 버전일 수 있습니다.",
 }
 
 
@@ -306,7 +306,7 @@ def register_error_handlers(app: FastAPI) -> None:
             status_code=500,
             content=_body(
                 code("COMMON", 500),
-                f"서버 오류가 발생했습니다. 요청 ID {rid} 를 관리자에게 알려주세요.",
+                f"서버 오류가 발생했습니다. 요청 ID({rid})를 관리자에게 전달하세요.",
             ),
             headers={REQUEST_ID_HEADER: rid},
         )
@@ -335,8 +335,9 @@ def register_error_handlers(app: FastAPI) -> None:
                 status_code=507,
                 content=_body(
                     code("COMMON", 507),
-                    f"이 물음이 서버의 임시 공간 상한({limit})을 넘어 멈췄습니다 — 디스크를 "
-                    "지키려고 끊은 것이고 바뀐 것은 없습니다. 범위를 좁혀 다시 조회하세요.",
+                    f"조회가 서버의 임시 공간 상한({limit})을 초과해 중단되었습니다. "
+                    "디스크 보호를 위한 중단이며 변경된 데이터는 없습니다. "
+                    "범위를 좁혀 다시 조회하세요.",
                     {"temp_limit": limit},
                 ),
                 headers={REQUEST_ID_HEADER: get_request_id()},
@@ -359,8 +360,9 @@ def register_error_handlers(app: FastAPI) -> None:
             status_code=504,
             content=_body(
                 code("COMMON", 504),
-                f"질의가 {seconds:g}초를 넘겨 멈췄습니다 — 서버를 붙잡지 않게 끊은 것이고 "
-                "바뀐 것은 없습니다. 기간 · 조건으로 범위를 좁혀 다시 조회하세요.",
+                f"조회가 {seconds:g}초를 초과해 중단되었습니다. "
+                "서버 부하를 막기 위한 중단이며 변경된 데이터는 없습니다. "
+                "기간이나 조건으로 범위를 좁혀 다시 조회하세요.",
                 {"seconds": seconds},
             ),
             headers={REQUEST_ID_HEADER: get_request_id()},

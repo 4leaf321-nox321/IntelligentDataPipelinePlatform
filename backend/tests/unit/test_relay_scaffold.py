@@ -30,9 +30,9 @@ def test_칸_이름으로_잇고_근거를_남긴다() -> None:
     got = first_recipe("plm_model", COLUMNS, PROPS, "MODEL_ID", "MODEL_NAME")
     why = {one["property"]: (one["column"], one["why"]) for one in got["matched"]}
     assert why == {
-        "model_revision": ("REVISION", "칸 이름이 열 이름으로 끝남"),
-        "status": ("TASK_STATUS", "열 이름이 칸 이름으로 끝남"),
-        "made_on": ("MADE", "이름이 같음"),  # 원천 자리 made_on 과 같다
+        "model_revision": ("REVISION", "속성 이름이 열 이름으로 끝남"),
+        "status": ("TASK_STATUS", "열 이름이 속성 이름으로 끝남"),
+        "made_on": ("MADE", "이름 일치"),  # 원천 자리 made_on 과 같다
     }
     fields = got["recipe"]["types"][0]["fields"]
     assert fields["made_on"] == {"column": "MADE", "date": True}
@@ -183,7 +183,7 @@ def test_한_행을_정의를_따라_여러_타입과_선으로_나눈다() -> N
             "type_slug": "plm_model",
             "src": {"key_of": "plm_model"},
             "dst": {"column": "BASE_MODEL_ID"},
-            "evidence_note": {"value": "원천 열 BASE_MODEL_ID(한 번에 초안)"},
+            "evidence_note": {"value": "원천 열 BASE_MODEL_ID(일괄 초안 생성)"},
         }
     ]
     assert got["required_missing"] == [] and "BASE_MODEL_ID" not in got["unused"]
@@ -207,7 +207,7 @@ def test_다른_파이프라인이_채우는_타입은_만들지_않고_참조�
         "plm_test_site",
     ]
     assert got["skipped"] == [
-        {"type_slug": "plm_project", "why": "plm-projects 파이프라인이 채운다 — 참조만"}
+        {"type_slug": "plm_project", "why": "plm-projects 파이프라인 적재 타입(참조만)"}
     ]
     task = {one["type_slug"]: one for one in got["recipe"]["types"]}["plm_task"]["fields"]
     assert task["project"] == {

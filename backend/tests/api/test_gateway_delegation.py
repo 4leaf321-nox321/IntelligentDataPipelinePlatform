@@ -139,7 +139,7 @@ def test_비밀이_없으면_꺼져_있고_404_JSON(
 
 def test_비밀이_틀리거나_없으면_401_한_줄(client: TestClient, gateway_on: None) -> None:
     text = _one_line(_ask(client, "a@example.local", secret="wrong"), 401, code("AUTH", 12))
-    assert "비밀이 맞지 않습니다" in text and SECRET not in text
+    assert "비밀 키가 일치하지 않습니다" in text and SECRET not in text
     _one_line(_ask(client, "a@example.local", secret=None), 401, code("AUTH", 12))
     # 비밀을 모르는 쪽에게는 그 뒤의 것(누가 있나)을 말하지 않는다 — 이메일이 없어도 401 이
     # 먼저다.
@@ -178,7 +178,7 @@ def test_처음_보는_사람_대기_정지_삭제는_403_한국어_한_줄(
     assert len(text) <= 200, len(text)
 
     pending = _bare(db, "pending")
-    assert "승인을 기다리는" in _one_line(_ask(client, pending.email), 403, code("AUTH", 16))
+    assert "승인 대기 중" in _one_line(_ask(client, pending.email), 403, code("AUTH", 16))
     paused = _bare(db, "suspended")
     assert "정지된 계정" in _one_line(_ask(client, paused.email), 403, code("AUTH", 17))
     gone = _bare(db, "active", deleted=True)
@@ -300,7 +300,7 @@ def test_점검의_거절도_서버_화면의_마지막_거절에_잡힌다(
         "delegation"
     ]["last_refusal"]
     assert refusal is not None and refusal["status"] == 401
-    assert "비밀이 다르다" in refusal["reason"]
+    assert "비밀 키 불일치" in refusal["reason"]
 
 
 # --- 정상 발급 ---------------------------------------------------------------------
@@ -518,7 +518,7 @@ def test_진단은_위임이_켜졌나_최근_발급과_거절을_말한다(
     assert one["live_tokens"] >= 1 and one["last_issued_at"] is not None
     refusal = one["last_refusal"]
     assert refusal is not None and refusal["status"] == 401
-    assert "비밀이 다르다" in refusal["reason"]  # 이 프로세스가 본 거절 — 자세한 사유
+    assert "비밀 키 불일치" in refusal["reason"]  # 이 프로세스가 본 거절 — 자세한 사유
 
     # 다른 프로세스가 한 거절이면 숫자의 뜻을 말한다(접근 로그에서 — 워커 · 서버가 여럿이다).
     delegation.refusals.reset()
@@ -534,7 +534,7 @@ def test_진단은_위임이_켜졌나_최근_발급과_거절을_말한다(
     body = client.get("/api/auth/portal-status", headers=admin.headers).json()
     assert body["delegation"]["allowed_ips"] == ["10.1.2.3/32"]
     assert body["delegation"]["invalid_ips"] == ["portal-box"]
-    assert any("HEAX_SSO_SECRET 이 5자로 짧습니다" in one for one in body["problems"])
+    assert any("HEAX_SSO_SECRET이 5자로 너무 짧습니다" in one for one in body["problems"])
     assert any("portal-box" in one for one in body["problems"])
 
 

@@ -231,11 +231,10 @@ def shape(
     if not current_ok and candidates:
         best = candidates[0]["path"]
         notes.append(
-            f"행 자리(rows_path)는 「{best}」 로 보입니다 — 지금 값 「{rows_path}」 에는 "
-            "목록이 없습니다."
+            f"행 위치(rows_path) 추정값: '{best}'. 현재 값 '{rows_path}'에는 목록이 없습니다."
             if best
-            else '응답 자체가 목록입니다 — rows_path 를 빈 글("")로 두세요'
-            f"(지금 「{rows_path}」)."
+            else '응답 자체가 목록입니다. rows_path를 빈 문자열("")로 지정하세요'
+            f"(현재 '{rows_path}')."
         )
     if isinstance(body, dict):
         out["top"] = {
@@ -247,7 +246,7 @@ def shape(
     paging: dict[str, Any] = {"guess": "", "evidence": ""}
     link = (headers or {}).get("link", "") if headers is not None else ""
     if re.search(r'rel\s*=\s*"?next"?', link or ""):
-        paging = {"guess": "link", "evidence": '응답 머리글 Link 에 rel="next" 가 있습니다.'}
+        paging = {"guess": "link", "evidence": '응답 헤더 Link에 rel="next"가 있습니다.'}
     for path, value in spots:
         last = _norm(path.rsplit(".", 1)[-1])
         if isinstance(value, (dict, list)):
@@ -258,14 +257,14 @@ def shape(
             paging = {
                 "guess": "next_url",
                 "next_path": path,
-                "evidence": f"응답의 「{path}」 에 다음 쪽 주소가 있습니다.",
+                "evidence": f"응답의 '{path}'에 다음 페이지 주소가 있습니다.",
             }
         if not paging["guess"] and last in _CURSOR and value not in (None, "", False):
             paging = {
                 "guess": "cursor",
                 "next_path": path,
-                "evidence": f"응답의 「{path}」 에 다음 쪽의 커서 값이 있습니다"
-                "(보낼 질의 이름은 지침서로).",
+                "evidence": f"응답의 '{path}'에 다음 페이지의 커서 값이 있습니다(요청 "
+                "파라미터 이름은 API 명세에서 확인).",
             }
     out["total"] = total
     seen = candidates[0]["items"] if candidates else 0
@@ -273,21 +272,21 @@ def shape(
         if total and total["value"] > seen:
             paging = {
                 "guess": "page",
-                "evidence": f"전체 {total['value']}건 중 이번 쪽에 {seen}건 — 쪽 넘김이 "
-                "있습니다. 질의 이름(page · page_size · offset · limit 등)은 API 지침서"
-                "(source_spec)로 확인하세요.",
+                "evidence": f"전체 {total['value']}건 중 이번 페이지에 {seen}건이 있어 페이지 "
+                "처리가 필요합니다. 파라미터 이름(page, page_size, offset, limit 등)은 API "
+                "명세(source_spec)로 확인하세요.",
             }
         elif seen and seen <= asked:
             paging = {
                 "guess": "",
-                "evidence": f"한 쪽에 {asked}건을 달라고 해 {seen}건이 왔습니다 — 쪽 넘김 "
-                "질의가 들었는지 지침서로 확인하세요.",
+                "evidence": f"페이지당 {asked}건을 요청해 {seen}건을 수신했습니다. 페이지 "
+                "처리 파라미터가 적용되었는지 API 명세로 확인하세요.",
             }
         elif seen > asked:
             paging = {
                 "guess": "none",
-                "evidence": f"{asked}건을 달라고 했는데 {seen}건이 왔습니다 — 쪽 크기 질의가 "
-                "안 듣거나 쪽 넘김이 없는 원천입니다.",
+                "evidence": f"{asked}건을 요청했지만 {seen}건을 수신했습니다. 페이지 크기 "
+                "파라미터가 적용되지 않거나 페이지 처리가 없는 원천입니다.",
             }
     out["paging"] = paging
     if paging.get("evidence"):

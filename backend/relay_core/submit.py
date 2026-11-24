@@ -64,7 +64,8 @@ class Submitter:
             errors = [one for one in errors if not one.startswith(EMPTY)]
         if errors:
             raise SubmitError(
-                "검증을 먼저 통과하세요:\n" + "\n".join(f"오류: {one}" for one in errors)
+                "번들 검증에 실패했습니다. 다음 오류를 수정하세요:\n"
+                + "\n".join(f"오류: {one}" for one in errors)
             )
         body = sp.pipeline.payload(loaded)
         digest = str(sp.pipeline.digest(body))

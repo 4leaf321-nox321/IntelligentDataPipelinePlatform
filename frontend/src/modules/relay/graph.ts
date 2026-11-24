@@ -7,6 +7,7 @@
  */
 
 import type { MapEdge, MapNode, RelayMap } from '@/modules/relay/api'
+import { needsAttention } from '@/modules/relay/board'
 
 /** 합친 선 하나. `parts` 는 그 길로 간 몫 — `owner` 가 없으면 특정 파이프라인의 것이 아니다. */
 export interface FlowEdge {
@@ -166,12 +167,15 @@ export function targetRows(graph: RelayGraph): TargetRow[] {
   }))
 }
 
-/** 거르기 — 빈 글이면 그 축은 안 거른다. */
+/** 필터 — 빈 문자열이면 그 축은 필터하지 않는다. 상태의 `ATTENTION_FILTER` 는 '확인 필요만'이다. */
 export interface MapFilter {
   system: string
   target: string
   status: string
 }
+
+/** 상태 필터의 '확인 필요만' — 실패 · 중단 · 지연 · 적용 대기 · 대상 불일치 등(`board.needsAttention`). */
+export const ATTENTION_FILTER = 'attention'
 
 export const NO_FILTER: MapFilter = { system: '', target: '', status: '' }
 
@@ -191,7 +195,8 @@ export function visibleIds(graph: RelayGraph, filter: MapFilter): Set<string> | 
     (row) =>
       (!filter.system || row.systems.some((one) => one.id === filter.system)) &&
       (!filter.target || row.targets.some((one) => one.id === filter.target)) &&
-      (!filter.status || row.node.status === filter.status),
+      (!filter.status ||
+        (filter.status === ATTENTION_FILTER ? needsAttention(row) : row.node.status === filter.status)),
   )
   const visible = new Set<string>()
   for (const row of kept) {

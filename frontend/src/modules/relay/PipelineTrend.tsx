@@ -20,10 +20,10 @@ import { shownDateTime } from '@/shared/lib/datetime'
 
 /** 실행의 결과 — 실행 이력의 말과 같다. */
 const STATUS_LABEL: Record<string, string> = {
-  nothing: '보낼 것 없음',
+  nothing: '변경 사항 없음',
   planned: '계획 생성',
-  waiting: '같은 계획 대기',
-  blocked: '멈춤',
+  waiting: '동일 계획 대기',
+  blocked: '중단',
   failed: '실패',
 }
 
@@ -61,7 +61,7 @@ export default function PipelineTrend({ slug }: { slug: string }) {
     return (
       <div className="space-y-2">
         <ErrorNotice error={trend.error} />
-        {trend.loading && <p className="text-muted-foreground text-sm">읽는 중…</p>}
+        {trend.loading && <p className="text-muted-foreground text-sm">불러오는 중…</p>}
       </div>
     )
   }
@@ -69,7 +69,7 @@ export default function PipelineTrend({ slug }: { slug: string }) {
   if (rows.length === 0) {
     return (
       <p className="text-muted-foreground text-sm">
-        아직 기록된 실행이 없습니다 — 실행이 끝날 때마다(실패한 실행도) 한 줄씩 쌓입니다.
+        기록된 실행이 없습니다. 실행이 끝날 때마다(실패 포함) 한 건씩 기록됩니다.
       </p>
     )
   }
@@ -82,23 +82,23 @@ export default function PipelineTrend({ slug }: { slug: string }) {
   return (
     <div className="space-y-3">
       <p className="text-muted-foreground text-sm">
-        최근 {rows.length}번
-        {trend.data.total > rows.length && `(남은 기록 ${trend.data.total}번 중)`} — 실패 {failed} · 멈춤{' '}
+        최근 {rows.length}회
+        {trend.data.total > rows.length && `(전체 기록 ${trend.data.total}회 중)`} · 실패 {failed} · 중단{' '}
         {blocked}
-        {held > 0 && `(받기 점검 ${held})`} · 평균 {seconds.toFixed(0)}초
+        {held > 0 && `(수신 검증 ${held})`} · 평균 {seconds.toFixed(0)}초
       </p>
       <div className="grid gap-3 lg:grid-cols-3">
-        <Figure caption="원천 행 — 미러 · 받은 행">
+        <Figure caption="원천 행 — 미러 · 수신 행">
           <Chart
             kind="line"
             data={data}
             x="at"
             series={[
               { key: 'mirror', label: '미러' },
-              { key: 'received', label: '받은 행' },
+              { key: 'received', label: '수신 행' },
             ]}
             height={200}
-            title="실행마다 미러와 받은 행의 수"
+            title="실행별 미러 행 수와 수신 행 수"
           />
         </Figure>
         <Figure caption="계획 — 생성 · 변경 · 삭제(객체 · 관계 합)">
@@ -113,17 +113,17 @@ export default function PipelineTrend({ slug }: { slug: string }) {
               { key: 'gone', label: '삭제' },
             ]}
             height={200}
-            title="실행마다 계획의 생성 · 변경 · 삭제 건수"
+            title="실행별 계획의 생성 · 변경 · 삭제 건수"
           />
         </Figure>
-        <Figure caption="실행 시간(초)">
+        <Figure caption="소요 시간(초)">
           <Chart
             kind="line"
             data={data}
             x="at"
             series={[{ key: 'seconds', label: '초' }]}
             height={200}
-            title="실행마다 걸린 시간(초)"
+            title="실행별 소요 시간(초)"
           />
         </Figure>
       </div>
@@ -133,9 +133,9 @@ export default function PipelineTrend({ slug }: { slug: string }) {
             <li key={one.at} className="flex flex-wrap items-baseline gap-x-3 px-3 py-1.5">
               <span className="text-muted-foreground w-36 shrink-0 text-xs">{shownDateTime(one.at)}</span>
               <span className="font-medium">
-                {one.held ? '받기 점검 멈춤' : (STATUS_LABEL[one.status] ?? one.status)}
+                {one.held ? '수신 검증 중단' : (STATUS_LABEL[one.status] ?? one.status)}
               </span>
-              {one.stage && <span className="text-muted-foreground text-xs">{one.stage} 단계에서</span>}
+              {one.stage && <span className="text-muted-foreground text-xs">{one.stage} 단계</span>}
             </li>
           ))}
         </ul>

@@ -57,43 +57,46 @@ def check(spec: Any, columns: Iterable[str] = ()) -> dict[str, dict[str, Any]]:
     if spec is None:
         return {}
     if not isinstance(spec, dict):
-        raise ComputeError("computed 는 {새 열: 계산} 모양이어야 합니다.")
+        raise ComputeError("computed는 {새 열: 계산} 형식이어야 합니다.")
     taken = set(columns)
     out: dict[str, dict[str, Any]] = {}
     for name, rule in spec.items():
         where = f"computed.{name}"
         if not str(name).strip():
-            raise ComputeError("computed 의 새 열 이름이 비었습니다.")
+            raise ComputeError("computed의 새 열 이름이 비어 있습니다.")
         if name in taken:
-            raise ComputeError(f"{where}: 어댑터가 이미 내는 열입니다 — 다른 이름을 쓰세요.")
+            raise ComputeError(
+                f"{where}: 어댑터가 이미 제공하는 열입니다. 다른 이름을 사용하세요."
+            )
         if not isinstance(rule, dict):
-            raise ComputeError(f"{where} 는 {{계산: …}} 객체입니다.")
+            raise ComputeError(f"{where}는 {{계산: …}} 객체여야 합니다.")
         ops = [one for one in OPS if one in rule]
         if len(ops) != 1:
-            raise ComputeError(f"{where}: 계산은 {' · '.join(OPS)} 중 하나만 적습니다.")
+            raise ComputeError(f"{where}: 계산은 {' · '.join(OPS)} 중 하나만 지정합니다.")
         op = ops[0]
         unknown = sorted(set(rule) - _KEYS[op])
         if unknown:
-            raise ComputeError(f"{where}: 모르는 칸입니다: {', '.join(unknown)}")
+            raise ComputeError(f"{where}: 지원하지 않는 항목입니다: {', '.join(unknown)}")
         if op == "first":
             if not isinstance(rule["first"], list) or not rule["first"]:
-                raise ComputeError(f"{where}.first 는 열 이름의 목록입니다.")
+                raise ComputeError(f"{where}.first는 열 이름의 목록이어야 합니다.")
         elif not isinstance(rule[op], str) or not rule[op].strip():
-            raise ComputeError(f"{where}.{op} 이 비었습니다.")
+            raise ComputeError(f"{where}.{op} 값이 비어 있습니다.")
         if op == "replace":
             pattern = str(rule.get("pattern") or "")
             try:
                 re.compile(pattern)
             except re.error as failure:
                 raise ComputeError(
-                    f"{where}.pattern 이 정규식이 아닙니다: {failure}"
+                    f"{where}.pattern이 올바른 정규식이 아닙니다: {failure}"
                 ) from None
             if len(pattern) > PATTERN_MAX or _NESTED.search(pattern):
                 # 파이썬의 re 에는 시간 제한이 없다 — `(a+)+` 는 25글자에 0.5초, 한 글자마다
                 # 두 배다. 행마다 도는 계산이라 워커가 멈춘다(2026-11-08 보안 점검).
                 raise ComputeError(
-                    f"{where}.pattern 은 {PATTERN_MAX}자 이내, 반복 안의 반복(`(a+)+` 같은 "
-                    "중첩)은 쓰지 않습니다 — 값마다 시간이 폭발할 수 있습니다."
+                    f"{where}.pattern은 {PATTERN_MAX}자 이내여야 하며, 중첩 반복(`(a+)+` "
+                    "등)은 사용할 수 없습니다. 값에 따라 처리 시간이 급격히 늘어날 수 "
+                    "있습니다."
                 )
         if op == "datetime":
             zone = str(rule.get("timezone") or "")
@@ -101,22 +104,24 @@ def check(spec: Any, columns: Iterable[str] = ()) -> dict[str, dict[str, Any]]:
                 try:
                     ZoneInfo(zone)
                 except (ZoneInfoNotFoundError, ValueError):
-                    raise ComputeError(f"{where}.timezone 을 모릅니다: {zone!r}") from None
+                    raise ComputeError(
+                        f"{where}.timezone을 인식할 수 없습니다: {zone!r}"
+                    ) from None
             if rule.get("output", "utc") not in ("utc", "date"):
-                raise ComputeError(f"{where}.output 은 utc · date 입니다.")
+                raise ComputeError(f"{where}.output은 utc 또는 date여야 합니다.")
         if op == "number":
             for one in ("multiply", "add"):
                 if one in rule and (
                     isinstance(rule[one], bool) or not isinstance(rule[one], int | float)
                 ):
-                    raise ComputeError(f"{where}.{one} 은 수입니다.")
+                    raise ComputeError(f"{where}.{one} 값은 숫자여야 합니다.")
             places = rule.get("round")
             if places is not None and (
                 isinstance(places, bool)
                 or not isinstance(places, int)
                 or not 0 <= places <= 12
             ):
-                raise ComputeError(f"{where}.round 는 0 ~ 12 의 정수입니다.")
+                raise ComputeError(f"{where}.round는 0~12의 정수여야 합니다.")
         taken.add(str(name))
         out[str(name)] = dict(rule)
     return out
@@ -137,15 +142,15 @@ def inputs(rule: Mapping[str, Any]) -> list[str]:
 def describe(rule: Mapping[str, Any]) -> str:
     """칸 대응 표의 「변환」 한 줄."""
     if "template" in rule:
-        return f"잇기 {rule['template']}"
+        return f"결합 {rule['template']}"
     if "number" in rule:
         return f"숫자 * {rule.get('multiply', 1)} + {rule.get('add', 0)}"
     if "datetime" in rule:
         zone = rule.get("timezone") or "UTC"
         return f"시각({zone} → {'날짜' if rule.get('output') == 'date' else 'UTC'})"
     if "replace" in rule:
-        return f"바꾸기 /{rule.get('pattern', '')}/"
-    return "앞의 빈 값이 아닌 것"
+        return f"치환 /{rule.get('pattern', '')}/"
+    return "첫 번째 비어 있지 않은 값"
 
 
 def _number(text: str, rule: Mapping[str, Any]) -> str:

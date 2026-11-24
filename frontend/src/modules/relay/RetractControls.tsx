@@ -81,7 +81,7 @@ export function RetractControls({
   async function retract() {
     if (!body) return
     const made = await relayApi.retract(detail.slug, body)
-    onQueued({ ...made, what: '걷어내기' })
+    onQueued({ ...made, what: '전송 데이터 회수' })
   }
 
   async function resume() {
@@ -95,18 +95,19 @@ export function RetractControls({
     return (
       <div className="space-y-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-3 text-sm">
         <p className="font-medium">
-          보낸 것을 걷어내고 멈췄습니다{state.stopped.scope ? ` — ${state.stopped.scope}` : ''}
+          전송 데이터를 회수하고 파이프라인을 중지했습니다.
+          {state.stopped.scope ? ` 회수 대상: ${state.stopped.scope}` : ''}
         </p>
         <p className="text-muted-foreground text-xs">
           {waiting
-            ? '걷어내기 계획이 적용을 기다립니다 — 대상 SP 에서 계획을 읽고 「적용」 을 클릭하세요. '
+            ? '회수 계획이 적용 대기 중입니다. 대상 SP에서 계획을 확인하고 [적용]을 클릭하세요. '
             : ''}
-          원천에서 그 행을 지우거나 레시피를 고친 뒤 「다시 켜기」 를 클릭하세요 — 원천에 그대로 있으면 다음
-          실행이 다시 만듭니다.
+          원천에서 해당 데이터를 삭제하거나 레시피를 수정한 후 [재개]를 클릭하세요. 원천에 데이터가 남아
+          있으면 다음 실행이 다시 생성합니다.
         </p>
         <Button size="sm" variant="outline" onClick={() => setOpen('resume')}>
           <PlayCircle />
-          다시 켜기
+          재개
         </Button>
         {said && (
           <Alert>
@@ -115,22 +116,23 @@ export function RetractControls({
         )}
         <ConfirmDialog
           open={open === 'resume'}
-          title="파이프라인을 다시 켭니다"
+          title="파이프라인 재개"
           description={
             <div className="space-y-2">
               {waiting && (
                 <p>
-                  적용을 기다리는 걷어내기 계획이 있습니다 — 대상에서 적용됐으면 그대로 기준으로 올리고,
-                  아니면 <b>그 계획을 거둡니다</b>(대상 SP 작업 화면에 남은 그 미리 보기는 적용하지 마세요).
+                  적용 대기 중인 회수 계획이 있습니다. 대상에서 적용되었으면 기준 출력으로 반영하고, 적용되지
+                  않았으면 <b>해당 계획을 취소합니다</b>. 대상 SP의 [작업] 화면에 남은 미리 보기는 적용하지
+                  마세요.
                 </p>
               )}
               <p>
-                다음 실행부터 원천을 받습니다. 원천에 걷어낸 행이 그대로 있으면 다음 계획이 그것을 다시
-                만듭니다.
+                다음 실행부터 원천을 수신합니다. 원천에 회수한 데이터가 남아 있으면 다음 계획이 해당 객체를
+                다시 생성합니다.
               </p>
             </div>
           }
-          confirmLabel="다시 켜기"
+          confirmLabel="재개"
           onConfirm={resume}
           onClose={() => setOpen(null)}
         />
@@ -144,28 +146,29 @@ export function RetractControls({
     <div className="flex flex-wrap items-center gap-3">
       <Button size="sm" variant="outline" onClick={() => setOpen('retract')} disabled={blocked}>
         <Eraser />
-        보낸 것 걷어내기
+        전송 데이터 회수
       </Button>
       <span className="text-muted-foreground text-xs">
         {blocked
-          ? '적용을 기다리는 계획이 있으면 걷어낼 수 없습니다 — 그 계획을 적용하거나 다시 실행한 뒤에.'
-          : '시험으로 · 잘못 보낸 객체를 대상에서 사용 중지로 거둡니다(대상 SP 화면에서는 원천의 것이라 못 지웁니다).'}
+          ? '적용 대기 중인 계획이 있어 회수할 수 없습니다. 계획을 적용하거나 다시 실행한 후 진행하세요.'
+          : '테스트 데이터나 오전송 데이터를 대상에서 회수합니다. 원천이 관리하는 객체는 대상 SP 화면에서 삭제할 수 없습니다.'}
       </span>
       <ConfirmDialog
         open={open === 'retract'}
-        title="보낸 것 걷어내기"
+        title="전송 데이터 회수"
         destructive
-        confirmLabel="걷어내기 계획 올리기"
+        confirmLabel="회수 계획 생성"
         confirmDisabled={!body}
         description={
           <div className="space-y-3">
             <p>
-              이 파이프라인이 대상에 넣은 것 중 고른 객체와, 그것에 닿는 선을{' '}
-              <b>{removing ? '지우기' : '사용 중지'} · 끊기</b>로 거두는 계획을 올리고 <b>파이프라인을 멈춥니다</b>.
-              대상에는 계획을 「적용」 해야 들어갑니다. 넣지 않은 것(다른 원천 · 사람이 만든 것)은 거절합니다.
+              이 파이프라인이 대상에 적재한 객체 중 선택한 객체를 <b>{removing ? '삭제' : '사용 중지'}</b>하고
+              연결된 관계를 해제하는 회수 계획을 생성한 후 <b>파이프라인을 중지</b>합니다. 대상에는 계획을
+              [적용]해야 반영됩니다. 이 파이프라인이 적재하지 않은 객체(다른 원천 또는 사람이 생성한 객체)는
+              회수할 수 없습니다.
             </p>
             <fieldset className="space-y-1.5">
-              <legend className="text-muted-foreground mb-1 text-xs">대상에서</legend>
+              <legend className="text-muted-foreground mb-1 text-xs">회수 방식</legend>
               <label className="flex items-center gap-2">
                 <input
                   type="radio"
@@ -174,7 +177,7 @@ export function RetractControls({
                   disabled={mode === 'previous'}
                   onChange={() => setAction('deprecate')}
                 />
-                사용 중지(객체는 남고 그만 씁니다)
+                사용 중지(기본, 객체는 남음)
               </label>
               <label className="flex items-center gap-2">
                 <input
@@ -184,25 +187,29 @@ export function RetractControls({
                   disabled={!deletes}
                   onChange={() => setAction('delete')}
                 />
-                지우기(되돌릴 수 없습니다 — 이력 · 감사 기록은 남고, 가리키는 것이 있으면 대상이 그 줄을 막습니다)
+                삭제(되돌릴 수 없음)
               </label>
-              {!deletes && (
+              {deletes ? (
                 <p className="text-muted-foreground pl-6 text-xs">
-                  대상 SP{detail.target_version ? `(${detail.target_version})` : ''} 는 지우기를 받지 않습니다 — SP
-                  0.4.101 부터.
+                  이력과 감사 기록은 남습니다. 다른 객체가 참조하는 객체는 대상이 삭제를 거부합니다.
+                </p>
+              ) : (
+                <p className="text-muted-foreground pl-6 text-xs">
+                  삭제는 SP 0.4.101 이상 지원
+                  {detail.target_version ? `(현재 대상 ${detail.target_version})` : ''}
                 </p>
               )}
             </fieldset>
             <fieldset className="space-y-2">
-              <legend className="text-muted-foreground mb-1 text-xs">무엇을</legend>
+              <legend className="text-muted-foreground mb-1 text-xs">회수 대상</legend>
               <label className="flex items-center gap-2">
                 <input type="radio" name="retract-mode" checked={mode === 'keys'} onChange={() => setMode('keys')} />
-                식별자로
+                식별자 지정
               </label>
               {mode === 'keys' && (
                 <div className="space-y-1.5 pl-6">
                   <select
-                    aria-label="걷어낼 타입"
+                    aria-label="회수할 타입"
                     className={SELECT}
                     value={keyType}
                     onChange={(event) => setKeyType(event.target.value)}
@@ -214,9 +221,9 @@ export function RetractControls({
                     ))}
                   </select>
                   <Textarea
-                    aria-label="걷어낼 식별자"
+                    aria-label="회수할 식별자"
                     rows={4}
-                    placeholder="식별자 — 한 줄에 하나(쉼표도 됩니다)"
+                    placeholder="식별자(줄바꿈 또는 쉼표로 구분)"
                     value={keys}
                     onChange={(event) => setKeys(event.target.value)}
                   />
@@ -225,7 +232,7 @@ export function RetractControls({
               )}
               <label className="flex items-center gap-2">
                 <input type="radio" name="retract-mode" checked={mode === 'types'} onChange={() => setMode('types')} />
-                타입 전부
+                타입 전체
               </label>
               {mode === 'types' && (
                 <div className="flex flex-wrap gap-3 pl-6">
@@ -247,7 +254,7 @@ export function RetractControls({
               )}
               <label className="flex items-center gap-2">
                 <input type="radio" name="retract-mode" checked={mode === 'all'} onChange={() => setMode('all')} />
-                이 파이프라인이 넣은 것 전부
+                이 파이프라인이 적재한 객체 전체
               </label>
               {deletes && (detail.retracted ?? 0) > 0 && (
                 <label className="flex items-center gap-2">
@@ -257,7 +264,8 @@ export function RetractControls({
                     checked={mode === 'previous'}
                     onChange={() => setMode('previous')}
                   />
-                  앞서 사용 중지로 걷어낸 것 지우기(걷어낸 기록 {detail.retracted}개 중 대상에 사용 중지로 남은 것)
+                  이전에 사용 중지로 회수한 객체 삭제(회수 기록 {detail.retracted}개 중 대상에 사용 중지 상태로 남은
+                  객체)
                 </label>
               )}
             </fieldset>

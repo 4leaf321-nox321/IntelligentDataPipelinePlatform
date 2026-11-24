@@ -122,7 +122,7 @@ class _SmbClient:
             self._kwargs.update(username=auth.user, password=auth.token)
         elif auth.kind != "none":
             raise SourceError(
-                "공유 폴더의 auth.kind 는 basic(계정 · 비밀번호) 또는 none 입니다."
+                "공유 폴더의 auth.kind는 basic(계정, 비밀번호) 또는 none이어야 합니다."
             )
         self._server = server
 
@@ -169,7 +169,7 @@ class _SftpClient:
             source.auth.kind == "none" and not source.auth.cert
         ):
             raise SourceError(
-                "sftp 의 auth 는 basic(계정 · 비밀번호) 또는 auth.cert(SSH 개인 키)입니다."
+                "sftp의 auth는 basic(계정, 비밀번호) 또는 auth.cert(SSH 개인 키)여야 합니다."
             )
 
     def _open(self) -> Any:
@@ -187,14 +187,15 @@ class _SftpClient:
             wanted = source.host_key.strip()
             if not wanted:
                 raise SourceError(
-                    f"sftp 서버({self.host})의 호스트 키 지문을 정의에 적어야 읽습니다 — 이 "
-                    f"서버의 지문: {seen} ({key.get_name()}). 서버 담당에게 맞는지 확인하고 "
-                    "adapter.host_key 에 적으세요."
+                    f"sftp 서버({self.host})의 호스트 키 지문이 정의에 없어 연결하지 "
+                    f"않았습니다. 이 서버의 지문: {seen} ({key.get_name()}). 서버 담당자에게 "
+                    "지문을 확인한 후 adapter.host_key에 입력하세요."
                 )
             if not hmac.compare_digest(seen, wanted):
                 raise SourceError(
-                    f"sftp 서버({self.host})의 호스트 키가 정의와 다릅니다(받은 {seen}) — "
-                    "서버를 바꿨거나 중간에서 가로챘을 수 있습니다. 서버 담당에게 확인하세요."
+                    f"sftp 서버({self.host})의 호스트 키가 정의와 다릅니다(수신 지문 {seen}). "
+                    "서버가 교체되었거나 중간에서 가로챈 연결일 수 있습니다. 서버 담당자에게 "
+                    "확인하세요."
                 )
             auth = source.auth
             if auth.cert:
@@ -216,7 +217,7 @@ class _SftpClient:
                 else str(failure)
             )
             raise SourceError(
-                f"sftp 에 닿지 못했습니다({self.host}): {type(failure).__name__}: {said}"
+                f"sftp에 연결할 수 없습니다({self.host}): {type(failure).__name__}: {said}"
             ) from None
 
     def listdir(self, folder: str) -> list[tuple[str, float]]:
@@ -281,16 +282,16 @@ class FileAdapter:
                         auth=self.source.auth.http_auth() or httpx.USE_CLIENT_DEFAULT,
                     )
                 except httpx.HTTPError as failure:
-                    last = f"닿지 않습니다: {failure}"
+                    last = f"연결할 수 없습니다: {failure}"
                 else:
                     if got.status_code == 200:
                         return where.rsplit("/", 1)[-1].split("?")[0], got.content
                     last = f"{got.status_code}"
                     if got.status_code < 500:
-                        raise SourceError(f"파일을 못 받았습니다({where}): {last}")
+                        raise SourceError(f"파일을 다운로드하지 못했습니다({where}): {last}")
                 self._sleep(min(2**attempt, 10))
             raise SourceError(
-                f"파일을 {self.source.retries}번 받으려 했지만 실패했습니다: {last}"
+                f"파일 다운로드가 {self.source.retries}회 모두 실패했습니다: {last}"
             )
         if where.startswith("smb://"):
             return self._from_share(where)
@@ -307,9 +308,7 @@ class FileAdapter:
         if self.roots is not None:
             real = path.resolve()
             if not any(real.is_relative_to(root) for root in self.roots):
-                raise SourceError(
-                    f"읽어도 되는 폴더(RELAY_FILE_ROOTS) 밖의 파일입니다: {path}"
-                )
+                raise SourceError(f"허용된 폴더(RELAY_FILE_ROOTS) 밖의 파일입니다: {path}")
         return path.name, path.read_bytes()
 
     def _from_share(self, where: str) -> tuple[str, bytes]:
@@ -317,14 +316,17 @@ class FileAdapter:
         parts = urlsplit(where)
         if parts.username or parts.password:
             raise SourceError(
-                "smb 주소에 계정을 적지 않습니다 — auth.user · auth.token_env 를 쓰세요."
+                "smb 주소에는 계정을 입력하지 않습니다. auth.user와 auth.token_env를 "
+                "사용하세요."
             )
         segments = [unquote(one) for one in parts.path.strip("/").split("/") if one]
         if not parts.hostname or len(segments) < 2:
-            raise SourceError(f"smb://<서버>/<공유>/…/<파일> 이어야 합니다: {where}")
+            raise SourceError(f"smb://<서버>/<공유>/…/<파일> 형식이어야 합니다: {where}")
         folder, pattern = segments[:-1], segments[-1]
         if any(c in one for one in folder for c in "*?["):
-            raise SourceError(f"폴더 이름에는 * 를 못 씁니다 — 파일 이름에만: {where}")
+            raise SourceError(
+                f"폴더 이름에는 *를 사용할 수 없습니다. 파일 이름에만 사용합니다: {where}"
+            )
         unc = "\\\\" + parts.hostname + "\\" + "\\".join(folder)
         files = self._smb or _SmbClient(parts.hostname, parts.port or 445, self.source)
         last = ""
@@ -345,7 +347,7 @@ class FileAdapter:
                 last = f"{type(failure).__name__}: {failure}"
             self._sleep(min(2**attempt, 10))
         raise SourceError(
-            f"공유 폴더를 {self.source.retries}번 읽으려 했지만 실패했습니다: {last}"
+            f"공유 폴더 읽기가 {self.source.retries}회 모두 실패했습니다: {last}"
         )
 
     def _from_sftp(self, where: str) -> tuple[str, bytes]:
@@ -353,14 +355,17 @@ class FileAdapter:
         parts = urlsplit(where)
         if parts.username or parts.password:
             raise SourceError(
-                "sftp 주소에 계정을 적지 않습니다 — auth.user · auth.token_env 를 쓰세요."
+                "sftp 주소에는 계정을 입력하지 않습니다. auth.user와 auth.token_env를 "
+                "사용하세요."
             )
         segments = [unquote(one) for one in parts.path.split("/") if one]
         if not parts.hostname or not segments:
-            raise SourceError(f"sftp://<서버>/<폴더…>/<파일> 이어야 합니다: {where}")
+            raise SourceError(f"sftp://<서버>/<폴더…>/<파일> 형식이어야 합니다: {where}")
         folder, pattern = "/" + "/".join(segments[:-1]), segments[-1]
         if any(c in folder for c in "*?["):
-            raise SourceError(f"폴더 이름에는 * 를 못 씁니다 — 파일 이름에만: {where}")
+            raise SourceError(
+                f"폴더 이름에는 *를 사용할 수 없습니다. 파일 이름에만 사용합니다: {where}"
+            )
         files = self._sftp or _SftpClient(parts.hostname, parts.port or 22, self.source)
         found = [
             (name, mtime)
@@ -385,7 +390,8 @@ class FileAdapter:
         if suffix in ("parquet", "pq"):
             return "parquet"
         raise SourceError(
-            f"형식을 모릅니다({name}) — format 을 csv · xlsx · json · parquet 으로 적으세요."
+            f"파일 형식을 인식할 수 없습니다({name}). format을 csv, xlsx, json, parquet 중 "
+            "하나로 지정하세요."
         )
 
     def _decode(self, raw: bytes) -> str:
@@ -400,7 +406,7 @@ class FileAdapter:
             except UnicodeDecodeError:
                 continue
         raise SourceError(
-            f"인코딩을 못 읽었습니다({', '.join(tries)}) — encoding 을 적으세요."
+            f"인코딩을 인식할 수 없습니다({', '.join(tries)}). encoding을 지정하세요."
         )
 
     def rows(self, limit: int | None = None) -> tuple[str, str, list[dict[str, Any]]]:
@@ -456,10 +462,10 @@ class FileAdapter:
             items = value_at(body, self.source.rows_path) if self.source.rows_path else body
             if not isinstance(items, list):
                 raise SourceError(
-                    f"JSON 의 행 자리({self.source.rows_path or '문서'})가 목록이 아닙니다."
+                    f"JSON의 행 위치({self.source.rows_path or '문서'})가 목록이 아닙니다."
                 )
             return name, digest, items
-        raise SourceError(f"모르는 형식입니다: {kind}")
+        raise SourceError(f"지원하지 않는 형식입니다: {kind}")
 
     def _columns(self, sample: dict[str, Any]) -> Mapping[str, str]:
         if self.source.columns == "*":

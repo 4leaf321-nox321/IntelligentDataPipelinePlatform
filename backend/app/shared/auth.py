@@ -75,8 +75,8 @@ def _enforce_token_scope(request: Request, token_scopes: list[str], path: str) -
             return
         raise Forbidden(
             code("AUTH", 104),
-            f"이 토큰에는 이 경로를 읽을 범위가 없습니다({scopes.READ} 또는 그 자리의 "
-            "좁은 범위).",
+            f"이 토큰에는 이 경로의 읽기 범위가 없습니다({scopes.READ} 또는 해당 경로의 "
+            "세부 범위 필요).",
             details={"path": path, "granted": token_scopes},
         )
 
@@ -86,7 +86,7 @@ def _enforce_token_scope(request: Request, token_scopes: list[str], path: str) -
         # 그것을 알아채는 사람이 아무도 없다.
         raise Forbidden(
             code("AUTH", 105),
-            "개인 토큰으로는 이 경로를 고칠 수 없습니다. 화면에서 하세요.",
+            "개인 토큰으로는 이 경로를 변경할 수 없습니다. 화면에서 진행하세요.",
             details={"path": path},
         )
     if needed not in token_scopes:

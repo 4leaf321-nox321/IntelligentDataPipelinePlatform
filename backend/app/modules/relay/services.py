@@ -26,6 +26,7 @@ from app.config import BACKEND_DIR, get_settings
 from app.modules.accounts.models import User
 from app.modules.jobs.models import Job
 from app.modules.relay import guard
+from app.modules.relay import targets as target_status
 from app.modules.relay.schemas import (
     LineageStep,
     MapEdge,
@@ -56,13 +57,13 @@ PROBE_SECONDS = 3.0
 STATUS_LABEL = {
     "ok": "정상",
     "pending": "적용 대기",
-    "blocked": "멈춤",
-    "late": "늦음",
+    "blocked": "중단",
+    "late": "지연",
     "failed": "실패",
     "broken": "정의 오류",
-    "never": "실행 전",
+    "never": "미실행",
     "draft": "초안(미사용)",
-    "stopped": "걷어내고 멈춤",
+    "stopped": "회수 후 중지",
 }
 
 
@@ -108,16 +109,16 @@ def catalog(db: Session | None = None) -> list[Described]:
         for one in found:
             recipe = recipes.active(db, one.slug)
             if recipe is not None:
-                recipes.with_recipe(one, recipe.body, f"판 {recipe.version}")
+                recipes.with_recipe(one, recipe.body, f"버전 {recipe.version}")
             elif one.recipe is None and one.origin != "파일" and not one.draft:
-                one.problems.append("레시피가 없습니다 — 레시피 판을 작성하고 사용하세요.")
+                one.problems.append("레시피가 없습니다. 레시피 버전을 작성하고 사용하세요.")
     roots = settings.relay_file_root_paths
     for one in found:
         if one.adapter_kind == "file" and not one.endpoint.startswith(guard.REMOTE):
             head = Path(re.split(r"[*?\[]", one.endpoint, maxsplit=1)[0] or ".").resolve()
             if not any(head == r or head.is_relative_to(r) for r in roots):
                 one.problems.append(
-                    f"파일 자리가 읽어도 되는 폴더(RELAY_FILE_ROOTS) 밖입니다: {one.endpoint}"
+                    f"파일 경로가 허용 폴더(RELAY_FILE_ROOTS) 밖에 있습니다: {one.endpoint}"
                 )
     return sorted(found, key=lambda one: one.slug)
 
@@ -361,7 +362,8 @@ def _node_id(kind: str, *parts: str) -> str:
     return f"{kind}:" + hashlib.sha1("|".join(parts).encode()).hexdigest()[:10]
 
 
-def build_map(db: Session) -> RelayMap:
+def build_map(db: Session, *, probe: bool = False) -> RelayMap:
+    """연결 지도 — `probe` 면 대상 상태를 저장값 대신 지금 조회한다([대상 다시 조회])."""
     env = secrets_env()
     nodes: dict[str, MapNode] = {}
     edges: list[MapEdge] = []
@@ -388,6 +390,7 @@ def build_map(db: Session) -> RelayMap:
             ),
         )
         pending = (state or {}).get("pending") or {}
+        last = jobs[0] if jobs else None
         pipeline = f"pipeline:{found.slug}"
         nodes[pipeline] = MapNode(
             id=pipeline,
@@ -414,6 +417,13 @@ def build_map(db: Session) -> RelayMap:
                 "reconciled_at": report.get("at"),
                 "late": late,
                 "held": list(((state or {}).get("held") or {}).get("reasons") or []),
+                # 마지막 실행 · 적용 작업 — 목록의 '마지막 실행' 열과 요약의 실패 사유.
+                "last_job_at": (
+                    (last.finished_at or last.created_at).isoformat() if last else None
+                ),
+                "last_error": (
+                    (last.error or "")[:200] if last and last.status == "failed" else ""
+                ),
             },
         )
         edges.append(MapEdge(source=system, target=endpoint))
@@ -448,28 +458,25 @@ def build_map(db: Session) -> RelayMap:
 
     for one in nodes.values():
         if one.kind == "target" and one.id not in targets:
-            one.status, one.status_label = "draft", "확인하지 않음(초안)"
+            one.status, one.status_label = "draft", "미확인(초안)"
     # 대상이 지금 하는 말 — 판 · slug(엉뚱한 곳에 붙지 않았나) · 그 너머(코어 현황의 수신자).
-    for target_id, (server, token) in targets.items():
+    # 대상의 상태는 타이머가 조회해 둔 값을 읽는다(`targets.py`) — 없거나 오래된 대상만 지금
+    # 조회한다.
+    checked = target_status.current(dict(targets.values()), probe_http, force=probe)
+    for target_id, (server, _token) in targets.items():
         node = nodes[target_id]
-        status_code, health = probe_http(server, "", "/api/health")
-        if status_code != 200 or not isinstance(health, dict):
-            node.status, node.status_label = "unreachable", "닿지 않음"
-            problems.append(f"{node.label}({server})에 닿지 않습니다.")
+        entry = checked.get(server) or {}
+        node.detail = {"server": server, "checked_at": entry.get("checked_at")}
+        if not entry.get("reachable"):
+            node.status, node.status_label = "unreachable", "연결 불가"
+            problems.append(f"{node.label}({server})에 연결할 수 없습니다.")
             continue
         node.status, node.status_label = "ok", "연결됨"
-        node.sub = f"{health.get('slug', '')} · {health.get('version', '')}"
-        node.detail = {
-            "slug": health.get("slug"),
-            "version": health.get("version"),
-            "app": health.get("app"),
-        }
-        if not token:
-            continue
-        status_code, core = probe_http(server, token, "/api/ontology/core-status")
-        if status_code != 200 or not isinstance(core, dict):
-            continue
-        for consumer in core.get("consumers") or []:
+        node.sub = f"{entry.get('slug') or ''} · {entry.get('version') or ''}"
+        node.detail.update(
+            slug=entry.get("slug"), version=entry.get("version"), app=entry.get("app")
+        )
+        for consumer in entry.get("consumers") or []:
             name = str(consumer.get("name") or "")
             if not name or name.startswith("datarelay"):
                 continue  # 자기 자신(relay 의 토큰)은 「그 너머」 가 아니다
@@ -517,17 +524,17 @@ def target_model(
                 guard.fence(catalog(db)),
             )
         except AppError as failure:
-            return empty, f"초안의 대상에는 묻지 않았습니다 — {failure.message}"
+            return empty, f"초안의 대상은 조회하지 않았습니다. {failure.message}"
     token = env.get(found.target_token_env, "")
     if not token:
         return (
             empty,
-            f"대상 토큰({found.target_token_env})을 읽지 못해 대상의 정의와 견주지 "
-            "못했습니다.",
+            f"대상 토큰({found.target_token_env})을 읽을 수 없어 대상의 정의와 비교하지 "
+            "않았습니다.",
         )
     status_code, schema = probe_http(found.target_server, token, "/api/ontology/schema")
     if status_code != 200 or not isinstance(schema, dict):
-        return empty, f"대상의 정의를 못 읽었습니다({status_code or '닿지 않음'})."
+        return empty, f"대상의 정의를 조회할 수 없습니다({status_code or '연결 불가'})."
     types: dict[str, Any] = {}
     for one in schema.get("types") or []:
         types[str(one.get("slug"))] = {
@@ -654,7 +661,8 @@ def trace_value(db: Session, slug: str, type_slug: str, key: str) -> dict[str, A
     found = by_slug(slug, db)
     if not (get_settings().relay_work_dir / slug).is_dir():
         raise NotFound(
-            code("RELAY", 19), f"{slug} 은 아직 원천을 받은 적이 없습니다 — 먼저 실행하세요."
+            code("RELAY", 19),
+            f"{slug}은 아직 원천 데이터를 수신하지 않았습니다. 먼저 실행하세요.",
         )
     settle_seen(db, found)
     active = recipes.active(db, slug)
@@ -701,20 +709,20 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
     items = [
         extensions.MaintenanceItem(
             key="relay_pending",
-            label="적용을 기다리는 중계 계획",
+            label="적용 대기 중계 계획",
             count=counts["pending"],
             link="/relay/map",
         ),
         extensions.MaintenanceItem(
             key="relay_trouble",
-            label="멈추거나 실패하거나 늦은 파이프라인",
+            label="중단 · 실패 · 지연 파이프라인",
             count=counts["blocked"] + counts["late"] + counts["failed"] + counts["broken"],
             link="/relay/map",
             severity="warning",
         ),
         extensions.MaintenanceItem(
             key="relay_drift",
-            label="대상과 어긋나거나 대조하지 못한 파이프라인",
+            label="대상 불일치 · 대조 실패 파이프라인",
             count=counts["drift"],
             link="/relay/map",
             severity="warning",
@@ -722,7 +730,7 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
         # 걷어내고 멈춘 것은 사고가 아니다 — 다시 켜는 것을 잊지 않게만.
         extensions.MaintenanceItem(
             key="relay_stopped",
-            label="보낸 것을 걷어내고 멈춘 파이프라인",
+            label="회수 후 중지 파이프라인",
             count=counts["stopped"],
             link="/relay/map",
         ),

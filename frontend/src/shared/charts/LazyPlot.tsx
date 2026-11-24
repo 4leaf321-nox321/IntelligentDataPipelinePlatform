@@ -102,8 +102,8 @@ export function LazyPlot({ data, layout, height = 320, toolbar = false, classNam
   if (failed) {
     return (
       <p className="text-muted-foreground py-8 text-center text-sm">
-        그림 도구를 불러오지 못했습니다. 새로고침해 보고, 그래도 안 되면 관리자에게 알려 주세요 —
-        데이터가 없는 것은 아닙니다.
+        차트 라이브러리를 불러오지 못했습니다. 데이터에는 문제가 없습니다. 새로 고침하고, 계속
+        실패하면 관리자에게 문의하세요.
       </p>
     )
   }
@@ -113,7 +113,7 @@ export function LazyPlot({ data, layout, height = 320, toolbar = false, classNam
       {!ready && (
         <div className="text-muted-foreground flex h-full items-center justify-center gap-2 text-sm">
           <Loader2 className="size-4 animate-spin" />
-          그림 준비 중…
+          차트 준비 중…
         </div>
       )}
       <div ref={box} style={{ height: '100%', display: ready ? 'block' : 'none' }} />

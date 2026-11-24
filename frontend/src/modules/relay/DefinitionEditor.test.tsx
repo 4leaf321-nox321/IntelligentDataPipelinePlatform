@@ -96,7 +96,7 @@ describe('정의 편집', () => {
     await waitFor(() => expect(relayApi.definition).toHaveBeenCalledWith('plm-tasks', 3))
     const path = await screen.findByLabelText('path')
     expect(path).toHaveValue('/tasks')
-    expect(screen.getByTestId('definition-changes')).toHaveTextContent('출발 판에서 바뀐 것이 없습니다.')
+    expect(screen.getByTestId('definition-changes')).toHaveTextContent('원본 대비 변경 사항 없음')
     expect(screen.getByRole('button', { name: '초안 저장' })).toBeDisabled()
 
     await userEvent.clear(path)
@@ -104,11 +104,11 @@ describe('정의 편집', () => {
     await userEvent.type(screen.getByLabelText('page_size'), '200')
     await userEvent.selectOptions(screen.getByLabelText('인증 방식'), 'ntlm')
     await userEvent.type(screen.getByLabelText('계정(CORP\\svc_relay)'), 'CORP\\svc')
-    await userEvent.type(screen.getByLabelText('열 2 원천의 자리'), '.at')
-    await userEvent.selectOptions(screen.getByRole('combobox', { name: '일정' }), 'every')
-    await userEvent.click(screen.getByLabelText('받기 점검 사용'))
+    await userEvent.type(screen.getByLabelText('열 2 원천 위치'), '.at')
+    await userEvent.selectOptions(screen.getByRole('combobox', { name: '실행 주기' }), 'every')
+    await userEvent.click(screen.getByLabelText('수신 검증 사용'))
     expect(screen.getByTestId('definition-changes')).toHaveTextContent(
-      '출발 판에서 바뀐 것: adapter.path · adapter.columns.DUE · adapter.auth.kind · adapter.auth.user(추가) · adapter.page_size(추가) · schedule.daily_at(삭제) · schedule.every_minutes(추가) · intake(추가)',
+      '원본 대비 변경 사항: adapter.path · adapter.columns.DUE · adapter.auth.kind · adapter.auth.user(추가) · adapter.page_size(추가) · schedule.daily_at(삭제) · schedule.every_minutes(추가) · intake(추가)',
     )
     await userEvent.type(screen.getByLabelText('정의 메모'), '경로 v2')
     await userEvent.click(screen.getByRole('button', { name: '초안 저장' }))
@@ -133,20 +133,20 @@ describe('정의 편집', () => {
   it('본문(JSON) — 읽히지 않으면 까닭을 말하고, 비밀을 적으면 저장하지 않는다', async () => {
     await mount()
     await screen.findByLabelText('path')
-    await userEvent.click(screen.getByRole('button', { name: '본문(JSON)' }))
-    const text = screen.getByLabelText('정의 본문')
+    await userEvent.click(screen.getByRole('button', { name: 'JSON 편집' }))
+    const text = screen.getByLabelText('정의 원문')
     await userEvent.clear(text)
     await userEvent.type(text, '{{not json')
-    await userEvent.click(screen.getByRole('button', { name: '칸' }))
-    expect(screen.getByText(/본문을 JSON 으로 읽지 못했습니다/)).toBeInTheDocument()
-    expect(screen.getByLabelText('정의 본문')).toBeInTheDocument() // 칸으로 돌아가지 않았다
+    await userEvent.click(screen.getByRole('button', { name: '항목 편집' }))
+    expect(screen.getByText(/원문의 JSON 형식이 올바르지 않습니다/)).toBeInTheDocument()
+    expect(screen.getByLabelText('정의 원문')).toBeInTheDocument() // 칸으로 돌아가지 않았다
 
     const leaked = { ...BODY, adapter: { ...BODY.adapter, auth: { kind: 'bearer', token: 's3cret' } } }
     await userEvent.clear(text)
     await userEvent.click(text)
     await userEvent.paste(JSON.stringify(leaked))
-    await userEvent.click(screen.getByRole('button', { name: '칸' }))
-    expect(await screen.findByText(/adapter.auth.token: 비밀은 정의에 적지 않습니다/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '항목 편집' }))
+    expect(await screen.findByText(/adapter.auth.token: 인증 정보의 값은 정의에 입력할 수 없습니다/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '초안 저장' })).toBeDisabled()
     expect(relayApi.saveDefinition).not.toHaveBeenCalled()
   })
@@ -154,6 +154,6 @@ describe('정의 편집', () => {
   it('정의 파일이 없으면 그렇다고 말한다', async () => {
     const { DefinitionEditor } = await import('@/modules/relay/DefinitionEditor')
     render(<DefinitionEditor slug="plm-tasks" versions={[]} onSaved={vi.fn()} onClose={vi.fn()} />)
-    expect(await screen.findByText(/같은 slug 의 정의 파일이 없습니다/)).toBeInTheDocument()
+    expect(await screen.findByText(/같은 slug의 정의 파일이 없습니다/)).toBeInTheDocument()
   })
 })

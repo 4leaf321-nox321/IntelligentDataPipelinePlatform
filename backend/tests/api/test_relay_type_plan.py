@@ -50,7 +50,7 @@ def test_타입_계획은_원천_이름과_함께_미리_보기로_올린다(
     assert one["source"] == "plm" and one["apply"] is False and one["ontology"] == ONTOLOGY
     assert one["origin"]["pipeline"] == slug and one["token"] == "t0k-target"
     assert body["job_id"] == "job-type-1" and "job-type-1" in body["link"]
-    assert body["types"] == ["plm_lot"] and any("「적용」" in line for line in body["next"])
+    assert body["types"] == ["plm_lot"] and any("[적용]" in line for line in body["next"])
 
     def refuse(server: str, token: str, body: dict[str, Any]) -> dict[str, Any]:
         raise sp.pipeline.Stop(

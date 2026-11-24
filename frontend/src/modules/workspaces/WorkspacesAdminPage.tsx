@@ -106,7 +106,7 @@ export default function WorkspacesAdminPage() {
     <div className="space-y-6">
       <PageHeader
         title="부서 정보"
-        description="조직도를 만들고 수정합니다. 끌어 놓아 상하관계를 바꿔도 자료는 하나도 움직이지 않습니다."
+        description="조직도를 생성하고 수정합니다. 끌어 놓기로 상하 관계를 변경해도 자료는 이동하지 않습니다."
         actions={
           <div className="flex gap-2">
             <Button variant="outline" onClick={() => setImporting(true)}>
@@ -172,10 +172,10 @@ export default function WorkspacesAdminPage() {
               부서를 만들고, 그 부서는 조직도 맨 아래에 혼자 선다. */}
           <SearchablePicker
             id="parent"
-            options={[{ value: ROOT, label: '최상위 (상위 없음)' }, ...parentOptions(all, null)]}
+            options={[{ value: ROOT, label: '최상위(상위 없음)' }, ...parentOptions(all, null)]}
             value={parent}
             onChange={setParent}
-            searchPlaceholder="부서 이름이나 주소로 검색"
+            searchPlaceholder="부서 이름 또는 주소로 검색"
           />
         </div>
         <Button type="submit" disabled={busy}>
@@ -192,7 +192,7 @@ export default function WorkspacesAdminPage() {
           <Input
             className="pl-8"
             value={query}
-            placeholder="부서 이름·주소·하는 일로 검색"
+            placeholder="부서 이름, 주소, 업무로 검색"
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
@@ -202,7 +202,7 @@ export default function WorkspacesAdminPage() {
           disabled={archivedCount === 0 && !showArchived}
           onClick={() => setShowArchived((before) => !before)}
         >
-          {showArchived ? '보관 숨기기' : `보관 포함${archivedCount ? ` (${archivedCount})` : ''}`}
+          {showArchived ? '보관 제외' : `보관 포함${archivedCount ? `(${archivedCount})` : ''}`}
         </Button>
         <Button
           variant="outline"
@@ -213,20 +213,20 @@ export default function WorkspacesAdminPage() {
             )
           }
         >
-          {collapsed.size > 0 ? '모두 확장' : '모두 접기'}
+          {collapsed.size > 0 ? '전체 확장' : '전체 축소'}
         </Button>
         <span className="text-muted-foreground text-sm">
-          {rows.length}개 보임 / 전체 {all.length}개
+          표시 {rows.length}개 / 전체 {all.length}개
         </span>
       </div>
 
       {rows.length === 0 ? (
         <EmptyState
-          title={query ? '맞는 부서가 없습니다' : '아직 부서가 없습니다'}
+          title={query ? '일치하는 부서 없음' : '부서 없음'}
           hint={
             query
-              ? '다른 말로 찾아 보거나, 보관된 부서를 포함해 보세요.'
-              : '위에서 하나 만들거나, 다른 플랫폼의 부서 정보를 붙여넣으세요.'
+              ? '다른 검색어로 검색하거나 보관된 부서를 포함해 검색하세요.'
+              : '위에서 부서를 추가하거나 다른 플랫폼의 부서 정보를 붙여넣으세요.'
           }
         />
       ) : (
@@ -249,9 +249,10 @@ export default function WorkspacesAdminPage() {
       )}
 
       <p className="text-muted-foreground text-xs">
-        줄을 끌어 다른 줄 <strong>위의 가는 띠</strong>에 놓으면 그 부서 앞에 형제로 서고,{' '}
-        <strong>줄 본체</strong>에 놓으면 그 부서의 막내가 됩니다. 마우스를 쓰지 않으면 ↑/↓ 단추로
-        같은 상위 안에서 순서를 바꾸고, 수정(✏️)에서 상위 부서를 선택할 수 있습니다.
+        행을 끌어 다른 행 <strong>위쪽의 얇은 띠</strong>에 놓으면 해당 부서 앞에 같은 수준으로
+        배치되고, <strong>행 본체</strong>에 놓으면 해당 부서의 마지막 하위 부서가 됩니다. 마우스를
+        사용하지 않을 때는 ↑/↓ 버튼으로 같은 상위 부서 안에서 순서를 변경하고, 수정(✏️)에서 상위
+        부서를 선택할 수 있습니다.
       </p>
 
       <ConfirmDialog
@@ -262,30 +263,30 @@ export default function WorkspacesAdminPage() {
             {/* **무엇이 사라지는지 적는다.** "정말 삭제하시겠습니까" 만 묻는 창은
                 아무도 안 읽고 예를 누른다 — 읽을 것이 없기 때문이다. */}
             {references === null ? (
-              <p className="text-muted-foreground">무엇이 걸려 있는지 확인 중…</p>
+              <p className="text-muted-foreground">연결된 자료 확인 중…</p>
             ) : references.length === 0 ? (
-              <p>이 부서를 가리키는 것이 없습니다. 지워도 잃는 자료가 없습니다.</p>
+              <p>이 부서를 참조하는 자료가 없습니다. 삭제해도 손실되는 자료가 없습니다.</p>
             ) : (
               <>
-                <p>이 부서를 가리키는 것들입니다:</p>
+                <p>이 부서를 참조하는 자료:</p>
                 <ul className="space-y-1">
                   {references.map((one) => (
                     <li key={one.table}>
                       {one.label} {one.count}건
                       {one.blocks_delete && (
-                        <span className="text-destructive ml-1">— 먼저 정리해야 합니다</span>
+                        <span className="text-destructive ml-1">(먼저 정리 필요)</span>
                       )}
                     </li>
                   ))}
                 </ul>
                 <p className="text-muted-foreground">
-                  <strong>자료 이동</strong>로 다른 부서에 넘기면 이 목록이 비고, 그때 지울 수
-                  있습니다.
+                  <strong>[자료 이동]</strong>으로 다른 부서에 이관하면 이 목록이 비워지고, 그 후
+                  삭제할 수 있습니다.
                 </p>
               </>
             )}
             <p className="text-muted-foreground">
-              삭제하는 대신 <strong>보관</strong>으로 두면 자료는 남고 새 활동만 막힙니다.
+              삭제하는 대신 <strong>보관</strong>하면 자료는 유지되고 새 활동만 제한됩니다.
             </p>
           </div>
         }

@@ -14,6 +14,6 @@ const SamplePage = lazy(() => import('./SamplePage'))
 
 export const sampleExtension: ExtensionDef = {
   name: 'sample',
-  nav: [{ title: '본보기', items: [{ label: '본보기 화면', icon: Puzzle, to: '/ext/sample' }] }],
+  nav: [{ title: '예시', items: [{ label: '예시 화면', icon: Puzzle, to: '/ext/sample' }] }],
   routes: [{ path: 'ext/sample', element: <SamplePage /> }],
 }

@@ -45,6 +45,9 @@ RELAY_DRIFT_RESOLVED = "relay.drift.resolved"
 RELAY_PLAN_WAITING = "relay.plan.waiting"
 """적용할 수 있는 계획이 새로 올라와 사람의 적용을 기다린다(자동 적용이 꺼졌거나 기준을 못
 넘었다). 생길 때 한 번 — 같은 계획을 다음 실행이 다시 올려도 새 알림이 아니다."""
+RELAY_DIGEST = "relay.digest"
+"""중계 일일 요약 — 확인이 필요한 파이프라인을 하루 한 번 모아서(`relay.digest`). 0건이면
+보내지 않는다."""
 
 
 def notify(

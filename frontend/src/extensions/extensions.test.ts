@@ -15,7 +15,7 @@ describe('extensions', () => {
     // **「확장」 이라는 바구니에 넣지 않는다.** 켜고 끄는 일이 「그 기능이 열렸다 / 닫혔다」
     // 로 읽혀야 한다 — 사용자는 「확장」 이라는 말로 자기 일을 찾지 않는다.
     const groups = extensionNavGroups(['sample'])
-    expect(groups.map((g) => g.title)).toEqual(['본보기'])
+    expect(groups.map((g) => g.title)).toEqual(['예시'])
     expect(groups[0].items.map((i) => i.to)).toEqual(['/ext/sample'])
   })
 

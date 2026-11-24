@@ -83,7 +83,7 @@ export function SearchablePicker({
   onChange,
   placeholder = '선택하세요',
   searchPlaceholder = '이름으로 검색',
-  emptyText = '맞는 것이 없습니다',
+  emptyText = '일치하는 항목 없음',
   id,
   className,
   onQueryChange,
@@ -182,7 +182,7 @@ export function SearchablePicker({
           <ul className="min-h-0 flex-1 overflow-y-auto p-1">
             {shown.length === 0 && (
               <li className="text-muted-foreground px-2 py-6 text-center text-sm">
-                {loading ? '찾는 중…' : emptyText}
+                {loading ? '검색 중…' : emptyText}
               </li>
             )}
             {shown.map((one, index) => (
@@ -237,8 +237,8 @@ export function SearchablePicker({
               {shown.length} / {total ?? options.length}
               {total !== undefined &&
                 total > options.length &&
-                ' — 더 있습니다. 이름을 더 쳐서 좁히세요.'}
-              {loading && ' · 찾는 중…'}
+                ' · 일부만 표시. 검색어를 더 입력해 범위를 좁히세요.'}
+              {loading && ' · 검색 중…'}
             </p>
           )}
         </div>

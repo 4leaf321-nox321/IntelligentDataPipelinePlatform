@@ -186,7 +186,7 @@ export default function NewConnectionPage() {
     return (
       <div className="space-y-4">
         <PageHeader title="새 연결" back={BACK} />
-        <p className="text-muted-foreground text-sm">새 연결은 시스템 관리자가 만듭니다.</p>
+        <p className="text-muted-foreground text-sm">새 연결은 시스템 관리자만 생성할 수 있습니다.</p>
       </div>
     )
   }
@@ -240,7 +240,7 @@ export default function NewConnectionPage() {
     step('recipe', async () => {
       let body: Record<string, unknown>
       if (typeSlug === NEW_TYPE) {
-        if (!typeDraft) throw new Error('먼저 「타입 정의 초안 작성」 을 클릭하세요.')
+        if (!typeDraft) throw new Error('먼저 [타입 정의 초안 작성]을 클릭하세요.')
         body = typeDraft.recipe
       } else {
         const props = schema?.types[typeSlug] ?? {}
@@ -252,7 +252,7 @@ export default function NewConnectionPage() {
         // 여러 칸 식별자면 정의에 더한 계산 칸(`{A}|{B}`)을 식별자로 읽는다.
         body = recipeOf(typeSlug, keyColumnOf(picks)?.column ?? '', labelColumn, fieldMap, dates)
       }
-      setSavedRecipe(await relayApi.saveRecipe(meta.slug.trim(), body, '새 연결 — 첫 판'))
+      setSavedRecipe(await relayApi.saveRecipe(meta.slug.trim(), body, '새 연결(첫 버전)'))
     })
 
   const runTrial = () =>
@@ -284,7 +284,7 @@ export default function NewConnectionPage() {
       <PageHeader
         title="새 연결"
         back={BACK}
-        description="원천의 주소와 모양을 받아 대상 SP 로 중계하는 파이프라인을 만듭니다. 사용은 파이프라인 상세에서 시험 결과를 읽고 합니다."
+        description="원천의 주소와 형식을 입력해 대상 SP로 중계하는 파이프라인을 생성합니다. 사용은 파이프라인 상세의 정의 버전과 레시피 버전에서 테스트 결과를 확인한 후 진행합니다."
       />
       <ErrorNotice error={kinds.error} />
 
@@ -319,7 +319,7 @@ export default function NewConnectionPage() {
           />
         ))}
         <Button size="sm" variant="ghost" onClick={() => setMore(!more)}>
-          {more ? '칸 접기' : `칸 더 보기(${rest.length}개 — 쪽 넘김 · 상세 호출 · POST 본문 · 호출 간격 …)`}
+          {more ? '추가 항목 숨김' : `추가 항목 표시(${rest.length}개: 페이지 처리, 상세 호출, POST 본문, 호출 간격 등)`}
         </Button>
         {more &&
           rest.map((field) => (
@@ -346,11 +346,11 @@ export default function NewConnectionPage() {
         </Labeled>
         {auth.kind !== 'none' && (
           <Labeled
-            label="비밀의 환경 변수 이름"
-            hint="값은 화면 › 중계 › 비밀 에서 넣습니다 — 여기에는 이름만(예: MES_API_TOKEN)."
+            label="인증 정보의 환경 변수 이름"
+            hint="값은 [인증 정보] 화면에서 입력. 여기에는 이름만 입력(예: MES_API_TOKEN)"
           >
             <Input
-              aria-label="비밀의 환경 변수 이름"
+              aria-label="인증 정보의 환경 변수 이름"
               className="font-mono text-xs"
               value={auth.token_env}
               onChange={(event) => setAuth({ ...auth, token_env: event.target.value })}
@@ -369,12 +369,12 @@ export default function NewConnectionPage() {
         ))}
         <details className="text-sm">
           <summary className="text-muted-foreground cursor-pointer text-xs">
-            클라이언트 인증서(mTLS) — 원천이 인증서를 요구할 때만
+            클라이언트 인증서(mTLS) — 원천이 요구하는 경우에만
           </summary>
           <div className="mt-2 space-y-2">
             <p className="text-muted-foreground text-xs">
-              운영자가 서버의 인증서 폴더(RELAY_CERT_DIR)에 둔 PEM(인증서 + 키)의 파일 이름만 적습니다 — 경로가
-              아니라. 어느 인증 방식과도 함께 씁니다.
+              운영자가 서버의 인증서 폴더(RELAY_CERT_DIR)에 둔 인증서와 키의 PEM 파일 이름만 입력합니다.
+              경로는 입력하지 않습니다. 모든 인증 방식과 함께 사용할 수 있습니다.
             </p>
             {AUTH_CERT.map((extra) => (
               <Labeled key={extra.name} label={extra.label}>
@@ -419,18 +419,18 @@ export default function NewConnectionPage() {
       </Step>
 
       {picks.length > 0 && (
-        <Step n={2} title="칸 — 레시피가 읽을 열 · 식별자">
+        <Step n={2} title="필드 · 식별자 선택">
           <p className="text-muted-foreground text-xs">
-            식별자는 안 바뀌는 칸입니다 — 여러 개를 선택하면 값을 `|` 로 이은 여러 칸 식별자가 됩니다(목록을 펼쳤으면
-            원소의 칸을 꼭 포함).
+            식별자는 값이 변경되지 않는 필드입니다. 여러 개를 선택하면 값을 |로 결합한 복합 식별자가 됩니다.
+            배열 펼치기를 사용하면 원소의 필드를 반드시 포함하세요.
           </p>
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-14">포함</TableHead>
                 <TableHead className="w-16">식별자</TableHead>
-                <TableHead>원천의 자리</TableHead>
-                <TableHead>보기 값</TableHead>
+                <TableHead>원천 위치</TableHead>
+                <TableHead>예시 값</TableHead>
                 <TableHead>열 이름</TableHead>
               </TableRow>
             </TableHeader>
@@ -469,19 +469,19 @@ export default function NewConnectionPage() {
           </Table>
           {keyColumn?.computed && (
             <p className="text-xs" data-testid="composite-key">
-              식별자 칸이 {picks.filter((one) => one.key).length}개입니다 — 정의에 계산 칸{' '}
+              식별자 필드가 {picks.filter((one) => one.key).length}개이므로 계산 필드를 정의에 추가해
+              레시피의 식별자로 사용합니다:{' '}
               <span className="font-mono">
                 {keyColumn.column} = {keyColumn.computed[keyColumn.column].template}
-              </span>{' '}
-              을 더해 레시피의 식별자로 씁니다.
+              </span>
             </p>
           )}
         </Step>
       )}
 
       {picks.length > 0 && (
-        <Step n={3} title="대상 · 이름 · 일정">
-          <Labeled label="파이프라인 slug *" hint="소문자 · 숫자 · '-' (예: mes-lots)">
+        <Step n={3} title="대상 · 이름 · 실행 주기">
+          <Labeled label="파이프라인 slug *" hint="소문자, 숫자, '-'(예: mes-lots)">
             <Input
               aria-label="파이프라인 slug"
               className="font-mono text-xs"
@@ -489,7 +489,7 @@ export default function NewConnectionPage() {
               onChange={(event) => setMeta({ ...meta, slug: event.target.value })}
             />
           </Labeled>
-          <Labeled label="원천 이름 *" hint="대상 타입의 관리 주인(source) — plm · mes …">
+          <Labeled label="원천 이름 *" hint="대상 타입을 관리하는 원천(source). 예: plm, mes">
             <Input
               aria-label="원천 이름"
               className="font-mono text-xs"
@@ -497,7 +497,7 @@ export default function NewConnectionPage() {
               onChange={(event) => setMeta({ ...meta, source: event.target.value })}
             />
           </Labeled>
-          <Labeled label="원천 시스템" hint="화면에 쓸 이름(예: MES)">
+          <Labeled label="원천 시스템" hint="화면에 표시할 이름(예: MES)">
             <Input
               aria-label="원천 시스템"
               value={meta.system}
@@ -519,7 +519,7 @@ export default function NewConnectionPage() {
               onChange={(event) => setMeta({ ...meta, target: { ...meta.target, name: event.target.value } })}
             />
           </Labeled>
-          <Labeled label="대상 토큰의 환경 변수 *" hint="값은 서버의 .env 에(예: HUB_TOKEN).">
+          <Labeled label="대상 토큰의 환경 변수 *" hint="값은 서버의 .env에 설정(예: HUB_TOKEN)">
             <Input
               aria-label="대상 토큰의 환경 변수"
               className="font-mono text-xs"
@@ -529,10 +529,10 @@ export default function NewConnectionPage() {
               }
             />
           </Labeled>
-          <Labeled label="일정">
+          <Labeled label="실행 주기">
             <span className="flex flex-wrap items-center gap-2">
               <select
-                aria-label="일정"
+                aria-label="실행 주기"
                 className={SELECT}
                 value={meta.schedule.kind}
                 onChange={(event) =>
@@ -565,11 +565,11 @@ export default function NewConnectionPage() {
           </Labeled>
           <Button size="sm" onClick={() => void saveDefinition()} disabled={busy !== null}>
             {busy === 'definition' ? <Loader2 className="animate-spin" /> : <Save />}
-            정의 판 초안 저장
+            정의 버전 초안 저장
           </Button>
           {savedDefinition && (
             <Alert>
-              <AlertTitle>정의 판 {savedDefinition.version} 초안을 저장했습니다</AlertTitle>
+              <AlertTitle>정의 버전 {savedDefinition.version} 초안을 저장했습니다</AlertTitle>
               <AlertDescription>
                 사용하기 전에는 실행되지 않습니다.
                 {savedDefinition.problems.length > 0 && (
@@ -586,7 +586,7 @@ export default function NewConnectionPage() {
       )}
 
       {savedDefinition && schema && (
-        <Step n={4} title="레시피 — 대상 타입의 칸에 잇기">
+        <Step n={4} title="레시피 — 대상 타입의 속성 연결">
           {schema.note && <p className="text-muted-foreground text-xs">{schema.note}</p>}
           <Labeled label="대상 타입">
             <select
@@ -606,7 +606,7 @@ export default function NewConnectionPage() {
                     {one}
                   </option>
                 ))}
-              <option value={NEW_TYPE}>대상에 없는 새 타입 — 타입 정의 초안 작성</option>
+              <option value={NEW_TYPE}>대상에 없는 새 타입(타입 정의 초안 작성)</option>
             </select>
           </Labeled>
           <Labeled label="이름(label) 열">
@@ -616,7 +616,7 @@ export default function NewConnectionPage() {
               value={labelColumn}
               onChange={(event) => setLabelColumn(event.target.value)}
             >
-              <option value="">식별자와 같음</option>
+              <option value="">식별자와 동일</option>
               {readable.map((one) => (
                 <option key={one} value={one}>
                   {one}
@@ -628,9 +628,9 @@ export default function NewConnectionPage() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>대상의 칸</TableHead>
+                  <TableHead>대상 속성</TableHead>
                   <TableHead>자료형</TableHead>
-                  <TableHead>원천의 열</TableHead>
+                  <TableHead>원천 열</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -643,12 +643,12 @@ export default function NewConnectionPage() {
                     <TableCell className="text-xs">{prop.data_type}</TableCell>
                     <TableCell>
                       <select
-                        aria-label={`${prop.key} 의 열`}
+                        aria-label={`${prop.key} 원천 열`}
                         className={SELECT}
                         value={fieldMap[prop.key] ?? ''}
                         onChange={(event) => setFieldMap((before) => ({ ...before, [prop.key]: event.target.value }))}
                       >
-                        <option value="">보내지 않음</option>
+                        <option value="">미전송</option>
                         {readable.map((one) => (
                           <option key={one} value={one}>
                             {one}
@@ -663,7 +663,7 @@ export default function NewConnectionPage() {
           )}
           {typeSlug === NEW_TYPE && (
             <div className="space-y-2">
-              <Labeled label="새 타입 slug" hint="소문자 · 숫자 · '_' (예: mes_lot)">
+              <Labeled label="새 타입 slug" hint="소문자, 숫자, '_'(예: mes_lot)">
                 <Input
                   aria-label="새 타입 slug"
                   className="font-mono text-xs"
@@ -692,35 +692,36 @@ export default function NewConnectionPage() {
               </div>
               {typeDraft && (
                 <p className="text-muted-foreground text-xs">
-                  칸 {typeDraft.ontology.types[0]?.properties.length ?? 0}개 —{' '}
+                  속성 {typeDraft.ontology.types[0]?.properties.length ?? 0}개:{' '}
                   {(typeDraft.ontology.types[0]?.properties ?? []).map((one) => `${one.key}(${one.data_type})`).join(' · ')}.
-                  relay 는 대상의 타입을 만들지 않습니다 — 이 파일을 SP 관리자에게 넘겨 대상에 등록한 뒤 시험 · 사용하세요.
+                  relay는 대상의 타입을 생성하지 않습니다. 이 파일을 SP 관리자에게 전달해 대상에 등록한 후 테스트하고
+                  사용하세요.
                 </p>
               )}
             </div>
           )}
           <Button size="sm" onClick={() => void saveRecipe()} disabled={busy !== null || !typeSlug}>
             {busy === 'recipe' ? <Loader2 className="animate-spin" /> : <Save />}
-            레시피 판 초안 저장
+            레시피 버전 초안 저장
           </Button>
           {savedRecipe && (
             <p className="text-sm">
-              레시피 판 {savedRecipe.version} 초안을 저장했습니다.
-              {savedRecipe.problems.length > 0 && ` 알아 둘 것: ${savedRecipe.problems.join(' · ')}`}
+              레시피 버전 {savedRecipe.version} 초안을 저장했습니다.
+              {savedRecipe.problems.length > 0 && ` 참고 사항: ${savedRecipe.problems.join(' · ')}`}
             </p>
           )}
         </Step>
       )}
 
       {savedDefinition && (
-        <Step n={5} title="시험 — 대상에는 아무것도 보내지 않습니다">
+        <Step n={5} title="테스트 — 대상에는 아무것도 전송하지 않음">
           <div className="flex flex-wrap items-center gap-3">
             <Button size="sm" variant="outline" onClick={() => void runTrial()} disabled={busy !== null}>
               {busy === 'trial' ? <Loader2 className="animate-spin" /> : <TestTube />}
-              정의 시험
+              정의 테스트
             </Button>
             <Link to={`/relay/pipelines/${encodeURIComponent(meta.slug.trim())}`} className="text-sm underline">
-              파이프라인 상세로 — 정의 판 · 레시피 판을 사용하면 실행됩니다
+              파이프라인 상세로 이동(정의 버전과 레시피 버전을 사용해야 실행됨)
             </Link>
           </div>
           {trial && <DefinitionTrialView trial={trial} />}

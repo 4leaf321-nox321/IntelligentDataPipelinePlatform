@@ -68,14 +68,13 @@ function Extensions() {
     <section className="space-y-3">
       <h2 className="text-base font-semibold">확장 모듈</h2>
       <p className="text-muted-foreground text-sm">
-        이 번들에 들어 있는 확장입니다. 끄면 그 확장의 <b>메뉴 그룹 · 화면 · API 가 바로</b>{' '}
-        사라지고{' '}
-        <b>자료는 남습니다</b> — 다시 켜면 그대로입니다. 켜고 끈 기록은 관리 › 감사 기록에서{' '}
-        <code>extension.toggle</code> 로 조회합니다.
+        이 번들에 포함된 확장입니다. 사용을 해제하면 해당 확장의 <b>메뉴 그룹, 화면, API가 즉시</b>{' '}
+        사라지고 <b>자료는 유지됩니다.</b> 다시 사용하면 이전 상태 그대로 사용할 수 있습니다. 사용 ·
+        미사용 변경 기록은 [변경 이력]에서 <code>extension.toggle</code>로 조회합니다.
       </p>
       <ErrorNotice error={failed ?? list.error} />
       {list.data?.length === 0 ? (
-        <p className="text-muted-foreground text-sm">이 번들에 확장이 없습니다.</p>
+        <p className="text-muted-foreground text-sm">이 번들에 포함된 확장 없음</p>
       ) : (
         <ul className="divide-y rounded-md border">
           {(list.data ?? []).map((one) => (
@@ -98,7 +97,7 @@ function Extensions() {
                 disabled={busy === one.name}
                 onClick={() => void toggle(one)}
               >
-                {one.enabled ? '끄기' : '켜기'}
+                {one.enabled ? '사용 해제' : '사용'}
               </Button>
             </li>
           ))}
@@ -121,7 +120,7 @@ export default function ServerPage() {
       >
         <TabsList>
           <TabsTrigger value="status">상태</TabsTrigger>
-          <TabsTrigger value="performance">느린 요청 · 큰 응답</TabsTrigger>
+          <TabsTrigger value="performance">성능</TabsTrigger>
         </TabsList>
         <TabsContent value="status" className="pt-4">
           <ServerStatusTab />
@@ -156,17 +155,17 @@ function ServerStatusTab() {
           화면의 500 으로 만나고, 거기엔 원인이 안 적힌다. */}
       {one.schema_behind && (
         <div className="border-destructive/40 bg-destructive/5 text-destructive rounded-md border p-3 text-sm">
-          데이터베이스가 코드보다 뒤처져 있습니다 ({one.schema_current} → {one.schema_head}).
-          서버에서 <span className="font-mono">alembic upgrade head</span> 를 실행하세요. 그전까지는
-          새 칸을 읽는 화면이 오류를 냅니다.
+          데이터베이스 스키마가 코드보다 이전 버전입니다({one.schema_current} → {one.schema_head}).
+          서버에서 <span className="font-mono">alembic upgrade head</span>를 실행하세요. 실행 전까지는
+          새 열을 조회하는 화면에서 오류가 발생합니다.
         </div>
       )}
 
       {nameMismatch && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          화면은 <span className="font-mono">{APP_NAME}</span> 인데 서버는{' '}
-          <span className="font-mono">{one.app_name}</span> 이라고 합니다. 화면이 옛 index.html 을
-          들고 있거나(새로 고침), 개발 서버가 다른 백엔드에 붙어 있을 수 있습니다.
+          화면의 플랫폼 이름(<span className="font-mono">{APP_NAME}</span>)과 서버의 플랫폼
+          이름(<span className="font-mono">{one.app_name}</span>)이 다릅니다. 화면이 이전 index.html을
+          사용 중이거나(새로 고침 필요) 개발 서버가 다른 백엔드에 연결되어 있을 수 있습니다.
         </div>
       )}
 
@@ -174,8 +173,8 @@ function ServerStatusTab() {
           「안 켜졌다」 로 읽는다. */}
       {missingExtensions(enabled).length > 0 && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          확장 <span className="font-mono">{missingExtensions(enabled).join(', ')}</span> 이 켜져
-          있지만 화면 쪽(<span className="font-mono">src/extensions</span>)에 짝이 없습니다.
+          사용 중인 확장 <span className="font-mono">{missingExtensions(enabled).join(', ')}</span>의
+          화면 모듈(<span className="font-mono">src/extensions</span>)이 없습니다.
         </div>
       )}
 
@@ -183,9 +182,9 @@ function ServerStatusTab() {
           운영 재시작 중이라면 오타 하나로 서비스가 안 뜬다. 지금은 뜨고, 여기서 말한다. */}
       {one.extensions_unknown.length > 0 && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          <span className="font-mono">{one.extensions_unknown.join(', ')}</span> 은 이 설치의{' '}
-          <span className="font-mono">EXTENSIONS</span> 에 적혀 있지만 번들에 없는 확장입니다. 아래
-          「확장 모듈」 목록에 있는 것만 켤 수 있습니다.
+          번들에 없는 확장: <span className="font-mono">{one.extensions_unknown.join(', ')}</span>.
+          이 설치의 <span className="font-mono">EXTENSIONS</span>에 지정되어 있지만 번들에 포함되어
+          있지 않습니다. 아래 [확장 모듈] 목록의 확장만 사용할 수 있습니다.
         </div>
       )}
 
@@ -193,7 +192,7 @@ function ServerStatusTab() {
           서버 화면은 「이 설치가 어떤 상태인가」 를 보러 오는 자리다. */}
       {one.backup.stale && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          {one.backup.problem ?? '백업이 오래됐습니다.'}
+          {one.backup.problem ?? '마지막 백업이 오래되었습니다.'}
           {one.backup.path && (
             <span className="text-muted-foreground ml-1 font-mono text-xs">
               ({one.backup.path})
@@ -206,7 +205,7 @@ function ServerStatusTab() {
           드러날 자리가 여기다(ADR 0050). */}
       {one.embedding.state === 'problem' && (
         <div className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-          뜻으로 찾기를 쓸 수 없습니다 — {one.embedding.problem}
+          의미 검색을 사용할 수 없습니다. {one.embedding.problem}
         </div>
       )}
 
@@ -222,7 +221,7 @@ function ServerStatusTab() {
           <dd className="font-mono text-sm">{one.version}</dd>
         </div>
         <div>
-          <dt className="text-muted-foreground text-xs">켜진 확장</dt>
+          <dt className="text-muted-foreground text-xs">사용 중인 확장</dt>
           <dd className="text-sm">
             {one.extensions.length === 0 ? (
               <span className="text-muted-foreground">없음</span>
@@ -259,7 +258,7 @@ function ServerStatusTab() {
           </dd>
         </div>
         <div>
-          <dt className="text-muted-foreground text-xs">뜻으로 찾기</dt>
+          <dt className="text-muted-foreground text-xs">의미 검색</dt>
           <dd className="text-sm">
             {one.embedding.state === 'ready' && (
               <>
@@ -269,9 +268,9 @@ function ServerStatusTab() {
                 </span>
               </>
             )}
-            {one.embedding.state === 'off' && <span className="text-muted-foreground">끔</span>}
+            {one.embedding.state === 'off' && <span className="text-muted-foreground">미사용</span>}
             {one.embedding.state === 'problem' && (
-              <span className="text-amber-700 dark:text-amber-400">준비 안 됨</span>
+              <span className="text-amber-700 dark:text-amber-400">사용 불가</span>
             )}
           </dd>
         </div>
@@ -279,8 +278,8 @@ function ServerStatusTab() {
           <div>
             <dt className="text-muted-foreground text-xs">디스크</dt>
             <dd className="text-sm">
-              {gib(one.disk.free_bytes)} 남음 / {gib(one.disk.total_bytes)} ({one.disk.used_percent}
-              % 사용)
+              여유 {gib(one.disk.free_bytes)} / 전체 {gib(one.disk.total_bytes)}(
+              {one.disk.used_percent}% 사용)
             </dd>
           </div>
         )}
@@ -295,7 +294,7 @@ function ServerStatusTab() {
       {isSystemAdmin(user) && <PortalLogin />}
 
       <section className="space-y-3">
-        <h2 className="text-base font-semibold">쌓인 것</h2>
+        <h2 className="text-base font-semibold">데이터 현황</h2>
         {/* 도메인이 `shared/extensions.py` 에 등록한 만큼 늘어난다 — 이 화면은
             무엇이 올지 모르고, 몰라도 된다. */}
         <ul className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -336,11 +335,12 @@ function OrphanFiles() {
     <section className="space-y-2">
       <h2 className="text-base font-semibold">첨부 저장소</h2>
       <p className="text-muted-foreground text-sm">
-        첨부를 지우면 기록만 지우고 파일은 남깁니다(같은 파일을 다른 첨부가 쓸 수 있다). 아무 첨부도
-        안 쓰는 파일은 워커가 하루 한 번 지웁니다 — 올린 지 하루가 안 된 것은 남깁니다.
+        첨부를 삭제하면 기록만 삭제하고 파일은 유지합니다(다른 첨부가 같은 파일을 사용할 수 있음).
+        어떤 첨부에도 사용되지 않는 파일은 워커가 하루에 한 번 삭제합니다. 업로드 후 하루가 지나지
+        않은 파일은 유지합니다.
       </p>
       <Button type="button" variant="outline" size="sm" disabled={busy} onClick={count}>
-        고아 파일 지금 세어 보기
+        고아 파일 즉시 집계
       </Button>
       {error && <ErrorNotice error={error} />}
     </section>

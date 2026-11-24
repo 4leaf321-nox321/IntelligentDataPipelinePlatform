@@ -49,8 +49,8 @@ describe('서버 화면 · HWAX 포털 로그인', () => {
 
   it('켜져 있고 공개 키를 받았으면 kid 와 콜백 길을 보인다', async () => {
     await show(BASE)
-    expect(await screen.findByText('켜짐')).toBeInTheDocument()
-    expect(screen.getByText(/서명 키 1개 \(k1\)/)).toBeInTheDocument()
+    expect(await screen.findByText('사용')).toBeInTheDocument()
+    expect(screen.getByText(/서명 키 1개\(k1\)/)).toBeInTheDocument()
     expect(screen.getByText(/\/hwaxapp\/api\/auth\/portal-callback/)).toBeInTheDocument()
   })
 
@@ -62,8 +62,8 @@ describe('서버 화면 · HWAX 포털 로그인', () => {
       last_error: '포털 JWKS 를 못 받았다: ConnectError',
       last_error_at: '2026-10-13T00:01:00Z',
     })
-    expect(await screen.findByText('공개 키 못 받음')).toBeInTheDocument()
-    expect(screen.getByText(/포털로 오는 로그인을 확인할 수 없습니다/)).toBeInTheDocument()
+    expect(await screen.findByText('공개 키 수신 실패')).toBeInTheDocument()
+    expect(screen.getByText(/포털에서 들어오는 로그인을 확인할 수 없습니다/)).toBeInTheDocument()
     expect(screen.getByText(/ConnectError/)).toBeInTheDocument()
   })
 
@@ -76,7 +76,7 @@ describe('서버 화면 · HWAX 포털 로그인', () => {
       problems: ['PORTAL_LAUNCH_URL 은 있는데 PORTAL_JWKS_URL 이 없습니다'],
     })
     // 포털 로그인과 게이트웨이 위임 — 둘 다 꺼져 있다.
-    expect(await screen.findAllByText('꺼짐')).toHaveLength(2)
+    expect(await screen.findAllByText('미사용')).toHaveLength(2)
     expect(screen.getByText(/HWAX 포털에 연결되어 있지 않습니다/)).toBeInTheDocument()
     expect(screen.getByText(/PORTAL_JWKS_URL 이 없습니다/)).toBeInTheDocument()
   })
@@ -85,7 +85,7 @@ describe('서버 화면 · HWAX 포털 로그인', () => {
     await show(BASE)
     expect(await screen.findByText(/게이트웨이 위임/)).toBeInTheDocument()
     expect(screen.getByText(/HEAX_SSO_SECRET/)).toBeInTheDocument()
-    expect(screen.getAllByText('꺼짐')).toHaveLength(1) // 포털 로그인은 켜짐, 위임만 꺼짐
+    expect(screen.getAllByText('미사용')).toHaveLength(1) // 포털 로그인은 켜짐, 위임만 꺼짐
   })
 
   it('게이트웨이 위임이 켜져 있으면 마지막 발급과 거절을 보인다', async () => {
@@ -106,8 +106,8 @@ describe('서버 화면 · HWAX 포털 로그인', () => {
     })
     expect(await screen.findByText(/사용 중 3개/)).toBeInTheDocument()
     expect(screen.getByText('10.1.2.3/32')).toBeInTheDocument()
-    expect(screen.getByText(/403 — 처음 보는 사람/)).toBeInTheDocument()
-    expect(screen.getAllByText('켜짐')).toHaveLength(2)
+    expect(screen.getByText(/403 · 처음 보는 사람/)).toBeInTheDocument()
+    expect(screen.getAllByText('사용')).toHaveLength(2)
   })
 
   it('허용 주소를 못 읽으면 모두 거절이라고 말한다', async () => {

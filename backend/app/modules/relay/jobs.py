@@ -26,16 +26,14 @@ log = logging.getLogger(__name__)
 
 def _load(work: kinds.Work) -> tuple[Described, Pipeline, Workdir]:
     slug = str(work.params.get("slug") or "")
-    work.progress("정의 읽기", 0, 0)
+    work.progress("정의 조회", 0, 0)
     found = services.by_slug(slug, work.db)
     if found.draft:
         raise DefinitionError(
-            f"{slug} 의 정의가 아직 초안입니다 — 화면에서 정의 판을 사용해야 실행됩니다."
+            f"{slug}의 정의가 아직 초안입니다. 화면에서 정의 버전을 사용해야 실행됩니다."
         )
     if found.problems:
-        raise DefinitionError(
-            "정의에 문제가 있어 실행되지 않습니다: " + " / ".join(found.problems)
-        )
+        raise DefinitionError("정의 오류로 실행할 수 없습니다: " + " / ".join(found.problems))
     # **켜진 레시피 판이 있으면 그것이 돈다** — 없으면 정의 파일의 `recipe`. 정의도 같다 —
     # 켜진 정의 판이 있으면 그것(`found.body`), 없으면 정의 파일.
     pipeline = load_body(
@@ -79,7 +77,7 @@ def _tidy(folder: Workdir) -> int:
 
 def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
     found, pipeline, folder = _load(work)
-    work.progress("적용" if apply else "받기 · 변환 · 비교 · 미리 보기", 0, 0)
+    work.progress("적용" if apply else "수신 · 변환 · 비교 · 미리 보기", 0, 0)
     reconciled = False
     if apply:
         pending = folder.load_state().pending
@@ -87,15 +85,15 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
         def shown(part: int, total: int) -> None:
             # 나눠 보내는 계획은 조각마다 미리 보기 → 적용 — 어디쯤인지 작업 화면에 보인다.
             if total > 1:
-                work.progress(f"적용 — 조각 {part}/{total}", part, total)
+                work.progress(f"적용(분할 번들 {part}/{total})", part, total)
 
         outcome = runner.apply(pipeline, folder, progress=shown)
         # **보정 계획을 적용했으면 바로 다시 견준다** — 안 그러면 다음 대조(며칠 뒤)까지 홈이
         # 「어긋남」 을 계속 말한다.
         if outcome.status == "applied" and pending and pending.origin == "reconcile":
-            work.progress("다시 대조", 0, 0)
+            work.progress("재대조", 0, 0)
             again = reconcile.compare(pipeline, folder)
-            outcome.message += f" · 다시 대조: {again.summary()}"
+            outcome.message += f" · 재대조: {again.summary()}"
             reconciled = True
         if outcome.status == "applied" and pending and pending.origin == retract.ORIGIN:
             outcome.message += f" {retract.after_apply(folder.load_state().stopped)}"
@@ -112,7 +110,7 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
         # **자동 적용은 타이머의 실행에만** — 사람의 「지금 실행」 · MCP 의 실행은 계획만
         # 올린다.
         if work.params.get("by") == "timer" and found.auto_apply is not None:
-            work.progress("자동 적용 기준 보기", 0, 0)
+            work.progress("자동 적용 기준 확인", 0, 0)
             outcome = autoapply.after_run(pipeline, folder, outcome, found.auto_apply)
     return {
         "ok": outcome.status != "blocked",
@@ -146,7 +144,7 @@ def reconcile_job(work: kinds.Work) -> dict[str, Any]:
     """대조 — `plan` 이면 어긋난 줄의 보정 계획(미리보기)까지 올린다. 적용은 사람이."""
     _, pipeline, folder = _load(work)
     if work.params.get("plan"):
-        work.progress("대조 · 보정 계획", 0, 0)
+        work.progress("대조 · 보정 계획 생성", 0, 0)
         outcome = reconcile.resync(pipeline, folder)
         return {
             "ok": outcome.status != "blocked",
@@ -156,7 +154,7 @@ def reconcile_job(work: kinds.Work) -> dict[str, Any]:
             "counts": outcome.counts,
             "pruned": _tidy(folder),
         }
-    work.progress("대상 읽기 · 견주기", 0, 0)
+    work.progress("대상 조회 · 비교", 0, 0)
     report = reconcile.compare(pipeline, folder)
     status = "problem" if report.problems else ("drift" if report.drift else "same")
     return {
@@ -177,7 +175,7 @@ def retract_job(work: kinds.Work) -> dict[str, Any]:
     지우기는 대상 SP 판이 받을 때만 — 옛 판은 칸을 무시하고 사용 중지하므로, 사람이 고른 것과
     다른 일이 조용히 일어나지 않게 여기서 멈춘다."""
     found, pipeline, folder = _load(work)
-    work.progress("걷어내기 계획", 0, 0)
+    work.progress("회수 계획 생성", 0, 0)
     action = str(work.params.get("action") or "deprecate")
     if action == "delete":
         version = services.target_version(found.target_server)
@@ -186,9 +184,9 @@ def retract_job(work: kinds.Work) -> dict[str, Any]:
             return {
                 "ok": False,
                 "status": "blocked",
-                "summary": f"[blocked] 대상 SP({version or '판 모름'})는 지우기를 받지 "
-                f"않습니다(SP {since} 부터) — 사용 중지로 걷어내거나, 대상 SP 를 올린 뒤 다시 "
-                "고르세요.",
+                "summary": f"[blocked] 대상 SP({version or '버전 미확인'})는 삭제를 지원하지 "
+                f"않습니다. 삭제는 SP {since} 이상에서 지원합니다. 사용 중지로 회수하거나 "
+                "대상 SP를 업그레이드한 후 다시 선택하세요.",
             }
     model, _note = services.target_model(found, services.secrets_env(), work.db)
     ends = {
@@ -245,7 +243,7 @@ kinds.register(
 kinds.register(
     kinds.Kind(
         services.RETRACT_KIND,
-        "중계 걷어내기",
+        "중계 회수",
         False,
         False,
         retract_job,

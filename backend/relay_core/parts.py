@@ -167,7 +167,7 @@ def _number(folder: Path, manifest: dict[str, Any], number: int, total: int) -> 
     """조각의 이름 · 번호 — 다 나눈 뒤에야 조각 수를 안다."""
     file = folder / sp.pipeline.MANIFEST
     head = json.loads(file.read_text(encoding="utf-8"))
-    head["title"] = f"{manifest.get('title') or '묶음'} — 조각 {number}/{total}"
+    head["title"] = f"{manifest.get('title') or '번들'} — 분할 번들 {number}/{total}"
     head["part"] = {"number": number, "total": total}
     file.write_text(json.dumps(head, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -192,7 +192,7 @@ def _write(
     head["relations_order"] = [
         slug for slug in manifest.get("relations_order") or [] if slug in relations
     ] or relations
-    head["title"] = f"{manifest.get('title') or '묶음'} — 조각 {number}/{total}"
+    head["title"] = f"{manifest.get('title') or '번들'} — 분할 번들 {number}/{total}"
     head["part"] = {"number": number, "total": total}
     (folder / sp.pipeline.MANIFEST).write_text(
         json.dumps(head, ensure_ascii=False, indent=2), encoding="utf-8"

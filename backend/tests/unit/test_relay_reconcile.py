@@ -64,7 +64,7 @@ def test_기준이_없으면_견주지_않는다(tmp_path: Path) -> None:
     pipeline = _pipeline(tmp_path, [dict(one) for one in ROWS])
     fake: Any = FakeSubmitter()
     report = compare(pipeline, work, FakeReader({}, {}), fake)
-    assert report.problems and "적용한 것이 없습니다" in report.summary()
+    assert report.problems and "적용한 계획이 없어" in report.summary()
 
 
 def test_대상과_같으면_어긋남이_없고_이력에_남는다(tmp_path: Path) -> None:
@@ -72,7 +72,7 @@ def test_대상과_같으면_어긋남이_없고_이력에_남는다(tmp_path: P
     reader = FakeReader({"plm_model": SAME}, {"plm_model": "plm"})
     report = compare(pipeline, work, reader, fake)
     assert report.drift == 0 and not report.problems, report.summary()
-    assert "같습니다(객체 3건)" in report.summary()
+    assert "일치합니다(객체 3건)" in report.summary()
     last = work.load_state().history[-1]
     assert last["event"] == "reconciled" and last["drift"] == 0
     assert reconcile.last_report(work) == Report.from_json(work.read_json(reconcile.REPORT))
@@ -95,7 +95,9 @@ def test_빠짐_안씀_다름_대상에만을_가른다(tmp_path: Path) -> None:
         ["M9"],
     )
     assert report.drift == 4 and not one.managed
-    assert "어긋남 4건(빠짐 1 · 안 씀 1 · 다름 1 · 대상에만 1)" in report.summary()
+    assert (
+        "불일치 4건(누락 1 · 사용 중지 1 · 값 불일치 1 · 대상에만 존재 1)" in report.summary()
+    )
 
 
 def test_보정_계획은_어긋난_줄과_닿는_선을_싣고_잠긴_타입이면_무덤도(tmp_path: Path) -> None:
@@ -145,7 +147,7 @@ def test_잠기지_않은_타입의_대상에만은_사람이_정한다(tmp_path
     pipeline, work, fake = _applied(tmp_path)
     reader = FakeReader({"plm_model": [*SAME, _item("M9", "사람이 만든 것", "양산")]}, {})
     outcome = resync(pipeline, work, reader, fake)
-    assert outcome.status == "nothing" and "사람이 정합니다" in outcome.message
+    assert outcome.status == "nothing" and "사람이 판단합니다" in outcome.message
     assert len(fake.previews) == 1  # 처음 적재뿐
 
 
@@ -273,7 +275,7 @@ def _sp(monkeypatch: Any, fake: _Sp) -> Any:
 def test_내보내기_한_번으로_읽고_참조는_식별자로_온다(monkeypatch: Any) -> None:
     fake = _Sp()
     reader = reconcile.ExportReader(_sp(monkeypatch, fake), ["plm_model", "loose", "없는타입"])
-    assert reader.via == "목록" and "사이드바 묶음" in reader.fallback  # loose 는 묶음 밖
+    assert reader.via == "목록" and "사이드바 그룹" in reader.fallback  # loose 는 묶음 밖
 
     reader = reconcile.ExportReader(_sp(monkeypatch, fake), ["plm_model"])
     assert reader.via == "내보내기" and not reader.fallback
@@ -319,7 +321,7 @@ def test_보고서는_어떻게_읽었는지_남긴다(tmp_path: Path) -> None:
     reader = Listed({"plm_model": SAME}, {"plm_model": "plm"})
     report = compare(pipeline, work, reader, fake)
     assert report.drift == 0 and report.via == "목록"
-    assert "목록 API 로 읽었습니다" in report.summary()
+    assert "목록 API로 조회했습니다" in report.summary()
     again = Report.from_json(work.read_json(reconcile.REPORT))
     assert again.via == "목록" and again.notes == report.notes
 
@@ -351,7 +353,7 @@ def test_일부만_코어면_내보내기로_둘_다_안_되면_목록으로_까
     assert reader.via == "내보내기"  # type: ignore[attr-defined]
     # 코어로 열기로 하고 하나를 빠뜨렸다 — 대조는 돌고, 빠진 타입을 보고서가 말한다.
     told = reader.notice  # type: ignore[attr-defined]
-    assert "코어로 열리지 않은 타입(plm_model)" in told and not reader.fallback  # type: ignore[attr-defined]
+    assert "코어 공개되지 않은 타입(plm_model)" in told and not reader.fallback  # type: ignore[attr-defined]
 
     class Broken(_Sp):
         def wait(self, *_a: Any, **_k: Any) -> Any:
@@ -361,7 +363,7 @@ def test_일부만_코어면_내보내기로_둘_다_안_되면_목록으로_까
 
     reader = reconcile.best_reader(_sp(monkeypatch, Broken()), ["plm_model"])
     said = reader.fallback  # type: ignore[attr-defined]
-    assert reader.via == "목록" and "코어로 열리지 않은 타입(plm_model)" in said  # type: ignore[attr-defined]
+    assert reader.via == "목록" and "코어 공개되지 않은 타입(plm_model)" in said  # type: ignore[attr-defined]
     assert "OperationalError" in said and "SQL" not in said
 
 
