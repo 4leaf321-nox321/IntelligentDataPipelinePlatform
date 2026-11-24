@@ -86,7 +86,9 @@ def definition_editor(page: Page, steps: Steps) -> None:
     steps.done("정의 편집")
     editor.get_by_label("정의 메모").fill("E2E — 쪽 크기")
     editor.get_by_role("button", name="초안 저장").click()
-    expect(page.get_by_test_id("definition-saved")).to_contain_text("버전 1 초안을 저장했습니다")
+    expect(page.get_by_test_id("definition-saved")).to_contain_text(
+        "버전 1 초안을 저장했습니다"
+    )
     expect(panel.get_by_text("E2E — 쪽 크기")).to_be_visible()
 
     panel.get_by_role("button", name="정의 버전 1 테스트").click()

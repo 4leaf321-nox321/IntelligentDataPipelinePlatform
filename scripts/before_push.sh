@@ -77,8 +77,8 @@ step "내용이 있던 파일이 비지 않았다" check_emptied_files
 
 # ── 1. 백엔드 ───────────────────────────────────────────────────────────
 say "1. 백엔드 (ruff · mypy · pytest)"
-ruff_check() { cd "$BACKEND" && "$PY" -m ruff check . ../mcp_server --config pyproject.toml; }
-ruff_format() { cd "$BACKEND" && "$PY" -m ruff format --check . ../mcp_server --config pyproject.toml; }
+ruff_check() { cd "$BACKEND" && "$PY" -m ruff check . ../mcp_server ../devtools --config pyproject.toml; }
+ruff_format() { cd "$BACKEND" && "$PY" -m ruff format --check . ../mcp_server ../devtools --config pyproject.toml; }
 mypy_strict() { cd "$BACKEND" && "$PY" -m mypy; }
 # **`EXTENSIONS` 를 비운다.** CI 에는 `.env` 가 없어서 확장 기본값이 「꺼짐」 이다 —
 # 개발 `.env` 를 딛고 통과한 시험은 거기서만 통과한다.
