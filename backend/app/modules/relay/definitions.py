@@ -33,7 +33,7 @@ from app.modules.accounts.models import User
 from app.modules.relay import guard
 from app.modules.relay.models import RelayDefinition
 from app.shared import audit
-from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
+from app.shared.errors import AppError, Conflict, NotFound, code
 from relay_core.adapters.rest import Auth
 from relay_core.definition import (
     ADAPTERS,
@@ -484,15 +484,20 @@ def save_draft(
 
 
 def activate(
-    db: Session, user: User, request: Request, slug: str, version: int
+    db: Session,
+    user: User,
+    request: Request,
+    slug: str,
+    version: int,
+    *,
+    approval: str | None = None,
 ) -> RelayDefinition:
-    """**사람이 화면에서만** — 토큰(MCP · 스크립트)이면 거절한다."""
-    if getattr(request.state, "token_scopes", None) is not None:
-        raise Forbidden(
-            code("RELAY", 14),
-            "정의 버전의 사용은 사람이 화면에서만 결정합니다. 토큰(MCP)으로는 사용할 수 "
-            "없습니다. 화면에서 테스트 결과를 확인하고 [사용]을 클릭하세요.",
-        )
+    """화면의 사람이나, 대화에서 승인받은 토큰(`approval.py` — `relay:approve`)만 사용한다."""
+    from app.modules.relay import approval as approving
+
+    approved = approving.check(
+        request, user, what="정의 버전의 사용", refused=14, approval=approval
+    )
     row = get(db, slug, version)
     if row.status == "active":
         return row
@@ -523,6 +528,9 @@ def activate(
         target_id=row.id,
         target_label=f"{slug} 정의 버전 {row.version}",
         changes={"was": before.version if before else None},
+    )
+    approving.record(
+        db, user, approved, action="definition.activate", target=slug, version=row.version
     )
     db.commit()
     db.refresh(row)

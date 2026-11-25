@@ -49,6 +49,7 @@ def transform(
     server: str = "",
     token: str = "",
     bucket_rows: int = spill.BUCKET_ROWS,
+    observer: table.Observer | None = None,
 ) -> Converted:
     """원천 표 → `run` 의 실행 폴더(`run` 은 없어야 한다). `server` · `token` 은 레시피의 참조
     대조(`match`)가 대상 SP 의 식별자를 받을 때만 쓴다.
@@ -64,6 +65,7 @@ def transform(
         token=token,
         bucket_rows=bucket_rows,
         scratch=source.with_name(f"{run.name}.spill"),
+        observer=observer,
     )
     return Converted(run=run, clean=bool(clean), report=str(report))
 

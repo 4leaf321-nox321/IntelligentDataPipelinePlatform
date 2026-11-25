@@ -28,6 +28,9 @@ export type PipelineDetail = Schemas['PipelineDetail'] & {
 export type LineageStep = Schemas['LineageStep']
 export type RelayJob = Schemas['RelayJob']
 export type QueuedOut = Schemas['QueuedOut']
+/** 알림 웹훅의 상태 — 설정 여부 · 호스트 · 마지막 전송 결과(주소 전체는 서버 `.env` 에만). */
+export type AlertWebhookOut = Schemas['AlertWebhookOut']
+export type AlertWebhookTestOut = Schemas['AlertWebhookTestOut']
 export type RunIn = Schemas['RunIn']
 /** 실행 추이 — 실행마다 한 줄(오래된 것부터). 작업 폴더의 `trend.json` 이라 작업 기록이 지워져도 남는다. */
 export type TrendOut = Schemas['TrendOut']
@@ -560,6 +563,7 @@ export const relayApi = {
       human_edits: humanEdits,
       accept,
       full,
+      approval: '', // 화면의 요청 — 승인 문구는 토큰(MCP)의 요청에만 필요하다
     } satisfies RunIn),
   /** 미해결 작업함 — 시스템 관리자만(원천 표기가 그대로 나온다). 대상에 후보를 묻느라 몇 초 걸릴 수 있다. */
   unresolved: (slug: string) => api.get<InboxOut>(`${slugPath(slug)}/unresolved`),
@@ -582,6 +586,8 @@ export const relayApi = {
   trend: (slug: string, limit = 90) =>
     api.get<TrendOut>(`${slugPath(slug)}/trend?limit=${limit}`),
   apply: (slug: string) => api.post<QueuedOut>(`${slugPath(slug)}/apply`),
+  alertWebhook: () => api.get<AlertWebhookOut>('/relay/alert-webhook'),
+  alertWebhookTest: () => api.post<AlertWebhookTestOut>('/relay/alert-webhook/test'),
   /**
    * 보낸 것 걷어내기 — 작업으로 넣는다(202). 고른 것을 사용 중지 · 끊기로 거두는 계획(미리 보기)을 대상에
    * 올리고 파이프라인을 멈춘다. 적용은 「적용」(또는 대상 SP 화면)에서.

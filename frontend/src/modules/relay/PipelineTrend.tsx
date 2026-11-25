@@ -43,7 +43,55 @@ function point(row: TrendRow, index: number, all: TrendRow[]): Record<string, un
     changed: row.plan?.changed ?? 0,
     gone: row.plan?.gone ?? 0,
     seconds: row.seconds,
+    peak: row.peak_mb ?? null,
+    convert: row.memory?.['변환'] ?? null,
+    compare: row.memory?.['비교'] ?? null,
   }
+}
+
+/** 실행의 변환 · 비교 방식 — 「증분 변환 · 증분 비교」 또는 「전체 변환(레시피가 바뀜) · 전체 비교」. 기록이 없으면
+ * 빈 문자열. */
+export function modeLine(row: TrendRow | undefined): string {
+  if (!row?.mode) return ''
+  const full = row.full_reason ? `전체 변환(${row.full_reason})` : '전체 변환'
+  const convert = row.mode === 'incremental' ? '증분 변환' : full
+  if (!row.compared) return convert
+  return `${convert} · ${row.compared === 'incremental' ? '증분 비교' : '전체 비교'}`
+}
+
+/** 실행의 단계별 소요 시간 — 「수신 4 · 변환 30 · 비교 2초」. 기록이 없으면 빈 문자열. */
+export function secondsLine(row: TrendRow | undefined): string {
+  const stages = Object.entries(row?.seconds_by_stage ?? {})
+  if (!stages.length) return ''
+  return `${stages.map(([stage, one]) => `${stage} ${Math.round(one).toLocaleString()}`).join(' · ')}초`
+}
+
+/** 마지막 실행의 단계별 최고 메모리 — 「수신 120 · 변환 840 · 비교 410 MB」. 기록이 없으면 빈 문자열. */
+export function memoryLine(row: TrendRow | undefined): string {
+  const stages = Object.entries(row?.memory ?? {})
+  if (!stages.length) return ''
+  return `${stages.map(([stage, mb]) => `${stage} ${Math.round(mb).toLocaleString()}`).join(' · ')} MB`
+}
+
+/** 마지막 실행이 어떻게 돌았나 — 방식 · 단계별 최고 메모리 · 소요 시간. 옛 판의 기록에는 없다. */
+function LastRun({ row }: { row: TrendRow | undefined }) {
+  const lines = [
+    ['방식', modeLine(row)],
+    ['단계별 최고 메모리', memoryLine(row)],
+    ['단계별 소요 시간', secondsLine(row)],
+  ].filter(([, text]) => text)
+  if (!lines.length) return null
+  return (
+    <dl className="text-muted-foreground grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+      <dt className="col-span-2 font-medium">마지막 실행</dt>
+      {lines.map(([name, text]) => (
+        <div key={name} className="col-span-2 grid grid-cols-subgrid">
+          <dt>{name}</dt>
+          <dd>{text}</dd>
+        </div>
+      ))}
+    </dl>
+  )
 }
 
 function Figure({ caption, children }: { caption: string; children: ReactNode }) {
@@ -87,7 +135,8 @@ export default function PipelineTrend({ slug }: { slug: string }) {
         {blocked}
         {held > 0 && `(수신 검증 ${held})`} · 평균 {seconds.toFixed(0)}초
       </p>
-      <div className="grid gap-3 lg:grid-cols-3">
+      <LastRun row={rows[rows.length - 1]} />
+      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
         <Figure caption="원천 행 — 미러 · 수신 행">
           <Chart
             kind="line"
@@ -124,6 +173,20 @@ export default function PipelineTrend({ slug }: { slug: string }) {
             series={[{ key: 'seconds', label: '초' }]}
             height={200}
             title="실행별 소요 시간(초)"
+          />
+        </Figure>
+        <Figure caption="최고 메모리(MB) — 실행 전체 · 변환 · 비교">
+          <Chart
+            kind="line"
+            data={data}
+            x="at"
+            series={[
+              { key: 'peak', label: '전체' },
+              { key: 'convert', label: '변환' },
+              { key: 'compare', label: '비교' },
+            ]}
+            height={200}
+            title="실행별 최고 메모리(MB)"
           />
         </Figure>
       </div>

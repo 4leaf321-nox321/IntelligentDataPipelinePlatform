@@ -31,6 +31,7 @@ from __future__ import annotations
 import base64
 import csv
 import fnmatch
+import functools
 import glob
 import hashlib
 import hmac
@@ -266,6 +267,10 @@ class FileAdapter:
         `None` 이면 안 본다(CLI · 시험)."""
         self._smb = smb
         self._sftp = sftp
+
+    def __reduce__(self) -> Any:
+        """작업 프로세스로 넘길 때 — 설정만. 연결은 거기서 새로 연다(`relay_core.isolate`)."""
+        return functools.partial(FileAdapter, roots=self.roots), (self.source,)
 
     # --- 읽기 ---------------------------------------------------------------------------
 

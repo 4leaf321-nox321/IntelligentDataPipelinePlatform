@@ -25,12 +25,16 @@ def main() -> int:
         # 조회는 트랜잭션 밖의 HTTP 라 먼저, 따로 한다.
         checked = targets.refresh(targets.known(db), services.probe_http)
         db.rollback()
+        # SP 화면에서 적용한 계획을 알아챈다 — 지도 · 홈은 묻지 않고 이 결과를 읽는다.
+        settled = services.settle_all(db)
         queued = services.enqueue_due(db)
         late = alerts.watch_late(db)
         summary = digest.send_if_due(db)
         db.commit()
     down = [server for server, one in checked.items() if not one.get("reachable")]
     print(f"대상 조회: {len(checked)}개" + (f"(연결 불가: {', '.join(down)})" if down else ""))
+    if settled:
+        print("적용 확인: " + ", ".join(settled))
     print("작업 추가: " + (", ".join(queued) if queued else "없음"))
     if late:
         print("지연 상태 변경: " + ", ".join(late))

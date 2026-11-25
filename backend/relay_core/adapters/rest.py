@@ -539,6 +539,10 @@ class RestAdapter:
         self._last = 0.0
         self._lock = threading.Lock()
 
+    def __reduce__(self) -> Any:
+        """작업 프로세스로 넘길 때 — 설정만. 연결은 거기서 새로 연다(`relay_core.isolate`)."""
+        return RestAdapter, (self.source,)
+
     @property
     def url(self) -> str:
         return self.source.base_url.rstrip("/") + "/" + self.source.path.lstrip("/")

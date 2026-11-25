@@ -124,7 +124,7 @@ def write_batches(
     return names
 
 
-def _head(path: Path) -> tuple[dict[str, Any], list[str]]:
+def head(path: Path) -> tuple[dict[str, Any], list[str]]:
     """`sp_pipeline.load` 의 머리 쪽 검사 그대로 — 객체 · 선 파일은 따로 흘려 읽는다
     (`_batches`)."""
     pipeline = sp.pipeline
@@ -175,7 +175,7 @@ def _ident_of(kind: str) -> Callable[[dict[str, Any]], Any]:
 
 
 @dataclass
-class _Compared:
+class Compared:
     counts: dict[str, Counts]
     sent: spill.Spill
     graves: list[tuple[str, Any]]
@@ -189,35 +189,59 @@ def _compare(
     folder: Path,
     count: int,
     problems: list[str],
-) -> _Compared:
-    """한 갈래(객체 · 선)를 바구니마다 견준다 — 같은 정체(타입 · 식별자 · 선의 세 끝)는 늘 한
-    바구니다. 보낼 줄은 바구니 안에서 (타입, 이번 출력의 차례)로 세워 둔다(`spill.merged` 가
-    잇는다)."""
-    ident = _ident_of(kind)
-    objects = kind == sp.pipeline.OBJECTS_DIR
+) -> Compared:
+    """한 갈래(객체 · 선)의 두 출력을 처음부터 끝까지 읽어 견준다(`compare_rows`)."""
     slugs: set[str] = set()
     workspaces: dict[str, Any] = {}
-    olds = spill.Spill(folder / f"{kind}-old", count)
-    news = spill.Spill(folder / f"{kind}-new", count)
-    if previous is not None:
+
+    def old_rows() -> Iterator[tuple[str, dict[str, Any]]]:
+        if previous is None:
+            return
         ignored: list[str] = []  # 기준의 문제는 틀도 보지 않는다(읽힌 것만 견준다)
         for slug, _workspace, rows in _batches(previous, kind, ignored):
             slugs.add(slug)
             for row in rows:
                 if isinstance(row, dict):
-                    one = ident(row)
-                    text = one if objects else json.dumps(one, ensure_ascii=False)
-                    olds.put(spill.bucket_of(text, count), [slug, one, _clean(row)])
-    index = 0
-    for slug, workspace, rows in _batches(current, kind, problems):
-        slugs.add(slug)
-        workspaces[slug] = workspace
-        for row in rows:
-            if isinstance(row, dict):
-                one = ident(row)
-                text = one if objects else json.dumps(one, ensure_ascii=False)
-                news.put(spill.bucket_of(text, count), [slug, index, row])
-                index += 1
+                    yield slug, row
+
+    def new_rows() -> Iterator[tuple[str, int, dict[str, Any]]]:
+        index = 0
+        for slug, workspace, rows in _batches(current, kind, problems):
+            slugs.add(slug)
+            workspaces[slug] = workspace
+            for row in rows:
+                if isinstance(row, dict):
+                    yield slug, index, row
+                    index += 1
+
+    return compare_rows(kind, old_rows(), new_rows(), folder, count, slugs, workspaces)
+
+
+def compare_rows(
+    kind: str,
+    old_rows: Iterable[tuple[str, dict[str, Any]]],
+    new_rows: Iterable[tuple[str, Any, dict[str, Any]]],
+    folder: Path,
+    count: int,
+    slugs: set[str],
+    workspaces: dict[str, Any],
+) -> Compared:
+    """옛 줄 `(타입, 줄)` 과 새 줄 `(타입, 이번 출력의 차례, 줄)` 을 바구니마다 견준다 — 같은
+    정체(타입 · 식별자 · 선의 세 끝)는 늘 한 바구니다. 보낼 줄은 바구니 안에서 (타입, 차례)로
+    세워 둔다(`spill.merged` 가 잇는다). 출력 전체를 견줄 때도, 증분 계획이 건드린 것만 견줄
+    때도 이것이다. `slugs` 는 줄을 다 읽은 뒤에 쓴다(읽으며 채워도 된다)."""
+    ident = _ident_of(kind)
+    objects = kind == sp.pipeline.OBJECTS_DIR
+    olds = spill.Spill(folder / f"{kind}-old", count)
+    news = spill.Spill(folder / f"{kind}-new", count)
+    for slug, row in old_rows:
+        one = ident(row)
+        text = one if objects else json.dumps(one, ensure_ascii=False)
+        olds.put(spill.bucket_of(text, count), [slug, one, _clean(row)])
+    for slug, at, row in new_rows:
+        one = ident(row)
+        text = one if objects else json.dumps(one, ensure_ascii=False)
+        news.put(spill.bucket_of(text, count), [slug, at, row])
     olds.close()
     news.close()
 
@@ -264,10 +288,10 @@ def _compare(
         graves.sort()
     else:
         graves.sort(key=lambda key: (key[0], repr(key[1])))
-    return _Compared(counts, sent, graves, workspaces)
+    return Compared(counts, sent, graves, workspaces)
 
 
-def _write_sorted(
+def write_sorted(
     folder: Path, kind: str, rows: Iterator[list[Any]], workspaces: dict[str, Any]
 ) -> list[str]:
     """`write_batches` 와 같은 파일을 **흘려서** — 줄이 (타입, 차례)로 온다. 한 타입의 줄이
@@ -335,14 +359,14 @@ def delta(
         )
     if out.exists():
         raise FileExistsError(f"실행 폴더가 이미 있습니다: {out}")
-    manifest_now, problems = _head(current)
+    manifest_now, problems = head(current)
     if problems:
         raise ValueError(f"이번 실행의 출력을 읽을 수 없습니다: {problems}")
     count = spill.count_for(
         max(_files(previous), _files(current)) * int(sp.pipeline.MAX_ROWS), bucket_rows
     )
     folder = scratch or out.with_name(f"{out.name}.spill")
-    compared: list[_Compared] = []
+    compared: list[Compared] = []
     try:
         for kind in (sp.pipeline.OBJECTS_DIR, sp.pipeline.RELATIONS_DIR):
             compared.append(_compare(kind, previous, current, folder, count, problems))
@@ -350,13 +374,13 @@ def delta(
                 raise ValueError(f"이번 실행의 출력을 읽을 수 없습니다: {problems}")
         objects, edges = compared
         out.mkdir(parents=True)
-        objects_order = _write_sorted(
+        objects_order = write_sorted(
             out,
             sp.pipeline.OBJECTS_DIR,
             spill.merged(objects.sent, key=lambda item: (item[0], item[1])),
             objects.workspaces,
         )
-        relations_order = _write_sorted(
+        relations_order = write_sorted(
             out,
             sp.pipeline.RELATIONS_DIR,
             spill.merged(edges.sent, key=lambda item: (item[0], item[1])),
@@ -367,12 +391,39 @@ def delta(
             one.sent.drop()
         shutil.rmtree(folder, ignore_errors=True)
 
-    result = Delta(run=out, objects=objects.counts, relations=edges.counts)
-    graves_objects = [
-        {"type_slug": slug, "key": key, "merged_into": None} for slug, key in objects.graves
+    finish(
+        out,
+        current,
+        manifest_now,
+        source=source,
+        options=options,
+        objects_order=objects_order,
+        relations_order=relations_order,
+        graves_objects=objects.graves,
+        graves_edges=edges.graves,
+    )
+    return Delta(run=out, objects=objects.counts, relations=edges.counts)
+
+
+def finish(
+    out: Path,
+    current: Path,
+    manifest_now: dict[str, Any],
+    *,
+    source: str,
+    options: dict[str, str] | None,
+    objects_order: list[str],
+    relations_order: list[str],
+    graves_objects: list[tuple[str, Any]],
+    graves_edges: list[tuple[str, Any]],
+) -> None:
+    """보낼 폴더의 머리 · 무덤 · 온톨로지 — 객체 · 선 파일은 이미 썼다. 전체 비교(`delta`)와
+    증분 비교(`incremental.delta`)가 같이 쓴다. 무덤은 (타입, 정체) 차례로 온다."""
+    tombs_objects = [
+        {"type_slug": slug, "key": key, "merged_into": None} for slug, key in graves_objects
     ]
-    graves_edges: list[dict[str, Any]] = []
-    for slug, ident in edges.graves:
+    tombs_edges: list[dict[str, Any]] = []
+    for slug, ident in graves_edges:
         src, relation, dst, valid_from, valid_to = ident
         grave: dict[str, Any] = {
             "type_slug": slug,
@@ -382,7 +433,7 @@ def delta(
         }
         if valid_from is not None or valid_to is not None:
             grave.update(valid_from=valid_from, valid_to=valid_to, period=True)
-        graves_edges.append(grave)
+        tombs_edges.append(grave)
 
     manifest = dict(manifest_now)
     # 차례는 이번 출력의 것을 따른다 — 참조되는 타입이 먼저다(레시피의 `types` 차례).
@@ -397,10 +448,10 @@ def delta(
     (out / sp.pipeline.MANIFEST).write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-    if graves_objects or graves_edges:
+    if tombs_objects or tombs_edges:
         (out / sp.pipeline.TOMBSTONES).write_text(
             json.dumps(
-                {"objects": graves_objects, "relations": graves_edges},
+                {"objects": tombs_objects, "relations": tombs_edges},
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -409,4 +460,3 @@ def delta(
     for name in (sp.pipeline.ONTOLOGY, sp.pipeline.UNRESOLVED):
         if (current / name).exists():
             shutil.copyfile(current / name, out / name)
-    return result

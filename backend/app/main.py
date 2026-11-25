@@ -155,6 +155,11 @@ def _register_extensions() -> None:
     # 레시피 초안 · 시험(ADR 0001)도 이 범위로 열린다.
     scopes.register_write_scope("/api/jobs", "relay:write")
     scopes.register_write_scope("/api/relay", "relay:write")
+    # **승인 위임** — 버전 사용 · 계획 적용 · 재개 · 확인 후 진행 · 허용 주소 · 타입 계획
+    # 적용을 사람이 대화에서 승인한 뒤 MCP 가 실행한다(`relay/approval.py`, ADR 0002). 쓰기
+    # 경로는 relay:write 로 열리고, 그 동작들은 라우트가 이 범위를 한 번 더 본다. 사람이 토큰을
+    # 발급할 때 직접 선택해야만 생긴다.
+    scopes.register_scope("relay:approve")
     scopes.register_write_scope("/api/attachments", "relay:write")
     # 플랫폼의 자기소개 — 에이전트가 이 글로 어느 플랫폼에 물을지 고른다. 서버 화면의 다른 쓰기
     # (확장 켜기)는 토큰에 열지 않는다.

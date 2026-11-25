@@ -42,7 +42,7 @@ from typing import Any, Protocol
 from relay_core import sp, spill
 from relay_core.definition import Pipeline, Target
 from relay_core.diff import _batches as diff_batches
-from relay_core.diff import _head as diff_head
+from relay_core.diff import head as diff_head
 from relay_core.diff import write_batches
 from relay_core.runner import Outcome, fold, origin_for, pending_of, propose, settle_pending
 from relay_core.state import Workdir, stamp

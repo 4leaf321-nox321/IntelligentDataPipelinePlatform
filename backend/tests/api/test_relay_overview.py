@@ -61,7 +61,10 @@ def test_지도는_대상_상태를_저장값으로_읽고_요약은_확인_필�
 
     monkeypatch.setattr(services, "probe_http", probe)
     first = client.get("/api/relay/map", headers=admin.headers).json()
-    target = next(one for one in first["nodes"] if one["kind"] == "target")
+    # 같은 시험 DB 에 남은 정의 초안의 대상(`draft`)은 뺀다.
+    target = next(
+        one for one in first["nodes"] if one["kind"] == "target" and one["status"] != "draft"
+    )
     assert target["status"] == "ok" and target["detail"]["checked_at"]
     assert "/api/health" in calls
 
@@ -163,10 +166,75 @@ def test_일일_요약은_확인_필요가_있을_때만_하루_한_번(
     title = f"중계 일일 요약 — 확인 필요 {count}건"
     assert _titles(db, admin.email, "중계 일일 요약")[-1] == ("relay.digest", title)
     # 실행 실패 알림도, 일일 요약도 웹훅으로 함께 간다.
-    assert sent == [f"{slug} 실행 실패", title]
+    # (같은 시험 DB 에 남은 작업도 함께 돌 수 있어 이 파이프라인의 것만 본다.)
+    assert f"{slug} 실행 실패" in sent and sent[-1] == title
 
     assert digest.send_if_due(db, after + timedelta(minutes=5)) is None  # 그날은 한 번
     tomorrow = morning + timedelta(days=1)
     assert digest.send_if_due(db, tomorrow) is None  # 08:30 전
     assert digest.send_if_due(db, tomorrow.replace(minute=35)) is not None
     db.commit()
+
+
+def test_지도와_홈은_적용_확인을_묻지_않고_타이머가_묻는다(
+    client: TestClient,
+    registry: Path,
+    admin: Signed,
+    db: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from relay_core.state import Pending, Workdir
+
+    slug = _slug()
+    _definition(registry, slug)
+    monkeypatch.setenv("RELAY_T_TOKEN", "x")
+    work = Workdir(get_settings().relay_work_dir, slug)
+    state = work.load_state()
+    state.pending = Pending(
+        run="runs/x", send="sends/x", job_id="job-p", ok=True, digest="d", summary="s", at="t"
+    )
+    work.save_state(state)
+    asked: list[str] = []
+
+    def probe(server: str, token: str, path: str) -> tuple[int, Any]:
+        asked.append(path)
+        return (200, {"applied_by": None}) if path.startswith("/api/jobs/") else (0, None)
+
+    monkeypatch.setattr(services, "probe_http", probe)
+    monkeypatch.setattr(services, "_asked", {})
+    monkeypatch.setattr(services, "_down", {})
+    client.get("/api/relay/map", headers=admin.headers)
+    client.get("/api/server/maintenance", headers=admin.headers)
+    assert "/api/jobs/job-p" not in asked  # 목록 화면은 묻지 않는다
+    services.settle_all(db)
+    assert "/api/jobs/job-p" in asked  # 5분 타이머가 묻는다
+
+
+def test_알림_웹훅은_호스트만_보이고_전송_실패는_확인_필요에_뜬다(
+    client: TestClient, registry: Path, admin: Signed, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import httpx
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "relay_alert_webhook_url", "")
+    off = client.get("/api/relay/alert-webhook", headers=admin.headers).json()
+    assert off["configured"] is False
+    refused = client.post("/api/relay/alert-webhook/test", headers=admin.headers)
+    assert refused.status_code == 409 and "RELAY-0045" in refused.json()["error"]["code"]
+
+    monkeypatch.setattr(
+        settings, "relay_alert_webhook_url", "https://chat.corp.example/hook/SECRET"
+    )
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: httpx.Response(404))
+    tried = client.post("/api/relay/alert-webhook/test", headers=admin.headers).json()
+    assert tried["ok"] is False and "HTTP 404" in tried["message"]
+    status = client.get("/api/relay/alert-webhook", headers=admin.headers)
+    assert "SECRET" not in status.text
+    assert status.json()["host"] == "chat.corp.example" and status.json()["last_ok"] is False
+    home = client.get("/api/server/maintenance", headers=admin.headers).json()
+    assert any(one["key"] == "relay_webhook_failed" for one in home)
+
+    monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: httpx.Response(200))
+    assert client.post("/api/relay/alert-webhook/test", headers=admin.headers).json()["ok"]
+    home = client.get("/api/server/maintenance", headers=admin.headers).json()
+    assert not any(one["key"] == "relay_webhook_failed" for one in home)

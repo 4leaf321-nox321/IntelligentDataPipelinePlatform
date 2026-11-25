@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.modules.accounts.models import User
 from app.shared import audit
-from app.shared.errors import AppError, Forbidden, code
+from app.shared.errors import AppError, code
 
 #: `host` · `host:port` · `[v6]` · `[v6]:port` — 앞에 `http://` · 뒤에 경로는 받지 않는다.
 HOST = re.compile(r"^(?:[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?|\[[0-9a-f:.]+\])(?::\d{1,5})?$")
@@ -134,14 +134,21 @@ def status(db: Session) -> dict[str, Any]:
 
 
 def put(
-    db: Session, user: User, request: Request, source: list[str], target: list[str]
+    db: Session,
+    user: User,
+    request: Request,
+    source: list[str],
+    target: list[str],
+    *,
+    approval: str | None = None,
 ) -> dict[str, Any]:
-    if getattr(request.state, "token_scopes", None) is not None:
-        raise Forbidden(
-            code("RELAY", 39),
-            "허용 주소는 사람이 화면에서만 변경합니다. 토큰(MCP)으로는 변경할 수 없습니다. "
-            "사람에게 [중계 › 허용 주소] 화면에서 주소 추가를 요청하세요.",
-        )
+    """화면의 사람이나, 대화에서 승인받은 토큰(`approval.py`)만 바꾼다 — AI 가 자기 탐색 범위를
+    스스로 넓히지 않게."""
+    from app.modules.relay import approval as approving
+
+    approved = approving.check(
+        request, user, what="허용 주소 변경", refused=39, approval=approval
+    )
     wanted = {"source": _clean("원천", source), "target": _clean("대상", target)}
     with _locked():
         before = stored()
@@ -169,6 +176,9 @@ def put(
         target_id=None,
         target_label="허용 주소",
         changes=changes,
+    )
+    approving.record(
+        db, user, approved, action="allowed_hosts", target="허용 주소", hosts=changes
     )
     db.commit()
     return status(db)

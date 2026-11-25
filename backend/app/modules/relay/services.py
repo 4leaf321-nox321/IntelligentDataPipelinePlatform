@@ -200,6 +200,17 @@ def settle_seen(db: Session, found: Described, env: Mapping[str, str] | None = N
     return note
 
 
+def settle_all(db: Session) -> list[str]:
+    """**적용 대기 계획을 대상에서 적용했나 확인한다** — 5분 타이머(`scripts/relay_due.py`)가
+    부른다. 적용된 계획의 slug 를 돌려준다.
+
+    지도 · 홈은 파이프라인이 많아지면 적용 대기 계획마다 대상에 묻는 일만으로 느려진다
+    (2026-11-24). 그래서 목록을 그리는 화면은 묻지 않고 이 타이머의 결과를 읽는다. 파이프라인
+    하나를 보는 상세 · 출처 조회는 지금처럼 그 자리에서 묻는다."""
+    env = secrets_env()
+    return [found.slug for found in catalog(db) if settle_seen(db, found, env)]
+
+
 def target_version(server: str) -> str:
     """대상 SP 의 판(`/api/health` 의 `version` — `v0.4.101`). 못 닿으면 빈 글."""
     if not server:
@@ -371,7 +382,10 @@ def build_map(db: Session, *, probe: bool = False) -> RelayMap:
     targets: dict[str, tuple[str, str]] = {}
 
     for found in catalog(db):
-        settle_seen(db, found, env)
+        # SP 화면에서 적용한 계획의 확인은 5분 타이머가 한다(`settle_all`) — 지도를 열 때마다
+        # 적용 대기 계획마다 대상에 묻지 않는다. [대상 다시 조회](`probe`)는 지금 묻는다.
+        if probe:
+            settle_seen(db, found, env)
         state = read_state(found.slug)
         jobs = recent_jobs(db, found.slug, limit=1, kinds=(RUN_KIND, APPLY_KIND))
         late = lateness(db, found)
@@ -693,9 +707,8 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
         "drift": 0,
         "stopped": 0,
     }
-    env = secrets_env()
+    # 적용 확인은 타이머가 한다(`settle_all`) — 홈을 열 때마다 대상에 묻지 않는다.
     for found in catalog(db):
-        settle_seen(db, found, env)
         jobs = recent_jobs(db, found.slug, limit=1, kinds=(RUN_KIND, APPLY_KIND))
         late = lateness(db, found)
         status = status_of(found, read_state(found.slug), jobs[0] if jobs else None, late)
@@ -735,6 +748,20 @@ def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
             link="/relay/map",
         ),
     ]
+    # 알림 웹훅의 마지막 전송이 실패했다 — 주소가 틀려도 로그에만 남으면 아무도 모른다.
+    from app.modules.relay import webhook
+
+    sent = webhook.last() if webhook.configured() else None
+    if sent and not sent.get("ok"):
+        items.append(
+            extensions.MaintenanceItem(
+                key="relay_webhook_failed",
+                label="알림 웹훅 전송 실패",
+                count=1,
+                link="/relay/pipelines",
+                severity="warning",
+            )
+        )
     return [one for one in items if one.count]
 
 

@@ -16,7 +16,7 @@ from urllib.parse import quote
 from app.config import get_settings
 from app.modules.jobs import kinds
 from app.modules.relay import alerts, recipes, services
-from relay_core import autoapply, intake, reconcile, retract, runner
+from relay_core import intake, isolate, retract, runner
 from relay_core.definition import DefinitionError, Pipeline, load_body
 from relay_core.describe import Described
 from relay_core.state import Workdir
@@ -64,6 +64,60 @@ def origin_base(slug: str) -> dict[str, str]:
     return out
 
 
+def _engine(
+    work: kinds.Work,
+    target: str,
+    *args: Any,
+    label: str,
+    progress_kw: str | None = None,
+    on_progress: Any = None,
+    **kwargs: Any,
+) -> tuple[Any, dict[str, Any]]:
+    """엔진 함수 하나를 **작업 프로세스에서** — (결과, 단계별 메모리). `RELAY_JOB_PROCESS` 가
+    꺼져 있으면(시험) 워커 안에서 같은 함수를 부른다(시험이 바꿔 끼운 함수가 그대로 불린다).
+
+    자식의 단계는 작업 진행에 적는다(심장박동 · 취소 확인 — 취소되면 `work.progress` 가 예외를
+    내고, 그때 자식을 끝낸다)."""
+    settings = get_settings()
+
+    def stage(name: str) -> None:
+        work.progress(name, 0, 0)
+
+    if not settings.relay_job_process:
+        fn = isolate._resolve(target)
+        if progress_kw:
+            kwargs[progress_kw] = on_progress
+        return fn(*args, **kwargs), {}
+    return isolate.call(
+        target,
+        *args,
+        limit_mb=settings.relay_job_memory_mb,
+        label=label,
+        on_stage=stage,
+        on_tick=stage,
+        on_progress=on_progress,
+        progress_kw=progress_kw,
+        **kwargs,
+    )
+
+
+def _killed(folder: Workdir, refused: isolate.MemoryLimitExceeded) -> None:
+    """상한을 넘어 끝낸 실행도 실행 추이에 남긴다 — 자식이 끝나 제 기록을 못 썼다."""
+    try:
+        folder.add_trend(
+            {
+                "at": runner._now(),
+                "status": "failed",
+                "seconds": 0,
+                "stage": refused.stage,
+                "memory": {refused.stage: refused.peak_mb},
+                "peak_mb": refused.peak_mb,
+            }
+        )
+    except (OSError, ValueError):
+        log.warning("실행 추이를 쓰지 못했습니다: %s", folder.root, exc_info=True)
+
+
 def _tidy(folder: Workdir) -> int:
     """지난 실행을 정리한다(`RELAY_KEEP_RUNS`) — 실행마다 `runs/` · `sends/` · `work/` 가
     하나씩 늘어 안 지우면 디스크가 찬다. **정리가 실패해도 작업은 실패가 아니다** — 할 일은
@@ -87,12 +141,23 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
             if total > 1:
                 work.progress(f"적용(분할 번들 {part}/{total})", part, total)
 
-        outcome = runner.apply(pipeline, folder, progress=shown)
+        outcome, record = _engine(
+            work,
+            "relay_core.runner.apply",
+            pipeline,
+            folder,
+            label="적용",
+            progress_kw="progress",
+            on_progress=shown,
+        )
+        outcome.memory = outcome.memory or record
         # **보정 계획을 적용했으면 바로 다시 견준다** — 안 그러면 다음 대조(며칠 뒤)까지 홈이
         # 「어긋남」 을 계속 말한다.
         if outcome.status == "applied" and pending and pending.origin == "reconcile":
             work.progress("재대조", 0, 0)
-            again = reconcile.compare(pipeline, folder)
+            again, _record = _engine(
+                work, "relay_core.reconcile.compare", pipeline, folder, label="재대조"
+            )
             outcome.message += f" · 재대조: {again.summary()}"
             reconciled = True
         if outcome.status == "applied" and pending and pending.origin == retract.ORIGIN:
@@ -100,24 +165,41 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
     else:
         human = str(work.params.get("human_edits") or "")
         options = {"human_edits": human} if human in ("keep", "overwrite") else None
-        outcome = runner.run(
-            pipeline,
-            folder,
-            options=options,
-            accept=_accept(work),
-            full=bool(work.params.get("full")),
-        )
+        try:
+            outcome, _record = _engine(
+                work,
+                "relay_core.runner.run",
+                pipeline,
+                folder,
+                label="실행",
+                options=options,
+                accept=_accept(work),
+                full=bool(work.params.get("full")),
+                incremental_plan=get_settings().relay_incremental,
+            )
+        except isolate.MemoryLimitExceeded as refused:
+            _killed(folder, refused)
+            raise
         # **자동 적용은 타이머의 실행에만** — 사람의 「지금 실행」 · MCP 의 실행은 계획만
         # 올린다.
         if work.params.get("by") == "timer" and found.auto_apply is not None:
             work.progress("자동 적용 기준 확인", 0, 0)
-            outcome = autoapply.after_run(pipeline, folder, outcome, found.auto_apply)
+            outcome, _record = _engine(
+                work,
+                "relay_core.autoapply.after_run",
+                pipeline,
+                folder,
+                outcome,
+                found.auto_apply,
+                label="자동 적용",
+            )
     return {
         "ok": outcome.status != "blocked",
         "status": outcome.status,
         "summary": f"[{outcome.status}] {outcome.message}",
         "link": outcome.link,
         "counts": outcome.counts,
+        **outcome.memory,
         # 대조 보고서를 새로 썼다 — 알림(`alerts`)이 대조 갈래도 본다.
         "reconciled": reconciled,
         "pruned": _tidy(folder),
@@ -145,8 +227,11 @@ def reconcile_job(work: kinds.Work) -> dict[str, Any]:
     _, pipeline, folder = _load(work)
     if work.params.get("plan"):
         work.progress("대조 · 보정 계획 생성", 0, 0)
-        outcome = reconcile.resync(pipeline, folder)
+        outcome, record = _engine(
+            work, "relay_core.reconcile.resync", pipeline, folder, label="보정 계획 생성"
+        )
         return {
+            **record,
             "ok": outcome.status != "blocked",
             "status": outcome.status,
             "summary": f"[{outcome.status}] {outcome.message}",
@@ -155,9 +240,12 @@ def reconcile_job(work: kinds.Work) -> dict[str, Any]:
             "pruned": _tidy(folder),
         }
     work.progress("대상 조회 · 비교", 0, 0)
-    report = reconcile.compare(pipeline, folder)
+    report, record = _engine(
+        work, "relay_core.reconcile.compare", pipeline, folder, label="대조"
+    )
     status = "problem" if report.problems else ("drift" if report.drift else "same")
     return {
+        **record,
         "ok": not report.problems,
         "status": status,
         "summary": f"[{status}] {report.summary()}",
@@ -196,14 +284,18 @@ def retract_job(work: kinds.Work) -> dict[str, Any]:
     }
     try:
         scope = retract.Scope.of(work.params.get("scope") or {})
-        outcome = retract.retract(
+        outcome, record = _engine(
+            work,
+            "relay_core.retract.retract",
             pipeline,
             folder,
             scope,
+            label="회수 계획 생성",
             by=str(work.params.get("who") or ""),
             action=action,
             ends=ends,
         )
+        outcome.memory = outcome.memory or record
     except retract.RetractError as refused:
         outcome = runner.Outcome("blocked", str(refused))
     return {

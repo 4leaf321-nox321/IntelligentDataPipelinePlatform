@@ -32,11 +32,81 @@ import shutil
 from collections import Counter
 from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from relay_core import aliases, sp, spill
 
 Row = tuple[int, dict[str, str]]
+
+
+class Observer(Protocol):
+    """변환을 지켜본다 — 증분 계획의 색인(`relay_core.incremental`)이 쓴다. 변환의 결과는
+    바꾸지 않는다.
+
+    - `lead(phase, number, text)` — 행마다 모으기(타입 · 관계)의 앞 값(식별자 · 출발점). 비면
+      빈 문자열.
+    - `lookup(at, target, prefix, text, number, key, outcome)` — 참조 대조(`match`) 한 번.
+    - `edges(phase, first)` — 관계를 쓰는 차례대로, 선마다 그 세 끝이 처음 나온 행.
+    - `finish(mapping, results, edges, table)` — 끝난 통계(보고서의 재료)."""
+
+    def lead(self, phase: int, number: int, text: str) -> None: ...
+
+    def lookup(
+        self,
+        at: tuple[str, str],
+        target: str,
+        prefix: bool,
+        text: str,
+        number: int,
+        key: str | None,
+        outcome: str,
+    ) -> None: ...
+
+    def edges(self, phase: int, first: int) -> None: ...
+
+    def finish(
+        self, mapping: Any, results: list[Any], edges: list[Any], table: Any
+    ) -> None: ...
+
+
+class _Watched:
+    """참조 대조의 식별자 집합(`KeyMatch`) 대신 — 찾은 결과를 그대로 주고 지켜보는 쪽에
+    알린다."""
+
+    def __init__(self, inner: Any, owner: Any, target: str, observer: Observer) -> None:
+        self.inner, self.owner, self.target, self.observer = inner, owner, target, observer
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.inner, name)
+
+    def find(self, text: str, *, prefix: bool = False) -> tuple[Any, str]:
+        key, outcome = self.inner.find(text, prefix=prefix)
+        at, number = self.owner._relay_looking
+        self.observer.lookup(at, self.target, prefix, text, number, key, outcome)
+        return key, outcome
+
+
+def observed_mapping(spec: dict[str, Any], table: Any, keys: Any) -> Any:
+    """참조 대조를 지켜볼 수 있는 `Mapping` — `watch` 를 부른 뒤부터 알린다."""
+
+    class Observed(sp.table.Mapping):  # type: ignore[misc]
+        _relay_looking: tuple[tuple[str, str], int] = (("", ""), 0)
+
+        def _match(
+            self, rule: dict[str, Any], text: str, number: int, *, at: tuple[str, str]
+        ) -> Any:
+            self._relay_looking = (at, number)
+            return super()._match(rule, text, number, at=at)
+
+        def watch(self, observer: Observer) -> None:
+            # 새 사전으로 — 바구니를 고르는 `_Scratch` 는 옛 사전(지켜보지 않는 것)을 그대로
+            # 쓴다.
+            self.matchers: dict[str, Any] = {
+                target: _Watched(one, self, target, observer)
+                for target, one in self.matchers.items()
+            }
+
+    return Observed(spec, table, keys=keys)
 
 
 class _Rows:
@@ -186,6 +256,17 @@ class _Phase:
     @property
     def lead(self) -> Any:
         return self.one["src"] if self.edge else self.one["key"]
+
+
+def _phase_specs(phase: _Phase) -> list[Any]:
+    """그 모으기가 읽는 칸의 규칙 전부(앞 값까지) — `_phases` 가 칸을 모으는 것과 같은 자리."""
+    one = phase.one
+    if phase.edge:
+        specs = [one["src"], one["dst"], *(one.get("properties") or {}).values()]
+        if "evidence_note" in one:
+            specs.append(one["evidence_note"])
+        return specs
+    return [one["key"], one.get("label") or one["key"], *(one.get("fields") or {}).values()]
 
 
 def _phases(mapping: Any) -> list[_Phase]:
@@ -431,9 +512,11 @@ def convert(
     token: str = "",
     bucket_rows: int = spill.BUCKET_ROWS,
     scratch: Path | None = None,
+    observer: Observer | None = None,
 ) -> tuple[bool, str]:
     """`sp_table.convert` 와 같다 — (미해결이 없나, 보고서). `scratch` 는 바구니를 둘
-    폴더(없으면 `run` 옆) — 끝나면 지운다."""
+    폴더(없으면 `run` 옆) — 끝나면 지운다. `observer` 는 변환을 지켜본다(증분 계획의 색인 —
+    결과는 같다)."""
     table_mod, pipeline = sp.table, sp.pipeline
     spec = table_mod._load_mapping(mapping_path)
     source = spec.get("source") or {}
@@ -461,7 +544,11 @@ def convert(
                 cache[target] = pipeline.fetch_keys(server, token, target)
         return cache[target]
 
-    mapping = table_mod.Mapping(spec, table, keys=keys)
+    mapping = (
+        observed_mapping(spec, table, keys)
+        if observer is not None
+        else table_mod.Mapping(spec, table, keys=keys)
+    )
     table_mod._ask_platform(mapping, server, token)
     # relay 사전 — 대상이 별칭 · 이름으로 못 푼 표기만, 대상에 있는 키로(`relay_core.aliases`).
     notes = aliases.inject(mapping, spec)
@@ -474,11 +561,27 @@ def convert(
     phases = _phases(mapping)
     folder = scratch or run.with_name(f"{run.name}.spill")
     count = spill.count_for(len(table.rows), bucket_rows)
-    helper = _Scratch(mapping, spec, keys) if count > 1 else None
+    helper = _Scratch(mapping, spec, keys) if count > 1 or observer is not None else None
+    if observer is not None and helper is not None:
+        for number, row in table.rows:
+            for index, phase in enumerate(phases):
+                observer.lead(index, number, helper.text(phase, number, row))
+        mapping.watch(observer)
     gathered: list[_Gathered] = []
     try:
         gathered = _gather(mapping, helper, phases, folder, count)
-        _write_run(mapping, mapping_path, spec, table, run, ontology, phases, gathered)
+        _write_run(
+            mapping,
+            mapping_path,
+            spec,
+            table,
+            run,
+            ontology,
+            phases,
+            gathered,
+            observer,
+            helper,
+        )
     finally:
         for one in gathered:
             if one.spill is not None:
@@ -491,6 +594,8 @@ def convert(
     edges = [one.result for one, phase in zip(gathered, phases, strict=True) if phase.edge]
     unresolved = _unresolved(mapping, table, results, edges)
     pipeline._write(run / pipeline.UNRESOLVED, unresolved)
+    if observer is not None:
+        observer.finish(mapping, results, edges, table)
     text = table_mod._report(mapping, mapping_path, results, run, len(unresolved), edges)
     if notes:
         text += "\n\n" + "\n".join(notes)
@@ -498,7 +603,7 @@ def convert(
     return not unresolved, text
 
 
-def _write_run(
+def write_head(
     mapping: Any,
     mapping_path: Path,
     spec: dict[str, Any],
@@ -506,8 +611,8 @@ def _write_run(
     run: Path,
     ontology: dict[str, Any] | None,
     phases: list[_Phase],
-    gathered: list[_Gathered],
 ) -> None:
+    """실행 폴더의 머리 — `manifest.json` · `ontology.json`. 틀의 `convert` 와 같은 바이트."""
     table_mod, pipeline = sp.table, sp.pipeline
     pipeline.cmd_init(run, title=str(spec.get("title") or table.name))
     manifest_path = run / pipeline.MANIFEST
@@ -530,13 +635,46 @@ def _write_run(
     if ontology is not None:
         pipeline._write(run / pipeline.ONTOLOGY, ontology)
 
-    for phase, one in zip(phases, gathered, strict=True):
+
+def _observed_edges(
+    observer: Observer, index: int, items: Iterator[list[Any]]
+) -> Iterator[dict[str, Any]]:
+    for first, edge in items:
+        observer.edges(index, int(first))
+        yield edge
+
+
+def _write_run(
+    mapping: Any,
+    mapping_path: Path,
+    spec: dict[str, Any],
+    table: Any,
+    run: Path,
+    ontology: dict[str, Any] | None,
+    phases: list[_Phase],
+    gathered: list[_Gathered],
+    observer: Observer | None = None,
+    scratch: _Scratch | None = None,
+) -> None:
+    pipeline = sp.pipeline
+    write_head(mapping, mapping_path, spec, table, run, ontology, phases)
+
+    for index, (phase, one) in enumerate(zip(phases, gathered, strict=True)):
         result = one.result
         rows: Iterator[Any]
-        if one.spill is None:
+        if one.spill is None and phase.edge and observer is not None and scratch is not None:
+            # 작은 표(바구니 하나) — 선이 처음 나온 행을 따로 센다(바구니는 이미 적는다).
+            first = _first_rows(scratch, phase, list(table.rows))
+            pairs = ([first[(edge["src"], edge["dst"])], edge] for edge in one.rows)
+            rows = _observed_edges(observer, index, pairs)
+        elif one.spill is None:
             rows = iter(one.rows)
         elif phase.edge:
-            rows = (item[1] for item in spill.merged(one.spill, key=lambda item: item[0]))
+            merged = spill.merged(one.spill, key=lambda item: item[0])
+            if observer is not None:
+                rows = _observed_edges(observer, index, merged)
+            else:
+                rows = (item[1] for item in merged)
         else:
             rows = spill.merged(one.spill, key=lambda item: item["_source"]["row"])
         if phase.edge:

@@ -141,7 +141,7 @@ export function RecipeVersions({
       </div>
       <p className="text-muted-foreground text-sm">
         AI(MCP) 또는 [초안 작성]으로 레시피 초안을 작성하고 테스트합니다. 사용 여부는 사람이 이
-        화면에서 결정합니다. 사용하면 다음 실행부터 이 버전으로 변환합니다. 현재 레시피:{' '}
+        화면에서 결정하거나, AI가 테스트 결과를 보여 준 뒤 대화에서 승인합니다. 사용하면 다음 실행부터 이 버전으로 변환합니다. 현재 레시피:{' '}
         <span className="text-foreground font-medium">
           {recipeLabel === '파일' ? '정의 파일의 레시피(사용 중인 버전 없음)' : recipeLabel}
         </span>

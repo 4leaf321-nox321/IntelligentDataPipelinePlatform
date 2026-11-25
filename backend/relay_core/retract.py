@@ -44,8 +44,8 @@ from typing import Any
 
 from relay_core import reconcile, sp
 from relay_core.definition import Pipeline
-from relay_core.diff import _head as diff_head
 from relay_core.diff import delta
+from relay_core.diff import head as diff_head
 from relay_core.runner import (
     Outcome,
     counts_of,

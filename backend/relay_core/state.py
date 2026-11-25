@@ -20,7 +20,7 @@ import json
 import os
 import re
 import shutil
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,7 +28,7 @@ from typing import Any
 
 from relay_core.adapters.base import Fetched
 from relay_core.intake import Tally
-from relay_core.mirror import Applied, Merge, Mirror, write_csv
+from relay_core.mirror import Applied, Changes, Merge, Mirror, write_csv
 from relay_core.records import SourceRecord
 
 
@@ -87,13 +87,18 @@ _RUN_NAME = re.compile(r"^(\d{8}T\d{12}Z)(-resync|-partial|-retract)?$")
 #: 남는다).
 _SOURCE_NAME = re.compile(
     r"^(\d{8}T\d{12}Z)\."
-    r"(source\.csv|recipe\.table\.json|spill|send\.spill|fetch\.spill|reconcile\.spill)$"
+    r"(source\.csv|recipe\.table\.json|spill|send\.spill|fetch\.spill|reconcile\.spill|edges|changes|base)$"
 )
 #: 정리하는 곳 — (폴더, 이름 모양).
 _PRUNED = (("runs", _RUN_NAME), ("sends", _RUN_NAME), ("work", _SOURCE_NAME))
 #: 실행 추이의 파일과 남기는 줄 — 매일 밤 한 번이면 1년 남짓.
 TREND = "trend.json"
 TREND_MAX = 400
+
+
+#: 미러 파일의 한 줄(`_stage_rows`)의 앞 — 그 뒤가 키의 JSON 글자다.
+_KEY_HEAD = '{"key": "'
+_scan_string: Callable[[str, int], tuple[str, int]] = vars(json.JSONDecoder())["parse_string"]
 
 
 def stamp() -> str:
@@ -149,8 +154,11 @@ class Workdir:
         돌리는 중이면 그 폴더(가장 최근)를 만들고 있다."""
         if keep <= 0:
             return []
+        from relay_core.incremental import index_run
+
         state = self.load_state()
-        held = {state.applied_run}
+        # 색인이 이어질 실행(`incremental.sqlite`)도 남긴다 — 지난 출력에 끼워 짓는다.
+        held = {state.applied_run, index_run(self)}
         if state.pending:
             held |= {state.pending.run, state.pending.send}
         # 원천 표(work/)는 실행 시각으로 — 조각을 접은 기준(`<때>-partial`)도 그 실행의
@@ -234,6 +242,24 @@ class Workdir:
         # 옛 판(0.2.2 까지)은 들여쓴 JSON 한 덩이였다 — 첫 줄은 같은 `[` 이고 둘째 줄이 `{` 다.
         yield from Mirror.from_rows(json.loads(file.read_text(encoding="utf-8"))).records()
 
+    def mirror_keys(self) -> Iterator[str]:
+        """미러의 키만 차례로 — 줄의 앞(`{"key": "…"`)만 읽고 값은 풀지 않는다."""
+        file = self.root / "mirror.json"
+        if not file.exists():
+            return
+        with file.open(encoding="utf-8") as handle:
+            if handle.readline().strip() == "[" and _line_shaped(handle.readline()):
+                handle.seek(0)
+                handle.readline()
+                for line in handle:
+                    if line.startswith(_KEY_HEAD):
+                        yield _scan_string(line, len(_KEY_HEAD))[0]
+                    elif (text := line.strip()) and text != "]":
+                        yield str(json.loads(text.rstrip(","))["key"])
+                return
+        for one in self.mirror_rows():
+            yield one.key
+
     def mirror_size(self) -> int:
         """미러의 행 수 — 한 줄에 한 행인 모양이면 줄만 센다(읽어 풀지 않는다)."""
         file = self.root / "mirror.json"
@@ -245,6 +271,16 @@ class Workdir:
                 return sum(1 for line in handle if line.strip() not in ("", "[", "]"))
         return sum(1 for _ in self.mirror_rows())
 
+    def mirror_mark(self) -> str:
+        """지금 미러 파일의 표지 — 파일이 바뀌면 달라진다(미러는 늘 통째로 갈아 끼운다). 증분
+        계획의 색인이 **어느 미러를 본 것인지** 가리는 데 쓴다: 미러를 반영한 뒤 변환이
+        멈췄거나 백업에서 미러만 되돌렸으면 색인과 어긋난다."""
+        try:
+            found = (self.root / "mirror.json").stat()
+        except FileNotFoundError:
+            return ""
+        return f"{found.st_size}:{found.st_mtime_ns}"
+
     def save_mirror(self, mirror: Mirror) -> None:
         self._write_mirror(mirror.records())
 
@@ -255,10 +291,13 @@ class Workdir:
         staged.commit()
         return staged.applied, staged.size
 
-    def stage_mirror(self, fetched: Fetched) -> Staged:
+    def stage_mirror(self, fetched: Fetched, changes: Changes | None = None) -> Staged:
         """반영할 새 미러를 **임시 파일에만** 쓴다 — `commit` 해야 미러가 된다. 실행은 그
-        사이에 받기 점검(`intake`)을 보고, 멈추면 `discard` 한다(미러는 그대로)."""
-        merge = Merge(fetched)
+        사이에 받기 점검(`intake`)을 보고, 멈추면 `discard` 한다(미러는 그대로). `changes` 를
+        주면 바뀐 행을 거기 적는다(증분 계획)."""
+        if changes is not None:
+            changes.base = self.mirror_mark()
+        merge = Merge(fetched, changes)
         scratch = self._stage_rows(merge.rows(self.mirror_rows()))
         return Staged(
             applied=merge.applied,

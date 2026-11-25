@@ -19,6 +19,7 @@ from app.modules.accounts.models import User
 from app.modules.jobs import services as job_services
 from app.modules.relay import allow as relay_allow
 from app.modules.relay import (
+    approval,
     definitions,
     inbound,
     overview,
@@ -32,6 +33,8 @@ from app.modules.relay import scaffold as scaffolding
 from app.modules.relay import secrets as relay_secrets
 from app.modules.relay.models import RelayDefinition, RelayRecipe
 from app.modules.relay.schemas import (
+    AlertWebhookOut,
+    AlertWebhookTestOut,
     AllowedHostsIn,
     AllowedHostsOut,
     DefinitionIn,
@@ -62,7 +65,7 @@ from app.modules.relay.schemas import (
 )
 from app.shared import audit
 from app.shared.auth import current_user, require_system_admin
-from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
+from app.shared.errors import AppError, Conflict, NotFound, code
 from relay_core import intake, retract
 from relay_core.state import TREND_MAX, Workdir
 
@@ -79,6 +82,27 @@ class RunIn(BaseModel):
     full: bool = False
     """전량 다시 받기 — 워터마크를 두고 처음부터 받는다(어댑터의 칸을 고친 뒤). 안 온 것은
     삭제로 읽히므로 받기 점검이 대량 삭제를 막는다."""
+    approval: str = ""
+    """토큰(MCP)의 확인 후 진행 — 사람이 대화에서 승인한 말(`approval.py`)."""
+    accept_deleted: int | None = None
+    """토큰(MCP)의 확인 후 진행 — 사람에게 보여 준 삭제 건수. 지금 중단 사유와 같아야 한다."""
+
+
+class ApproveIn(BaseModel):
+    """화면 대신 대화에서 승인한 실행(`approval.py`) — 화면의 요청은 본문 없이 온다."""
+
+    approval: str = ""
+    """사람이 승인한 말 그대로 — 토큰(MCP)의 요청에만 필요하다."""
+
+
+class ApplyIn(ApproveIn):
+    plan_job_id: str = ""
+    """토큰(MCP)의 적용 — 사람에게 보여 준 계획의 번호. 지금 적용 대기 계획과 같아야 한다."""
+
+
+class TypePlanApplyIn(ApproveIn):
+    job_id: str
+    """이 파이프라인이 올린 타입 계획의 번호(`type_plan` 의 응답)."""
 
 
 class QueuedOut(BaseModel):
@@ -101,6 +125,57 @@ def relay_overview(
 ) -> RelayOverview:
     """운영 요약 — 상태별 건수 · 확인 필요 목록 · 대상 상태(MCP `relay_overview`)."""
     return overview.build(db)
+
+
+def _webhook_status() -> AlertWebhookOut:
+    from app.modules.relay import webhook
+
+    sent = webhook.last() or {}
+    return AlertWebhookOut(
+        configured=webhook.configured(),
+        host=webhook.host(),
+        last_at=sent.get("at"),
+        last_ok=sent.get("ok"),
+        last_error=str(sent.get("error") or ""),
+    )
+
+
+@router.get("/alert-webhook", response_model=AlertWebhookOut)
+def alert_webhook(_: User = Depends(require_system_admin)) -> AlertWebhookOut:
+    """알림 웹훅의 상태 — 설정 여부 · 호스트 · 마지막 전송 결과. 주소는 서버 `.env` 에만
+    있다."""
+    return _webhook_status()
+
+
+@router.post("/alert-webhook/test", response_model=AlertWebhookTestOut)
+def alert_webhook_test(user: User = Depends(require_system_admin)) -> AlertWebhookTestOut:
+    """알림 웹훅 시험 전송 — 설정한 주소로 시험 메시지 하나를 보낸다."""
+    from app.modules.notifications import services as notifications
+    from app.modules.relay import webhook
+
+    if not webhook.configured():
+        raise Conflict(
+            code("RELAY", 45),
+            "알림 웹훅이 설정되지 않았습니다. 서버 .env에 RELAY_ALERT_WEBHOOK_URL을 입력하고 "
+            "서비스를 재시작하세요.",
+        )
+    ok = webhook.send(
+        kind=notifications.RELAY_DIGEST,
+        title="알림 웹훅 시험 전송",
+        body=f"{user.display_name}이(가) 보낸 시험 메시지입니다. 이 메시지가 보이면 설정이 "
+        "올바릅니다.",
+        link="/relay/pipelines",
+    )
+    status = _webhook_status()
+    if ok:
+        return AlertWebhookTestOut(
+            ok=True, message=f"{status.host}(으)로 시험 메시지를 보냈습니다."
+        )
+    return AlertWebhookTestOut(
+        ok=False,
+        message=f"{status.host}(으)로 보내지 못했습니다({status.last_error}). 주소와 서버의 "
+        "네트워크 연결을 확인하세요.",
+    )
 
 
 @router.get("/pipelines/{slug}", response_model=PipelineDetail)
@@ -137,22 +212,21 @@ def pipeline_run(
     if body and body.human_edits:
         params["human_edits"] = body.human_edits
     if body and body.accept:
-        params["accept"] = _accept(slug, request, user)
+        params["accept"] = _accept(slug, request, user, db, body)
     if body and body.full:
         params["full"] = True
     return _queue(db, user, services.RUN_KIND, params)
 
 
-def _accept(slug: str, request: Request, user: User) -> dict[str, Any]:
-    """「확인 후 진행」 — 받기 점검이 멈춘 것을 **지금 적힌 그대로** 작업에 싣는다. 실행이 돌
-    때 그보다 나빠졌으면(삭제가 늘거나 다른 칸이 비면) 다시 멈춘다. 대량 삭제를 지나가게 하는
-    일이라 계획의 적용처럼 화면에서 사람만 한다."""
-    if getattr(request.state, "token_scopes", None) is not None:
-        raise Forbidden(
-            code("RELAY", 23),
-            "수신 검증의 확인 후 진행은 사람이 화면에서만 할 수 있습니다. 토큰(MCP)으로는 "
-            "진행할 수 없습니다. 화면에서 중단 사유를 확인하고 [확인 후 진행]을 클릭하세요.",
-        )
+def _accept(
+    slug: str, request: Request, user: User, db: Session, body: RunIn
+) -> dict[str, Any]:
+    """[확인 후 진행] — 수신 검증이 중단한 것을 **지금 적힌 그대로** 작업에 싣는다. 실행할 때
+    그보다 나빠졌으면(삭제가 늘거나 다른 필드가 비면) 다시 중단한다. 대량 삭제를 통과시키는
+    일이라 화면의 사람이나, 대화에서 승인받은 토큰(`approval.py`)만 한다."""
+    approved = approval.check(
+        request, user, what="수신 검증의 확인 후 진행", refused=23, approval=body.approval
+    )
     held = (services.read_state(slug) or {}).get("held")
     accept = intake.Accept.of(held)
     if accept is None:
@@ -160,10 +234,25 @@ def _accept(slug: str, request: Request, user: User) -> dict[str, Any]:
             code("RELAY", 24),
             f"{slug}은 수신 검증으로 중단된 실행이 없습니다. [즉시 실행]을 클릭하세요.",
         )
+    if approved.via_token and body.accept_deleted != accept.deleted:
+        raise Conflict(
+            code("RELAY", 48),
+            f"승인한 삭제 건수({body.accept_deleted})가 지금 중단 사유의 삭제 건수"
+            f"({accept.deleted})와 다릅니다. 중단 사유를 다시 보여 주고 승인을 받으세요.",
+        )
+    approval.record(
+        db,
+        user,
+        approved,
+        action="accept",
+        target=slug,
+        deleted=accept.deleted,
+        columns=list(accept.columns),
+    )
     return {
         "deleted": accept.deleted,
         "columns": list(accept.columns),
-        "by": user.display_name,
+        "by": approved.by,
     }
 
 
@@ -171,6 +260,7 @@ def _accept(slug: str, request: Request, user: User) -> dict[str, Any]:
 def pipeline_apply(
     slug: str,
     request: Request,
+    body: ApplyIn | None = None,
     user: User = Depends(require_system_admin),
     db: Session = Depends(get_db),
 ) -> QueuedOut:
@@ -178,13 +268,27 @@ def pipeline_apply(
     · 위임 토큰)으로 온 요청은 거절한다 — 판의 사용과 같다. 적용 도구가 MCP 에 없다는
     것만으로는 막히지 않는다(토큰으로 이 경로를 바로 부를 수 있었다, 2026-11-06 보안
     검토)."""
-    if getattr(request.state, "token_scopes", None) is not None:
-        raise Forbidden(
-            code("RELAY", 20),
-            "계획 적용은 사람이 화면에서만 할 수 있습니다. 토큰(MCP)으로는 적용할 수 "
-            "없습니다. 화면에서 계획을 확인하고 [적용]을 클릭하세요.",
+    given = body or ApplyIn()
+    approved = approval.check(
+        request, user, what="계획 적용", refused=20, approval=given.approval
+    )
+    params: dict[str, Any] = {"slug": slug, "by": approved.by}
+    if approved.via_token:
+        pending = str(
+            ((services.read_state(slug) or {}).get("pending") or {}).get("job_id") or ""
         )
-    return _queue(db, user, services.APPLY_KIND, {"slug": slug})
+        wanted = given.plan_job_id.strip()
+        if not pending:
+            raise Conflict(code("RELAY", 48), f"{slug}에는 적용 대기 계획이 없습니다.")
+        if wanted != pending:
+            raise Conflict(
+                code("RELAY", 48),
+                f"승인한 계획({wanted[:8] or '없음'})이 지금 적용 대기 계획({pending[:8]})과 "
+                "다릅니다. 계획을 다시 보여 주고 승인을 받으세요.",
+            )
+        approval.record(db, user, approved, action="apply", target=slug, plan=pending)
+        params["approval"] = approved.approval
+    return _queue(db, user, services.APPLY_KIND, params)
 
 
 class ReconcileIn(BaseModel):
@@ -281,19 +385,18 @@ class ResumeOut(BaseModel):
 def pipeline_resume(
     slug: str,
     request: Request,
+    body: ApproveIn | None = None,
     user: User = Depends(require_system_admin),
     db: Session = Depends(get_db),
 ) -> ResumeOut:
     """걷어내고 멈춘 파이프라인을 다시 켠다 — **화면에서 사람만**(원천에서 지웠는지 · 레시피를
     고쳤는지는 사람이 안다 — 안 그러면 다음 실행이 걷어낸 것을 다시 만든다). 걷어내기 계획이
     아직 대기 중이면, 대상에서 적용됐으면 기준으로 올리고 아니면 그 계획을 거둔다."""
-    if getattr(request.state, "token_scopes", None) is not None:
-        raise Forbidden(
-            code("RELAY", 42),
-            "재개는 사람이 화면에서만 할 수 있습니다. 토큰(MCP)으로는 재개할 수 없습니다. "
-            "원천에서 회수한 행을 삭제했는지, 레시피를 수정했는지 확인한 후 화면에서 [재개]를 "
-            "클릭하세요.",
-        )
+    # 원천에서 회수한 행을 삭제했는지, 레시피를 수정했는지는 사람이 안다 — 화면의 사람이나
+    # 대화에서 그 확인을 받은 토큰만 재개한다.
+    approved = approval.check(
+        request, user, what="재개", refused=42, approval=(body or ApproveIn()).approval
+    )
     found = services.by_slug(slug, db)
     if any(
         one.status in ("queued", "running") for one in services.recent_jobs(db, slug, limit=5)
@@ -316,7 +419,7 @@ def pipeline_resume(
 
     work = Workdir(get_settings().relay_work_dir, slug)
     try:
-        message = retract.resume(work, applied, by=user.display_name)
+        message = retract.resume(work, applied, by=approved.by)
     except retract.RetractError as refused:
         raise Conflict(code("RELAY", 43), str(refused)) from None
     audit.record(
@@ -328,6 +431,7 @@ def pipeline_resume(
         target_label=slug,
         changes={"message": message[:200]},
     )
+    approval.record(db, user, approved, action="resume", target=slug)
     db.commit()
     return ResumeOut(message=message)
 
@@ -525,12 +629,15 @@ def recipe_activate(
     slug: str,
     version: int,
     request: Request,
+    body: ApproveIn | None = None,
     user: User = Depends(require_system_admin),
     db: Session = Depends(get_db),
 ) -> RecipeOut:
-    """켠다 — **화면에서 사람만**(토큰이면 거절). 다음 실행부터 이 판이 돈다."""
+    """사용한다 — 화면의 사람이나, 대화에서 승인받은 토큰(`approval.py`). 다음 실행부터 이
+    버전이 돈다."""
     found = services.by_slug(slug, db)
-    return _recipe_out(recipes.activate(db, user, request, found, version))
+    given = (body or ApproveIn()).approval
+    return _recipe_out(recipes.activate(db, user, request, found, version, approval=given))
 
 
 # --- 레시피를 짓는 데 보는 것 — 원천 표본 · 대상의 정의 ---------------------------------
@@ -672,6 +779,23 @@ def type_plan(
     return typeplan.submit(db, user, request, slug, body.ontology, body.note)
 
 
+@router.post("/pipelines/{slug}/type-plan/apply")
+def type_plan_apply(
+    slug: str,
+    body: TypePlanApplyIn,
+    request: Request,
+    user: User = Depends(require_system_admin),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """**대상 SP 의 타입 계획을 적용한다** — 이 파이프라인이 올린 계획만(`type_plan`). 화면의
+    사람이나, 대화에서 승인받은 토큰(`approval.py`). 대상 SP 의 [작업] 화면에서 [적용]한 것과
+    같다."""
+    approved = approval.check(
+        request, user, what="타입 계획 적용", refused=49, approval=body.approval
+    )
+    return typeplan.apply(db, user, slug, body.job_id, approved)
+
+
 @router.get("/allowed-hosts", response_model=AllowedHostsOut)
 def allowed_hosts(
     _: User = Depends(require_system_admin), db: Session = Depends(get_db)
@@ -688,8 +812,9 @@ def allowed_hosts_put(
     user: User = Depends(require_system_admin),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    """화면에서 더한 주소를 통째로 바꾼다 — **사람만**(토큰 거절), 재시작 없이."""
-    return relay_allow.put(db, user, request, body.source, body.target)
+    """화면에서 더한 주소를 통째로 바꾼다 — 화면의 사람이나 대화에서 승인받은 토큰
+    (`approval.py`), 재시작 없이."""
+    return relay_allow.put(db, user, request, body.source, body.target, approval=body.approval)
 
 
 @router.get("/secrets", response_model=list[SecretOut])
@@ -840,11 +965,16 @@ def definition_activate(
     slug: str,
     version: int,
     request: Request,
+    body: ApproveIn | None = None,
     user: User = Depends(require_system_admin),
     db: Session = Depends(get_db),
 ) -> DefinitionOut:
-    """켠다 — **화면에서 사람만**(토큰이면 거절). 다음 실행부터 이 판이 돈다."""
-    return _definition_out(definitions.activate(db, user, request, slug, version))
+    """사용한다 — 화면의 사람이나, 대화에서 승인받은 토큰(`approval.py`). 다음 실행부터 이
+    버전이 돈다."""
+    given = (body or ApproveIn()).approval
+    return _definition_out(
+        definitions.activate(db, user, request, slug, version, approval=given)
+    )
 
 
 @router.post("/pipelines/{slug}/definitions/{version}/discard", response_model=DefinitionOut)

@@ -27,6 +27,13 @@ import { useResource } from '@/shared/hooks/useResource'
 import { McpSetupGuide } from './McpSetupGuide'
 import { shownDate } from '@/shared/lib/datetime'
 
+/** 범위 곁의 짧은 설명 — 이름만으로는 무엇을 허락하는지 알 수 없는 범위만. */
+const SCOPE_HINT: Record<string, string> = {
+  read: '조회',
+  'relay:write': '초안 · 테스트 · 실행 · 대조',
+  'relay:approve': '사람의 승인 후 AI가 결정 실행',
+}
+
 export default function ProfilePage() {
   const { user, reload } = useAuth()
   const [displayName, setDisplayName] = useState(user?.display_name ?? '')
@@ -183,9 +190,17 @@ export default function ProfilePage() {
                   }
                 />
                 <span className="font-mono text-xs">{one}</span>
+                {SCOPE_HINT[one] && <span className="text-xs">({SCOPE_HINT[one]})</span>}
               </label>
             ))}
           </div>
+          {granted.includes('relay:approve') && (
+            <p className="text-amber-700 dark:text-amber-400 text-xs">
+              relay:approve를 선택하면 이 토큰을 쓰는 AI가 대화에서 사람의 승인을 받은 뒤 버전 사용, 계획 적용, 재개,
+              확인 후 진행, 허용 주소 추가, 타입 계획 적용을 실행할 수 있습니다. 승인 문구와 실행 내용은 감사 기록에
+              남습니다. 인증 정보 입력은 이 범위로도 할 수 없습니다.
+            </p>
+          )}
           {/* **기본이 읽기뿐인 이유를 적는다.** 안 적으면 사람은 전부 켜 놓고
               「나중에 좁히자」 고 하는데, 나중은 오지 않는다. */}
           <p className="text-muted-foreground text-xs">

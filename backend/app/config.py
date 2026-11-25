@@ -275,6 +275,19 @@ class Settings(BaseSettings):
     시스템 관리자에게 알린다(`relay.alerts.watch_late`, 일정 타이머가 5분마다 본다). 작업
     워커가 멈추거나 실행이 걸려 있으면 실패도 멈춤도 아니라서 **아무 알림도 가지 않던** 자리다.
     첫 적재처럼 오래 걸리는 실행보다 넉넉히 둔다. 0 이면 끔."""
+    relay_job_process: bool = True
+    """**중계 작업(실행 · 적용 · 대조 · 회수)을 작업마다 새 프로세스에서**
+    돌린다(`relay_core.isolate`). 끝나면 프로세스째 끝나 메모리를 운영체제에 돌려준다. 끄면
+    워커 프로세스 안에서 돈다(시험)."""
+    relay_job_memory_mb: int = 0
+    """중계 작업 한 번의 **메모리 상한**(MB, RSS) — 넘으면 그 작업의 프로세스만 끝내고 작업을
+    실패로 적는다. 같은 서버의 datahub · 다른 작업은 그대로 돈다. 0 이면 미사용(그래도 작업
+    프로세스는 `oom_score_adj=1000` 이라 서버 메모리가 모자라면 운영체제가 이 작업부터 끝낸다).
+    `RELAY_JOB_PROCESS` 를 끄면 쓰지 않는다."""
+    relay_incremental: bool = True
+    """**증분 계획**(`relay_core.incremental`) — 바뀐 행이 닿는 객체만 다시 변환 · 비교한다.
+    결과는 전체와 바이트까지 같다. 끄면 실행마다 미러 전체를 변환하고 출력 전체를 비교한다(비상
+    스위치 — 다시 켜면 첫 실행은 전체로 색인을 새로 짓는다)."""
     relay_target_fresh_seconds: int = 600
     """**대상 상태의 저장값을 쓰는 시간**(초) — 연결 지도 · 목록은 5분 타이머가 조회해 둔 대상
     SP 상태(`relay/targets.py`)를 읽고, 이보다 오래된 대상만 지금 조회한다. 대상마다 요청
@@ -440,6 +453,8 @@ class Settings(BaseSettings):
             raise ValueError("RELAY_KEEP_RUNS는 0 이상이어야 합니다(0은 삭제하지 않음).")
         if self.relay_late_minutes < 0:
             raise ValueError("RELAY_LATE_MINUTES는 0 이상이어야 합니다(0은 미사용).")
+        if self.relay_job_memory_mb < 0:
+            raise ValueError("RELAY_JOB_MEMORY_MB는 0 이상이어야 합니다(0은 미사용).")
         if self.relay_target_fresh_seconds < 0:
             raise ValueError("RELAY_TARGET_FRESH_SECONDS는 0 이상이어야 합니다(0은 늘 조회).")
         digest_at = self.relay_digest_at.strip()

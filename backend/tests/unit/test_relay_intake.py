@@ -249,6 +249,11 @@ def test_실행마다_추이에_한_줄이_남는다(tmp_path: Path) -> None:
     assert first["mirror"] == 10 and first["added"] == 10 and first["full"] is True
     assert first["plan"] == {"created": 10, "changed": 0, "gone": 0}
     assert first["seconds"] >= 0 and "stage" not in first
+    # 단계마다 최고 메모리(MB) — 그 실행이 지난 단계만, 최고치는 그중 가장 큰 값.
+    stages = first["memory"]
+    assert {"준비", "수신", "미러", "변환", "비교", "미리 보기"} <= set(stages)
+    assert all(value > 0 for value in stages.values())
+    assert first["peak_mb"] == max(stages.values())
 
     assert runner.run(pipeline, work, fake).status == "nothing"  # type: ignore[arg-type]
     assert _trend(work)[-1]["status"] == "nothing"
@@ -259,6 +264,7 @@ def test_실행마다_추이에_한_줄이_남는다(tmp_path: Path) -> None:
         runner.run(pipeline, work, fake)  # type: ignore[arg-type]
     failed = _trend(work)[-1]
     assert failed["status"] == "failed" and failed["stage"] == "수신"
+    assert set(failed["memory"]) == {"준비", "수신"}  # 멈춘 단계까지
 
 
 def test_전량_다시_받기는_워터마크를_두고_처음부터_받는다(tmp_path: Path) -> None:
@@ -303,3 +309,22 @@ def test_한두_행씩_비는_칸은_실행을_넘어_쌓아_센다(tmp_path: Pa
     adapter.records = [_model(5, kind="B")]
     runner.run(pipeline, work, fake)  # type: ignore[arg-type]
     assert work.load_state().blank_watch == {}
+
+
+def test_단계별_최고_메모리는_그_단계에서_잡은_만큼이다() -> None:
+    from relay_core import memory
+
+    seen: list[str] = []
+    meter = memory.Meter(seen.append)
+    meter.stage("가벼움")
+    meter.stage("무거움")
+    held = bytearray(200 * memory.MB)  # 200MB 를 잡았다 놓는다
+    held[::4096] = b"x" * len(held[::4096])  # 쪽마다 써야 RSS 에 든다
+    del held
+    meter.stage("다시 가벼움")
+    record = meter.finish()
+    assert seen == ["가벼움", "무거움", "다시 가벼움"]
+    stages = record["memory"]
+    assert stages["무거움"] - stages["가벼움"] > 150
+    assert stages["다시 가벼움"] < stages["무거움"] - 150  # 앞 단계의 최고치가 남지 않는다
+    assert record["peak_mb"] == stages["무거움"]

@@ -308,7 +308,7 @@ def test_나눠_쓰는_파일은_한꺼번에_쓰는_것과_이름이_같다(
     workspaces = {"a": "w", "b": None, "c": "w"}
     names = diff.write_batches(tmp_path / "want", "objects", rows, workspaces)
     stream = ([slug, at, row] for slug, items in rows.items() for at, row in enumerate(items))
-    got = diff._write_sorted(tmp_path / "got", "objects", stream, workspaces)
+    got = diff.write_sorted(tmp_path / "got", "objects", stream, workspaces)
     assert got == names == ["a", "b", "c"]
     assert _files(tmp_path / "got") == _files(tmp_path / "want")
     assert sorted(_files(tmp_path / "got")) == [

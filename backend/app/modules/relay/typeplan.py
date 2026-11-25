@@ -26,10 +26,12 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.modules.accounts.models import User
-from app.modules.relay import guard, services
+from app.modules.relay import approval, guard, services
 from app.shared import audit
 from app.shared.errors import AppError, code
 from relay_core import sp
+from relay_core.state import Workdir
+from relay_core.submit import errors_of
 from relay_core.typedraft import check_group
 
 #: 한 번에 올리는 타입의 상한 — 정의 초안은 원천 하나의 몫이다.
@@ -149,8 +151,11 @@ def submit(
             code("RELAY", 40), f"대상이 타입 계획을 거부했습니다: {text}.{hint}", status=502
         ) from None
     job_id = str(result.get("job_id") or "")
+    errors = errors_of(result)
     link = sp.pipeline.jobs_link(found.target_server, job_id) if job_id else ""
     names = [str(one["slug"]) for one in body["types"]]
+    if job_id and not errors:
+        _remember(slug, job_id, names)  # 오류가 있는 계획은 적용할 것이 아니다
     audit.record(
         db,
         action="relay.type_plan.submit",
@@ -173,10 +178,92 @@ def submit(
             if one.get("nav_group_slug")
         },
         "plan": result.get("ontology"),
+        "errors": errors,
         "next": [
-            f"사람에게 대상 SP의 [작업] 화면에서 이 계획({job_id[:8]})을 확인하고 "
-            f"[적용]하도록 요청하세요. 링크: {link}",
+            "계획에 오류가 있어 적용할 수 없습니다. 정의를 수정해 다시 호출하세요. "
+            f"링크: {link}"
+        ]
+        if errors
+        else [
+            f"사람에게 이 계획({job_id[:8]})의 타입 · 속성을 보여 주고 적용 승인을 받으세요. "
+            "승인하면 type_plan_apply(slug, job_id, approval)로 적용합니다(토큰에 "
+            "relay:approve 범위 필요). 사람이 직접 하려면 대상 SP의 [작업] 화면에서 "
+            f"[적용]합니다. 링크: {link}",
             "적용 후 pipeline_test(recipe_version=…)를 다시 호출해 target.types_missing이 "
             "비어 있는지 확인하세요.",
         ],
+    }
+
+
+#: 이 파이프라인이 올린 타입 계획 — 작업 폴더의 파일. 타입 계획 적용은 여기 있는 번호만 받는다
+#: (대화에서 승인받은 토큰이 남의 계획 · 데이터 계획을 이 길로 적용하지 않게).
+PLANS = "type-plans.json"
+
+
+def _plans(slug: str) -> Workdir:
+    return Workdir(get_settings().relay_work_dir, slug)
+
+
+def _remember(slug: str, job_id: str, types: list[str]) -> None:
+    work = _plans(slug)
+    found = work.read_json(PLANS)
+    rows = found if isinstance(found, list) else []
+    rows.append({"job_id": job_id, "types": types, "at": datetime.now(UTC).isoformat()})
+    work.write_json(PLANS, rows[-50:])
+
+
+def apply(
+    db: Session, user: User, slug: str, job_id: str, approved: approval.Approved
+) -> dict[str, Any]:
+    """이 파이프라인이 올린 타입 계획을 대상 SP 에서 적용한다 — 끝날 때까지 기다린다(정의만
+    바꾸므로 짧다). 대상 토큰에 그 적용 권한이 없으면 대상의 거부를 그대로 전한다."""
+    from relay_core.definition import Target
+    from relay_core.submit import SubmitError, Submitter
+
+    found = services.by_slug(slug, db)
+    rows = _plans(slug).read_json(PLANS)
+    known = [
+        one for one in (rows if isinstance(rows, list) else []) if one.get("job_id") == job_id
+    ]
+    if not known:
+        raise AppError(
+            code("RELAY", 50),
+            f"{slug}이 올린 타입 계획 중에 {job_id[:8]}이 없습니다. type_plan의 응답에 있는 "
+            "job_id를 입력하세요.",
+            status=404,
+        )
+    token = services.secrets_env().get(found.target_token_env, "")
+    if not token:
+        raise AppError(
+            code("RELAY", 40),
+            f"대상 토큰({found.target_token_env})이 미입력 상태입니다. 사람에게 [중계 › 인증 "
+            "정보] 화면에서 입력을 요청하세요.",
+            status=409,
+        )
+    target = Target(name=found.target_name, server=found.target_server, token=token)
+    try:
+        result = Submitter(target).apply(job_id)
+    except SubmitError as refused:
+        text = str(refused).replace(token, "***")
+        raise AppError(
+            code("RELAY", 40), f"대상이 타입 계획 적용을 거부했습니다: {text}", status=502
+        ) from None
+    audit.record(
+        db,
+        action="relay.type_plan.apply",
+        actor=user,
+        target_table="relay_pipelines",
+        target_id=None,
+        target_label=slug,
+        changes={"job_id": job_id, "types": known[-1].get("types"), "by": approved.by},
+    )
+    approval.record(db, user, approved, action="type_plan", target=slug, job_id=job_id)
+    db.commit()
+    return {
+        "job_id": job_id,
+        "types": known[-1].get("types"),
+        "result": result,
+        "message": (
+            "타입 계획을 적용했습니다. pipeline_test로 대상에 타입이 생겼는지 확인하세요."
+        ),
     }

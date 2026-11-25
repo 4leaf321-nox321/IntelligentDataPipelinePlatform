@@ -105,6 +105,10 @@ class XmlAdapter:
         )
         self._sleep = sleep
 
+    def __reduce__(self) -> Any:
+        """작업 프로세스로 넘길 때 — 설정만. 연결은 거기서 새로 연다(`relay_core.isolate`)."""
+        return XmlAdapter, (self.source,)
+
     @property
     def _soap(self) -> bool:
         """봉투가 있을 때만 POST — 그 밖의 방식(DELETE · PUT …)이나 봉투 없는 POST 는 「읽기」

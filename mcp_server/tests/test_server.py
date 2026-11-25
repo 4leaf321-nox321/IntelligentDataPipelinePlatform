@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -20,9 +21,22 @@ def _ctx(token: str = "Bearer datarelay_pat_x") -> Any:
     return SimpleNamespace(request_context=SimpleNamespace(request=request))
 
 
-def test_켜기와_적용_도구는_없다() -> None:
-    names = {tool.name for tool in server.mcp._tool_manager.list_tools()}
-    assert {"recipe_draft_save", "recipe_test", "source_sample", "target_schema"} <= names
+APPROVAL_TOOLS = {
+    "pipeline_apply",
+    "pipeline_resume",
+    "pipeline_accept",
+    "definition_activate",
+    "recipe_activate",
+    "allowed_hosts_add",
+    "type_plan_apply",
+}
+
+
+def test_승인_도구는_사람의_승인을_요구하고_실행_전에_묻게_한다() -> None:
+    """버전 사용 · 계획 적용 · 재개 · 확인 후 진행 · 허용 주소 · 타입 계획 적용은 사람이
+    대화에서 승인한 뒤에만(ADR 0002). 백엔드가 relay:approve 범위와 승인 문구를 다시 본다."""
+    tools = {tool.name: tool for tool in server.mcp._tool_manager.list_tools()}
+    assert {"recipe_draft_save", "recipe_test", "source_sample", "target_schema"} <= set(tools)
     assert {
         "adapter_kinds",
         "source_discover",
@@ -31,8 +45,55 @@ def test_켜기와_적용_도구는_없다() -> None:
         "pipeline_reconcile",
         "pipeline_reconcile_report",
         "pipeline_trace",
-    } <= names
-    assert not {name for name in names if "activate" in name or "apply" in name}
+        "plan_review",
+    } <= set(tools)
+    assert set(tools) >= APPROVAL_TOOLS
+    for name in APPROVAL_TOOLS:
+        tool = tools[name]
+        assert tool.annotations is not None and tool.annotations.destructiveHint, name
+        assert "approval" in tool.parameters["required"], name
+        assert "사람이 승인한 뒤에만" in tool.description, name
+    review = tools["plan_review"]
+    assert review.annotations is not None and review.annotations.readOnlyHint
+    # 승인이 필요한 일 중 도구가 없는 것은 인증 정보 입력뿐 — 값이 대화 기록에 남는다.
+    assert not {
+        name for name in tools if "secret" in name and ("put" in name or "set" in name)
+    }
+
+
+def test_승인_도구는_승인_문구와_본_것을_백엔드에_넘긴다(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path == "/api/relay/allowed-hosts" and request.method == "GET":
+            return httpx.Response(
+                200, json={"source": {"screen": ["a:1"]}, "target": {"screen": []}}
+            )
+        return httpx.Response(200, json={"ok": True})
+
+    monkeypatch.setattr(server, "_TRANSPORT", httpx.MockTransport(handler))
+    ctx = _ctx()
+    asyncio.run(server.pipeline_apply(ctx, "plm", "job-1", "네, 적용하세요"))
+    asyncio.run(server.pipeline_accept(ctx, "plm", 40, "40건 확인"))
+    asyncio.run(server.recipe_activate(ctx, "plm", 3, "버전 3 사용"))
+    asyncio.run(server.allowed_hosts_add(ctx, "추가하세요", source=["b:2"]))
+    sent = [(one.method, one.url.path, json.loads(one.content or b"null")) for one in seen]
+    assert sent[0] == (
+        "POST",
+        "/api/relay/pipelines/plm/apply",
+        {"plan_job_id": "job-1", "approval": "네, 적용하세요"},
+    )
+    assert sent[1][2] == {"accept": True, "accept_deleted": 40, "approval": "40건 확인"}
+    assert sent[2][1] == "/api/relay/pipelines/plm/recipes/3/activate"
+    # 허용 주소는 지금 목록에 더해 통째로 보낸다 — 화면에서 추가한 주소를 지우지 않게.
+    assert sent[-1] == (
+        "PUT",
+        "/api/relay/allowed-hosts",
+        {"source": ["a:1", "b:2"], "target": [], "approval": "추가하세요"},
+    )
 
 
 def test_사용자의_토큰을_그대로_넘기고_mcp_로_표시한다(

@@ -26,7 +26,7 @@ from app.config import get_settings
 from app.modules.accounts.models import User
 from app.modules.relay.models import RelayRecipe
 from app.shared import audit
-from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
+from app.shared.errors import AppError, Conflict, NotFound, code
 from relay_core import aliases, compute, sp
 from relay_core.compute import check as check_computed
 from relay_core.convert import Source, convert
@@ -187,15 +187,21 @@ def save_draft(
 
 
 def activate(
-    db: Session, user: User, request: Request, found: Described, version: int
+    db: Session,
+    user: User,
+    request: Request,
+    found: Described,
+    version: int,
+    *,
+    approval: str | None = None,
 ) -> RelayRecipe:
-    """**사람이 화면에서만** — 토큰(MCP · 스크립트)으로 온 요청은 거절한다(ADR 0001 §2)."""
-    if getattr(request.state, "token_scopes", None) is not None:
-        raise Forbidden(
-            code("RELAY", 7),
-            "레시피 버전의 사용은 사람이 화면에서만 결정합니다. 토큰(MCP)으로는 사용할 수 "
-            "없습니다. 화면에서 테스트 결과를 확인하고 [사용]을 클릭하세요.",
-        )
+    """화면의 사람이나, 대화에서 승인받은 토큰(`approval.py` — `relay:approve`)만 사용한다
+    (ADR 0001 §2 · ADR 0002)."""
+    from app.modules.relay import approval as approving
+
+    approved = approving.check(
+        request, user, what="레시피 버전의 사용", refused=7, approval=approval
+    )
     row = get(db, found.slug, version)
     if row.status == "active":
         return row
@@ -219,6 +225,9 @@ def activate(
         target_id=row.id,
         target_label=f"{found.slug} 레시피 버전 {row.version}",
         changes={"was": before.version if before else None},
+    )
+    approving.record(
+        db, user, approved, action="recipe.activate", target=found.slug, version=row.version
     )
     db.commit()
     db.refresh(row)

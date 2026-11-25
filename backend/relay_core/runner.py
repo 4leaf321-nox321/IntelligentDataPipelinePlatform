@@ -4,9 +4,12 @@
 2. 원천에서 받는다(워터마크 뒤로). 새 미러를 임시 파일에 쓰고 **받기 점검**(`intake` —
    대량 삭제 · 빈 칸)을 본다. 걸리면 아무것도 반영하지 않고 멈춘다(사람이 「확인 후
    진행」). 지나가면 미러를 바꿔 끼우고, 끝까지 받았으면 워터마크를 저장한다.
-3. 미러 **전체**를 레시피로 변환한다 — 표를 메모리에 들지 않고 식별자로 나눠서
-   (`relay_core.table`). 미해결이 있으면 멈춘다 — 레시피를 고친다.
-4. 지난번 **적용된** 출력과 견준다(이것도 나눠서 — `diff.delta`). 보낼 것이 없으면 끝.
+3. 미러를 레시피로 변환한다 — **바뀐 행이 닿는 객체만** 다시 모아 지난 출력에 끼운다
+   (`relay_core.incremental`). 이어 갈 수 없으면(첫 실행 · 레시피가 바뀜 …) 미러 전체를, 표를
+   메모리에 들지 않고 식별자로 나눠서(`relay_core.table`). 결과는 바이트까지 같다. 미해결이
+   있으면 멈춘다 — 레시피를 고친다.
+4. 지난번 **적용된** 출력과 견준다 — 건드린 것만(`incremental.delta`), 기준이 이어지지 않으면
+   출력 전체를(`diff.delta`). 보낼 것이 없으면 끝.
 5. 보낼 것이 대기 중인 계획과 같으면 새로 올리지 않는다 — 매일 밤 같은 계획이 쌓이지 않게.
    다르면 미리보기를 올리고 그것이 새 대기 계획이 된다. 크면 **나눠 보낸다**(`parts` — 첫
    조각만 미리 보고, 「적용」 이 조각마다 미리 보기 → 적용을 잇는다).
@@ -17,7 +20,9 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import shutil
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -25,12 +30,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from relay_core import compute, intake, parts, records, sp
+from relay_core import compute, incremental, intake, memory, parts, records, sp
 from relay_core.convert import transform, write_source
 from relay_core.definition import Pipeline, Target
 from relay_core.diff import Delta, delta
 from relay_core.state import MirrorFile, Pending, State, Workdir, stamp
-from relay_core.submit import Plan, Submitter, digest_of
+from relay_core.submit import NotApplied, Plan, Submitter, digest_of
 
 
 @dataclass
@@ -41,6 +46,8 @@ class Outcome:
     message: str
     link: str = ""
     counts: dict[str, Any] = field(default_factory=dict)
+    memory: dict[str, Any] = field(default_factory=dict)
+    """단계별 최고 메모리 — `{"memory": {단계: MB}, "peak_mb": MB}`(`relay_core.memory`)."""
 
 
 def summarize(result: dict[str, Any]) -> str:
@@ -206,6 +213,12 @@ def _record(work: Workdir, status: str, sheet: dict[str, Any], seconds: float) -
         log.warning("실행 추이를 쓰지 못했습니다: %s", work.root, exc_info=True)
 
 
+def _enter(sheet: dict[str, Any], meter: memory.Meter, name: str) -> None:
+    """다음 단계 — 실패하면 어디까지 갔는지(`stage`)와 그 단계의 최고 메모리를 남긴다."""
+    sheet["stage"] = name
+    meter.stage(name)
+
+
 def run(
     pipeline: Pipeline,
     work: Workdir,
@@ -214,6 +227,8 @@ def run(
     options: dict[str, str] | None = None,
     accept: intake.Accept | None = None,
     full: bool = False,
+    on_stage: Callable[[str], None] | None = None,
+    incremental_plan: bool = True,
 ) -> Outcome:
     """한 바퀴. `accept` 는 사람이 「확인 후 진행」 으로 지나가게 한 받기 점검의 멈춤이다 —
     그 건수 · 칸까지만 지나간다(`intake.Accept.covers`). `full` 이면 워터마크를 두고 **전량을
@@ -221,17 +236,30 @@ def run(
     읽히므로 받기 점검(대량 삭제)이 그대로 지킨다."""
     started = time.monotonic()
     sheet: dict[str, Any] = {}
+    meter = memory.Meter(on_stage)
+    _enter(sheet, meter, "준비")
     try:
-        outcome = _run(
-            pipeline, work, submit, options=options, accept=accept, full=full, sheet=sheet
-        )
+        with contextlib.ExitStack() as cleanup:
+            outcome = _run(
+                pipeline,
+                work,
+                submit,
+                options=options,
+                accept=accept,
+                full=full,
+                sheet=sheet,
+                meter=meter,
+                cleanup=cleanup,
+                incremental_plan=incremental_plan,
+            )
     except Exception:
-        _record(work, "failed", sheet, time.monotonic() - started)
+        _record(work, "failed", {**sheet, **meter.finish()}, time.monotonic() - started)
         raise
     sheet.pop("stage", None)  # 어디까지 갔나는 실패한 실행에만 뜻이 있다
     if outcome.counts:
         sheet["plan"] = _totals(outcome.counts)
-    _record(work, outcome.status, sheet, time.monotonic() - started)
+    outcome.memory = meter.finish()
+    _record(work, outcome.status, {**sheet, **outcome.memory}, time.monotonic() - started)
     return outcome
 
 
@@ -255,6 +283,41 @@ def _held(
     )
 
 
+def _compare(
+    pipeline: Pipeline,
+    work: Workdir,
+    state: State,
+    run_folder: Path,
+    touched: incremental.Touched | None,
+    *,
+    options: dict[str, str] | None,
+    sheet: dict[str, Any],
+) -> Delta:
+    """지난번 적용된 출력과 견준다 — 증분 변환이 견줄 것을 적어 두었고 기준이 그때 그대로면
+    그것만(`incremental.delta`), 아니면 출력 전체를(`diff.delta`). 만드는 폴더는 같다."""
+    when = run_folder.name
+    out, scratch = work.path(f"sends/{when}"), work.path(f"work/{when}.send.spill")
+    if touched is not None and touched.baseline == state.applied_run:
+        try:
+            found = incremental.delta(
+                touched, out, source=pipeline.source, options=options, scratch=scratch
+            )
+            sheet["compared"] = "incremental"
+            return found
+        except Exception:
+            log.warning("증분 비교 실패 — 출력 전체를 다시 비교합니다", exc_info=True)
+            shutil.rmtree(out, ignore_errors=True)
+    sheet["compared"] = "full"
+    return delta(
+        work.path(state.applied_run) if state.applied_run else None,
+        run_folder,
+        out,
+        source=pipeline.source,
+        options=options,
+        scratch=scratch,
+    )
+
+
 def _run(
     pipeline: Pipeline,
     work: Workdir,
@@ -264,6 +327,9 @@ def _run(
     accept: intake.Accept | None,
     full: bool,
     sheet: dict[str, Any],
+    meter: memory.Meter,
+    cleanup: contextlib.ExitStack[Any],
+    incremental_plan: bool = True,
 ) -> Outcome:
     submit = submit or Submitter(pipeline.target)
     state = work.load_state()
@@ -287,7 +353,7 @@ def _run(
     due = full_every and state.incrementals + 1 >= full_every
     if since and due and not getattr(source, "deleted", None):
         since = None
-    sheet["stage"] = "수신"
+    _enter(sheet, meter, "수신")
     # 받은 행이 많으면 키 차례로 정렬해 디스크로 넘긴다(`records.Records`) — 첫 적재 100만 행에
     # 받은 행 목록만 1.2GB 였다. 미러에 넣은 뒤 지운다.
     with records.spill_to(work.path(f"work/{stamp()}.fetch.spill")):
@@ -297,9 +363,20 @@ def _run(
     received = len(fetched.records)
     # 미러는 파일에서 흘려 이어 쓴다 — 메모리에는 받은 것만 든다(원천이 수십만 행이면 미러
     # 한 벌이 GB 다). 먼저 임시 파일에만 쓰고 받기 점검을 본다.
-    sheet["stage"] = "미러"
+    _enter(sheet, meter, "미러")
+    when = stamp()
+    # 증분 계획의 재료 — 미러에 반영되는 변경(이어 쓸 색인이 있을 때만).
+    changes = (
+        incremental.record_changes(work, pipeline, work.path(f"work/{when}.changes"))
+        if incremental_plan
+        else None
+    )
+    if changes is not None:
+        cleanup.callback(changes.drop)
+    # 증분 변환의 부분 행 · 견줄 줄 — 비교까지 쓰고 지운다.
+    cleanup.callback(shutil.rmtree, work.path(f"work/{when}.spill"), ignore_errors=True)
     try:
-        staged = work.stage_mirror(fetched)
+        staged = work.stage_mirror(fetched, changes)
     finally:
         if isinstance(fetched.records, records.Records):
             fetched.records.close()
@@ -347,9 +424,7 @@ def _run(
         consumed()  # 미러에 들어갔다 — 보내 준 묶음을 지운다(push)
     if size == 0:
         return Outcome("nothing", note + "미러가 비어 있습니다.")
-    sheet["stage"] = "변환"
-
-    when = stamp()
+    _enter(sheet, meter, "변환")
     run_folder = work.path(f"runs/{when}")
     # 계산 칸은 변환할 때 미러 전체에 얹는다 — 규칙을 바꾼 날 옛 행도 같이 바뀐다.
     source = write_source(
@@ -358,14 +433,29 @@ def _run(
         run_folder,
         work=work.path("work"),
     )
-    # 참조 대조(`match`)는 대상 SP 의 식별자 · 별칭으로 푼다 — 보낼 곳과 같은 주소 · 토큰.
-    made = transform(
+    # 참조 대조(`match`)는 대상 SP 의 식별자 · 별칭으로 푼다 — 보낼 곳과 같은 주소 · 토큰. 이어
+    # 쓸 색인이 있으면 바뀐 행이 닿는 객체만 다시 모은다(`incremental`) — 못 하면 까닭과 함께
+    # 전체로.
+    converted = incremental.run_conversion(
+        work,
+        pipeline,
         source,
-        pipeline.recipe,
         run_folder,
+        changes,
         server=pipeline.target.server,
         token=pipeline.target.token,
+        enabled=incremental_plan,
+        transform=transform,
+        baseline=state.applied_run,
     )
+    made, touched = converted.made, converted.touched
+    sheet["mode"] = converted.mode
+    if converted.mode == "full":
+        sheet["full_reason"] = converted.reason
+        if converted.reason and incremental_plan:
+            note += f"전체 변환: {converted.reason}. "
+    else:
+        note += "증분 변환. "
     if not made.clean:
         state.history.append({"at": _now(), "event": "blocked", "run": f"runs/{when}"})
         work.save_state(state)
@@ -375,7 +465,7 @@ def _run(
             "table-report.txt를 확인하고 레시피를 수정하세요.",
         )
 
-    sheet["stage"] = "비교"
+    _enter(sheet, meter, "비교")
     pending = state.pending
     if pending is not None and pending.origin == "run" and pending.part > 0:
         # **나눠 보내는 계획이 일부 들어가 있다.** 원천이 그대로면 그 계획을 잇는다 —
@@ -393,15 +483,8 @@ def _run(
     else:
         superseded = False
 
-    baseline = work.path(state.applied_run) if state.applied_run else None
-    found = delta(
-        baseline,
-        made.run,
-        work.path(f"sends/{when}"),
-        source=pipeline.source,
-        options=options,
-        scratch=work.path(f"work/{when}.send.spill"),
-    )
+    found = _compare(pipeline, work, state, made.run, touched, options=options, sheet=sheet)
+    incremental.compared(work, made.run, state.applied_run, empty=found.empty)
     counts = counts_of(found)
     if not found.empty:
         # 걷어낸 적이 있는 것을 다시 보내면 되살린다(`retract.revive`) — 대상에 사용 중지로
@@ -434,7 +517,7 @@ def _run(
             counts=counts,
         )
 
-    sheet["stage"] = "미리 보기"
+    _enter(sheet, meter, "미리 보기")
     plan, cut = propose(
         submit, found.run, pipeline.target, origin=origin_for(pipeline, found.run)
     )
@@ -521,7 +604,20 @@ def apply(
         if submit.applied(pending.job_id):
             note = "이미 적용된 계획입니다. "
         else:
-            result = submit.apply(pending.job_id)
+            try:
+                result = submit.apply(pending.job_id)
+            except NotApplied as refused:
+                # 미리 본 뒤 대상이 바뀌었다 — 기준을 올리지 않고, 다음 실행이 다시 미리 본다.
+                pending.ok = False
+                state.history.append(
+                    {"at": _now(), "event": "blocked", "job_id": pending.job_id}
+                )
+                work.save_state(state)
+                return Outcome(
+                    "blocked",
+                    f"{refused} 미리 보기 이후 대상이 변경되었습니다. 파이프라인을 다시 "
+                    "실행하면 지금 대상으로 계획을 다시 생성합니다.",
+                )
             note = f"적용했습니다. {result.get('summary') or summarize(result)} "
         if number >= total:
             break

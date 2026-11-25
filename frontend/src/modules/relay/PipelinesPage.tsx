@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react'
 import { Plus, Search } from 'lucide-react'
 import { Link, useSearchParams } from 'react-router-dom'
 
+import { AlertWebhookStatus } from '@/modules/relay/AlertWebhookStatus'
 import { jobLink, pipelineDetailOf, relayApi } from '@/modules/relay/api'
 import {
   SORT_OPTIONS,
@@ -326,6 +327,7 @@ export default function PipelinesPage() {
           />
         </>
       )}
+      {admin && <AlertWebhookStatus />}
     </div>
   )
 }

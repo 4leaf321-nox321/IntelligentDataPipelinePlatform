@@ -13,6 +13,7 @@ apply=false → 작업 결과 · 지문을 `preview.json` 에). 그 계획은 �
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,30 @@ def digest_of(run: Path) -> str:
     """보낼 몸통의 지문 — 대기 중인 계획과 같은 것을 또 올리지 않으려고 견준다. 흘려서 잰다
     (`bundle.payload` — 틀의 지문과 바이트까지 같고, 실행 폴더를 메모리에 들지 않는다)."""
     return bundle.payload(run).digest
+
+
+class NotApplied(SubmitError):
+    """적용 작업이 끝났지만 대상 SP 가 아무것도 쓰지 않았다 — 적용 시점의 검사에 오류."""
+
+
+def errors_of(result: Mapping[str, Any]) -> list[str]:
+    """SP 계획 결과의 오류 — 번들 · 정의 · 줄마다 있는 것을 모은다."""
+    out: list[str] = []
+
+    def walk(found: Any, depth: int = 0) -> None:
+        if isinstance(found, dict):
+            for name, value in found.items():
+                if name in ("errors", "error") and value:
+                    rows = value if isinstance(value, list) else [value]
+                    out.extend(str(one) for one in rows)
+                elif depth < 4:
+                    walk(value, depth + 1)
+        elif isinstance(found, list) and depth < 4:
+            for one in found:
+                walk(one, depth + 1)
+
+    walk(dict(result))
+    return list(dict.fromkeys(out))
 
 
 class Submitter:
@@ -101,7 +126,9 @@ class Submitter:
         return None if result is None else bool(result)
 
     def apply(self, job_id: str) -> dict[str, Any]:
-        """계획을 적용하고 끝날 때까지 본다 — 적용 작업의 결과."""
+        """계획을 적용하고 끝날 때까지 본다 — 적용 작업의 결과. SP 의 적용 작업은 그 시점의
+        대상으로 다시 검사해 **오류가 있으면 아무것도 쓰지 않고 「끝남」 으로 끝난다**
+        (`applied: false`) — 그때는 `NotApplied`."""
         headers = {
             "Authorization": f"Bearer {self.target.token}",
             "X-Client": "datarelay",
@@ -117,4 +144,10 @@ class Submitter:
         except sp.pipeline.Stop as stop:
             raise SubmitError(str(stop)) from None
         result = job.get("result")
-        return dict(result) if isinstance(result, dict) else {}
+        found = dict(result) if isinstance(result, dict) else {}
+        if found.get("applied") is False:
+            raise NotApplied(
+                "대상 SP가 계획을 적용하지 않았습니다(적용 시점의 검사에 오류가 있습니다). "
+                + " / ".join(errors_of(found)[:5])
+            )
+        return found

@@ -210,8 +210,13 @@ def test_정리는_걷어내기_폴더를_실행의_것으로_센다(tmp_path: P
     kept = work.load_state().applied_run
     work.prune(1)
     assert kept and work.path(kept).is_dir()
-    names = [one.name for one in work.path("runs").iterdir()]
-    assert names == [Path(kept).name]
+    from relay_core import incremental
+
+    names = sorted(one.name for one in work.path("runs").iterdir())
+    # 걷어내기 기준과, 증분 계획의 색인이 이어 쓸 실행(`incremental.index_run`)만 남는다.
+    indexed = incremental.index_run(work)
+    assert indexed is not None
+    assert names == sorted({Path(kept).name, Path(indexed).name})
 
 
 class _Target:

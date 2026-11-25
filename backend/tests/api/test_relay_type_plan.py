@@ -10,6 +10,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from app.modules.relay import typeplan
 from relay_core import sp
 from tests.api.conftest import Signed
 from tests.api.test_relay import _definition, _slug
@@ -51,6 +52,22 @@ def test_타입_계획은_원천_이름과_함께_미리_보기로_올린다(
     assert one["origin"]["pipeline"] == slug and one["token"] == "t0k-target"
     assert body["job_id"] == "job-type-1" and "job-type-1" in body["link"]
     assert body["types"] == ["plm_lot"] and any("[적용]" in line for line in body["next"])
+
+    # 오류가 있는 계획은 오류를 말하고, 적용할 수 있는 계획으로 기억하지 않는다.
+    def wrong(server: str, token: str, body: dict[str, Any]) -> dict[str, Any]:
+        return {"ok": False, "ontology": {"errors": ["data_type 은 …"]}, "job_id": "job-bad"}
+
+    monkeypatch.setattr(sp.pipeline, "_post_bundle", wrong)
+    got = client.post(
+        f"/api/relay/pipelines/{slug}/type-plan",
+        json={"ontology": ONTOLOGY},
+        headers=admin.headers,
+    )
+    assert got.json()["errors"] == ["data_type 은 …"]
+    assert "적용할 수 없습니다" in got.json()["next"][0]
+    assert [one["job_id"] for one in typeplan._plans(slug).read_json(typeplan.PLANS)] == [
+        "job-type-1"
+    ]
 
     def refuse(server: str, token: str, body: dict[str, Any]) -> dict[str, Any]:
         raise sp.pipeline.Stop(

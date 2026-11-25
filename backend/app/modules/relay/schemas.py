@@ -38,6 +38,21 @@ class RelayMap(BaseModel):
     problems: list[str] = Field(default_factory=list)
 
 
+class AlertWebhookOut(BaseModel):
+    """알림 웹훅(`webhook.py`)의 상태 — 주소 전체는 싣지 않는다(토큰이 들어 있다)."""
+
+    configured: bool
+    host: str = ""
+    last_at: str | None = None
+    last_ok: bool | None = None
+    last_error: str = ""
+
+
+class AlertWebhookTestOut(BaseModel):
+    ok: bool
+    message: str
+
+
 class OverviewItem(BaseModel):
     """확인이 필요한 파이프라인 하나 — 상태가 문제이거나 마지막 대조가 불일치 · 대조 실패."""
 
@@ -181,6 +196,19 @@ class TrendRow(BaseModel):
     """받기 점검이 멈췄다."""
     stage: str | None = None
     """실패한 실행이 멈춘 단계 — 받기 · 미러 · 변환 · 비교 · 미리 보기."""
+    memory: dict[str, float] | None = None
+    """단계별 최고 메모리(MB) — 준비 · 수신 · 미러 · 변환 · 비교 · 미리 보기
+    (`relay_core.memory`)."""
+    peak_mb: float | None = None
+    """그 실행의 최고 메모리(MB) — 단계별 값 중 가장 큰 것."""
+    seconds_by_stage: dict[str, float] | None = None
+    """단계별 소요 시간(초) — `relay_core.memory`."""
+    mode: str | None = None
+    """변환 방식 — `incremental`(증분) · `full`(전체)."""
+    full_reason: str | None = None
+    """전체 변환으로 간 까닭(`incremental` 이 아닐 때) — 첫 실행 · 레시피 변경 등."""
+    compared: str | None = None
+    """비교 방식 — `incremental`(건드린 것만) · `full`(출력 전체)."""
 
 
 class TrendOut(BaseModel):
@@ -420,6 +448,8 @@ class AllowedHostsOut(BaseModel):
 class AllowedHostsIn(BaseModel):
     source: list[str] = Field(default_factory=list, max_length=200)
     target: list[str] = Field(default_factory=list, max_length=200)
+    approval: str = ""
+    """토큰(MCP)의 변경 — 사람이 대화에서 승인한 말(`approval.py`)."""
 
 
 class SecretUse(BaseModel):

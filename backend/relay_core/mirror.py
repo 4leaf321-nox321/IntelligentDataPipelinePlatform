@@ -1,9 +1,10 @@
 """미러 — 원천 키마다 **최신 행** 하나.
 
 레시피(`sp-table/1`)는 여러 원천 행을 객체 하나로 모은다(과제 하나가 모델 행 수십 개에 걸쳐
-나온다). 그래서 바뀐 행만 변환하면 모은 값이 일부만 남는다 — **늘 미러 전체를 다시 변환하고**
-(식별자로 나눠서 — `relay_core.table`), 줄이는 일은 변환이 끝난 출력끼리의 비교(`diff`)가 한다.
-변환은 같은 입력이면 같은 결과라 비교가 맞는다.
+나온다). 그래서 바뀐 행만 변환하면 모은 값이 일부만 남는다 — **바뀐 행과 식별자가 같은 행
+전부**를 다시 모은다(`relay_core.incremental`). 그것을 미러가 있어 할 수 있다. 이어 갈 수
+없으면 미러 전체를 변환한다(식별자로 나눠서 — `relay_core.table`). 어느 쪽이든 같은 입력이면
+같은 결과라 출력끼리의 비교(`diff`)가 맞는다.
 
 여기는 모양 · 규칙만 안다. 어디에 저장할지(DB · 파일)는 부르는 쪽이 정한다(`to_rows` ·
 `from_rows`). 실행은 미러를 메모리에 들지 않는다 — 파일의 키 차례 행과 받은 것을 이어 새 파일을
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import itertools
+import pickle
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -130,7 +132,8 @@ class Merge:
     받은 것이 디스크로 넘쳤으면(`records.Records` — 원천이 크다) 그 묶음들을 **키 차례로 이어
     읽는다** — 메모리에는 받은 것도 다 들지 않는다. 아니면 받은 것만 메모리에 든다."""
 
-    def __init__(self, fetched: Fetched) -> None:
+    def __init__(self, fetched: Fetched, changes: Changes | None = None) -> None:
+        self._changes = changes
         self._full = fetched.full and fetched.complete
         self._source: Records | None = (
             fetched.records
@@ -199,10 +202,16 @@ class Merge:
         return before
 
     def rows(self, existing: Iterable[SourceRecord]) -> Iterator[SourceRecord]:
-        """`existing` 는 키 차례(파일의 미러) — 어긋나면 멈춘다(이어 쓴 미러가 틀어진다)."""
+        """`existing` 는 키 차례(파일의 미러) — 어긋나면 멈춘다(이어 쓴 미러가 틀어진다).
+
+        `changes` 를 주면 바뀐 행을 적는다(증분 계획 — `relay_core.incremental`): 지운 행은 옛
+        자리, 새 행은 옛 미러에 끼어드는 자리와 새 자리, 값이 바뀐 행은 두 자리와 옛 · 새 값.
+        자리는 0부터의 차례다(원천 표의 행 번호는 자리 + 2)."""
         groups = self._groups()
         waiting = next(groups, None)
         last: str | None = None
+        changes = self._changes
+        old_at = 0
         for old in existing:
             if last is not None and old.key <= last:
                 raise ValueError(
@@ -215,27 +224,99 @@ class Merge:
                 new = self._settle(None, waiting[1])
                 waiting = next(groups, None)
                 if new is not None:
+                    if changes is not None:
+                        changes.added(new.key, old_at, self.count, new.values)
                     self.count += 1
                     yield new
             if waiting is not None and waiting[0] == old.key:
                 new = self._settle(old, waiting[1])
                 waiting = next(groups, None)
                 if new is not None:
+                    if changes is not None and dict(new.values) != dict(old.values):
+                        changes.changed(new.key, old_at, self.count, old.values, new.values)
                     self.count += 1
                     yield new
+                elif changes is not None:
+                    changes.removed(old.key, old_at, old.values)
+                old_at += 1
                 continue
             if self._full:
                 self.removed += 1  # 전량을 끝까지 받았는데 안 왔다 — 부재 대조
+                if changes is not None:
+                    changes.removed(old.key, old_at, old.values)
+                old_at += 1
                 continue
             self.count += 1
+            old_at += 1
             yield old
         while waiting is not None:
             new = self._settle(None, waiting[1])
             waiting = next(groups, None)
             if new is not None:
+                if changes is not None:
+                    changes.added(new.key, old_at, self.count, new.values)
                 self.count += 1
                 yield new
         self.tally.removed = self.removed
+        if changes is not None:
+            changes.close(before=old_at, after=self.count)
+
+
+class Changes:
+    """미러 반영에서 바뀐 행 — 디스크에 흘려 쓴다(전량 다시 받기 날에는 미러 전체가 바뀐다).
+
+    한 줄은 `(종류, 키, 옛 자리, 새 자리, 옛 값, 새 값)` — 종류는 `added` · `changed` ·
+    `removed`, 없는 자리 · 값은 None. 미러의 키 차례로 온다."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        self._handle: Any = path.open("wb")
+        self._chunk: list[tuple[Any, ...]] = []
+        self.count = 0
+        self.before = 0
+        self.after = 0
+        self.base = ""
+        """이 변경을 반영하기 **전** 미러의 표지(`Workdir.mirror_mark`) — 색인이 본 미러와
+        같아야 이 변경만으로 이어 갈 수 있다."""
+
+    def _put(self, item: tuple[Any, ...]) -> None:
+        self._chunk.append(item)
+        self.count += 1
+        if len(self._chunk) >= 1000:
+            pickle.dump(self._chunk, self._handle, protocol=pickle.HIGHEST_PROTOCOL)
+            self._chunk = []
+
+    def added(self, key: str, insert_at: int, new_at: int, values: Any) -> None:
+        self._put(("added", key, insert_at, new_at, None, dict(values)))
+
+    def changed(self, key: str, old_at: int, new_at: int, old: Any, new: Any) -> None:
+        self._put(("changed", key, old_at, new_at, dict(old), dict(new)))
+
+    def removed(self, key: str, old_at: int, values: Any) -> None:
+        self._put(("removed", key, old_at, None, dict(values), None))
+
+    def close(self, *, before: int = 0, after: int = 0) -> None:
+        if self._handle.closed:
+            return
+        self.before, self.after = before, after
+        if self._chunk:
+            pickle.dump(self._chunk, self._handle, protocol=pickle.HIGHEST_PROTOCOL)
+            self._chunk = []
+        self._handle.close()
+
+    def __iter__(self) -> Iterator[tuple[Any, ...]]:
+        with self.path.open("rb") as handle:
+            while True:
+                try:
+                    chunk = pickle.load(handle)
+                except EOFError:
+                    return
+                yield from chunk
+
+    def drop(self) -> None:
+        self.close()
+        self.path.unlink(missing_ok=True)
 
 
 def _has(value: str | None) -> bool:

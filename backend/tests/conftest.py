@@ -31,6 +31,14 @@ from sqlalchemy.engine import make_url
 WORKER = os.environ.get("PYTEST_XDIST_WORKER", "")
 
 os.environ.setdefault("APP_BCRYPT_ROUNDS", "4")
+# 중계 작업은 시험에서 워커 프로세스 안에서 돈다 — 시험이 엔진 함수를 바꿔
+# 끼우므로(`monkeypatch`) 새 프로세스로는 그 바꿈이 넘어가지 않는다. 격리 자체는
+# `tests/unit/test_relay_isolate.py` 가 본다.
+os.environ.setdefault("RELAY_JOB_PROCESS", "0")
+# 작업 폴더도 임시로 — `registry` 를 쓰지 않는 시험이 개발 PC 의 `.work/` 에 흔적을 남기지
+# 않게.
+_WORK = tempfile.TemporaryDirectory(prefix="relay-tests-")
+os.environ["RELAY_WORK_DIR"] = os.path.join(_WORK.name, "relay")
 # 정제 도구 키트의 **이 PC 설정**(등록한 플랫폼 · 토큰)을 시험이 읽지 않게 — 없는 자리를
 # 가리킨다. 필요한 시험은 제 임시 파일로 바꾼다(`SP_SETTINGS`).
 os.environ["SP_SETTINGS"] = os.path.join(os.devnull, "sp-pipeline-settings.json")

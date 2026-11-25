@@ -9,7 +9,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { sampleMap, withDraft } from '@/modules/relay/fixtures'
 
-const relayApi = vi.hoisted(() => ({ map: vi.fn(), apply: vi.fn() }))
+const relayApi = vi.hoisted(() => ({
+  map: vi.fn(),
+  apply: vi.fn(),
+  alertWebhook: vi.fn(),
+  alertWebhookTest: vi.fn(),
+}))
 const auth = vi.hoisted(() => ({ admin: true }))
 vi.mock('@/shared/auth/AuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', is_system_admin: auth.admin, memberships: [] } }),
@@ -41,6 +46,7 @@ describe('중계 표', () => {
     vi.clearAllMocks()
     auth.admin = true
     relayApi.map.mockResolvedValue(sampleMap())
+    relayApi.alertWebhook.mockResolvedValue({ configured: false, host: '', last_error: '' })
   })
 
   it('파이프라인 — 시스템 관리자에게만 「새 연결」', async () => {
@@ -125,6 +131,31 @@ describe('중계 표', () => {
     await show('PipelinesPage')
     await screen.findByRole('link', { name: 'plm-models' })
     expect(screen.queryByLabelText('plm-models 선택')).not.toBeInTheDocument()
+  })
+
+  it('파이프라인 — 알림 웹훅의 호스트 · 마지막 전송 결과와 시험 전송(주소 전체는 표시하지 않는다)', async () => {
+    relayApi.alertWebhook.mockResolvedValue({
+      configured: true,
+      host: 'chat.corp.example',
+      last_at: '2026-11-25T00:00:00+00:00',
+      last_ok: false,
+      last_error: 'HTTP 404',
+    })
+    relayApi.alertWebhookTest.mockResolvedValue({ ok: true, message: 'chat.corp.example(으)로 시험 메시지를 보냈습니다.' })
+    await show('PipelinesPage')
+    expect(await screen.findByText('chat.corp.example')).toBeInTheDocument()
+    expect(screen.getByText(/실패\(HTTP 404\)/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /시험 전송/ }))
+    expect(relayApi.alertWebhookTest).toHaveBeenCalled()
+    expect(await screen.findByText(/시험 메시지를 보냈습니다/)).toBeInTheDocument()
+  })
+
+  it('파이프라인 — 시스템 관리자가 아니면 알림 웹훅을 표시하지 않는다', async () => {
+    auth.admin = false
+    await show('PipelinesPage')
+    await screen.findByRole('link', { name: 'plm-models' })
+    expect(screen.queryByText('알림 웹훅')).not.toBeInTheDocument()
+    expect(relayApi.alertWebhook).not.toHaveBeenCalled()
   })
 
   it('원천 시스템 — API 마다 읽는 파이프라인', async () => {

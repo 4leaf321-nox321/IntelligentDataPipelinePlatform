@@ -291,6 +291,10 @@ class KafkaAdapter:
         self._registry = _Registry(source.schema_registry, source.timeout, client)
         self._errors: list[Any] = []
 
+    def __reduce__(self) -> Any:
+        """작업 프로세스로 넘길 때 — 설정만. 연결은 거기서 새로 연다(`relay_core.isolate`)."""
+        return KafkaAdapter, (self.source,)
+
     def _open(self, group: str | None = None) -> Any:
         """소비자 하나 — librdkafka 의 오류 알림을 모으고 로그를 앱의 로그로 보낸다."""
         conf = config(self.source, group=group)

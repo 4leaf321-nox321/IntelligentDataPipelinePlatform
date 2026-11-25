@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -14,6 +16,15 @@ from tests.api.test_relay_definitions import _code
 from tests.api.test_relay_recipes import _pat
 
 HUB = "hub.corp.example:8040"
+
+
+@pytest.fixture(autouse=True)
+def _scratch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """허용 주소 파일(`relay_work_dir` 의 부모)을 임시 폴더로 — 그대로 두면 개발 PC 의
+    `.work/allowed-hosts.json` 에 쓰고, 시험이 도중에 실패하면 시험 주소가 개발 설정에 남는다
+    (2026-11-25 — 정리 단계 전에 멈춘 실행이 남긴 주소를 다음 실행이 「비어 있지 않음」 으로
+    읽었다)."""
+    monkeypatch.setattr(get_settings(), "relay_work_dir", tmp_path / "work")
 
 
 def _check_target(db: Session) -> int:

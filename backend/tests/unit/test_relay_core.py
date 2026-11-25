@@ -192,3 +192,41 @@ def test_엔진은_웹_앱을_모른다() -> None:
 
 def test_고정한_판을_안다() -> None:
     assert sp.version()["tag"].startswith("v")
+
+
+def test_적용_작업이_끝났어도_적용하지_않았으면_기준을_올리지_않는다(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """미리 본 뒤 대상이 바뀌면 SP 의 적용 작업은 아무것도 쓰지 않고 「끝남」 으로 끝난다
+    (`applied: false`, 0.4.104 에서 확인). 적용된 것으로 여기면 그 변경이 영영 빠진다."""
+    from relay_core import runner, sp, submit
+    from tests.unit.test_relay_intake import _loaded, _model
+
+    adapter, pipeline, work, fake = _loaded(tmp_path, count=10)
+    adapter.full = False
+    adapter.records = [_model(1, kind="B")]
+    assert runner.run(pipeline, work, fake).status == "planned"  # type: ignore[arg-type]
+    baseline = work.load_state().applied_run
+
+    result = {
+        "ok": False,
+        "applied": False,
+        "ontology": {"errors": ["속성 x: data_type 은 …"]},
+        "objects": [{"type_slug": "plm_model", "rows": [{"key": "M1", "error": "대상 없음"}]}],
+    }
+    monkeypatch.setattr(sp.pipeline, "_send", lambda *a, **k: (202, {"id": "j"}))
+    monkeypatch.setattr(sp.pipeline, "_wait_job", lambda *a, **k: {"result": result})
+    real = submit.Submitter(pipeline.target)
+    monkeypatch.setattr(real, "applied", lambda _job: False)
+    outcome = runner.apply(pipeline, work, real)
+    assert outcome.status == "blocked"
+    assert "data_type" in outcome.message and "대상 없음" in outcome.message
+    state = work.load_state()
+    assert state.applied_run == baseline
+    assert state.pending is not None and not state.pending.ok
+    # 다음 실행은 같은 계획이어도 다시 미리 본다 — 기다리는 것으로 여기지 않는다.
+    adapter.records = []
+    assert runner.run(pipeline, work, fake).status == "planned"  # type: ignore[arg-type]
+    # 옛 대상(칸이 없는 결과)은 지금처럼 적용된 것이다.
+    result.pop("applied")
+    assert submit.Submitter(pipeline.target).apply("j") == result
