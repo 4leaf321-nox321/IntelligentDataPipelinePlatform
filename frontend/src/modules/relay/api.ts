@@ -505,6 +505,12 @@ export interface DefinitionTargetCheck {
   types_missing?: string[]
   /** 타입마다 대상이 적어 둔 관리 주체 — 다른 원천이 맡은 타입이면 여기 보인다. */
   managed_by?: Record<string, string | null>
+  /** 레시피의 관계가 쓰는 관계 종류 중 대상에 있는 것 · 없는 것. */
+  relations_present?: string[]
+  relations_missing?: string[]
+  relation_managed_by?: Record<string, string | null>
+  /** 대상에 없는 관계 종류의 초안 — AI(MCP)가 `type_plan` 으로 대상에 계획을 생성한다. */
+  relation_drafts?: { relation_types: Record<string, unknown>[] } | null
 }
 
 /** 정의 시험의 원천 쪽 — 그 판의 어댑터로 한 번 받아 본 것. */

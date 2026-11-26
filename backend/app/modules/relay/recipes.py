@@ -27,7 +27,7 @@ from app.modules.accounts.models import User
 from app.modules.relay.models import RelayRecipe
 from app.shared import audit
 from app.shared.errors import AppError, Conflict, NotFound, code
-from relay_core import aliases, compute, sp
+from relay_core import aliases, compute, sp, typedraft
 from relay_core.compute import check as check_computed
 from relay_core.convert import Source, convert
 from relay_core.describe import Described, lineage
@@ -256,6 +256,31 @@ EMPTY_NOTE = (
 )
 
 
+#: 시험의 관계에서 관계 종류 초안의 재료로 보는 줄 수(관계 종류마다).
+SEEN_EDGES = 20_000
+
+
+def _relations_seen(run: Path) -> dict[str, dict[str, Any]]:
+    """시험이 만든 관계 — 관계 종류마다 (출발, 도착)과 관계 속성의 값(관계 종류 초안의 재료,
+    `typedraft.relation_draft`)."""
+    out: dict[str, dict[str, Any]] = {}
+    for file in sorted((run / sp.pipeline.RELATIONS_DIR).glob("*.json")):
+        batch = json.loads(file.read_text(encoding="utf-8"))
+        for row in batch.get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            name = str(row.get("relation") or "")
+            one = out.setdefault(name, {"pairs": [], "properties": {}})
+            if len(one["pairs"]) >= SEEN_EDGES:
+                continue
+            one["pairs"].append((str(row.get("src")), str(row.get("dst"))))
+            for key, value in (row.get("properties") or {}).items():
+                values = one["properties"].setdefault(str(key), [])
+                if len(values) < typedraft.PROPERTY_SAMPLES:
+                    values.append(value)
+    return out
+
+
 def dry_run(
     mirror: Source,
     body: dict[str, Any],
@@ -300,6 +325,7 @@ def dry_run(
             else []
         )
         rows: dict[str, int] = {}
+        seen = _relations_seen(made.run)
         for file in sorted((made.run / sp.pipeline.OBJECTS_DIR).glob("*.json")):
             batch = json.loads(file.read_text(encoding="utf-8"))  # 파일 하나씩(5,000줄)
             slug = str(batch.get("type_slug") or file.stem)
@@ -307,6 +333,9 @@ def dry_run(
         out: dict[str, Any] = {
             "clean": made.clean,
             "rows": rows,
+            "relation_rows": {slug: len(one["pairs"]) for slug, one in seen.items()},
+            # 관계 종류 초안의 재료(`definitions.trial` 이 쓰고 응답에서 뺀다).
+            "_relations_seen": seen,
             "unresolved_count": len(unresolved),
             "unresolved": unresolved[:20],
             "report": report.read_text(encoding="utf-8")[:REPORT_MAX]
@@ -376,6 +405,7 @@ def trial(
             computed=dict(found.body.get("computed") or {}),
         )
     )
+    out.pop("_relations_seen", None)
     if sample_rows is not None:
         out["sample_rows"] = True
     return out

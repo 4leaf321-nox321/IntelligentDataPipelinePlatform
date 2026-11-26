@@ -338,6 +338,16 @@ def run(
             "relation_candidates는 대상의 관계 종류 중 열을 하나로 결정하지 못한 항목입니다. "
             "맞는 열이 있으면 recipe의 relations에 입력하고, 없으면 그대로 두세요."
         )
+    drafted = mapping.get("relation_drafts")
+    if drafted:
+        proposed = ", ".join(one["relation"] for one in drafted["recipe_relations"])
+        next_steps.append(
+            f"대상에 맞는 관계 종류가 없는 관계 후보가 있습니다: {proposed}. 레시피에는 넣지 "
+            "않았습니다. 필요하면 relation_drafts.recipe_relations를 recipe의 relations에 "
+            "추가해 recipe_draft_save로 저장하고 pipeline_test로 테스트하세요. 테스트 결과의 "
+            "target.relation_drafts(표본의 모양 포함)를 확인해 이름 · 개수 제약을 정한 후 "
+            "type_plan으로 대상에 관계 종류 계획을 생성합니다."
+        )
     if mapping.get("required_missing"):
         gaps = ", ".join(
             f"{one['property']}({one['label']})" for one in mapping["required_missing"]

@@ -482,6 +482,8 @@ const DEFINITION_TRIAL: DefinitionTrial = {
     types_present: ['plm_task'],
     types_missing: ['plm_part'],
     managed_by: { plm_task: 'plm' },
+    relations_present: [],
+    relations_missing: ['plm_task_part'],
   },
   source: {
     ok: true,
@@ -503,7 +505,12 @@ const DEFINITION_TRIAL: DefinitionTrial = {
 /** 깨끗한 시험 — 대상에 타입이 다 있다. */
 const CLEAN_TRIAL: DefinitionTrial = {
   ...DEFINITION_TRIAL,
-  target: { ...DEFINITION_TRIAL.target!, types_present: ['plm_task', 'plm_part'], types_missing: [] },
+  target: {
+    ...DEFINITION_TRIAL.target!,
+    types_present: ['plm_task', 'plm_part'],
+    types_missing: [],
+    relations_missing: [],
+  },
 }
 
 /** 원천이 커서 앞 50줄만 받은 시험 — 레시피 쪽에 「사용하면 보낼 것」 이 없다. */
@@ -602,6 +609,10 @@ describe('파이프라인 상세 · 정의 판', () => {
     expect(missing).toHaveClass('text-destructive')
     expect(within(missing).getByText('plm_part')).toBeInTheDocument()
     expect(section.getByText('plm_task(관리: plm)')).toBeInTheDocument()
+    // 레시피의 관계가 쓰는 관계 종류도 대상에 없으면 빨갛게(타입 계획으로 생성한다).
+    const kinds = section.getByText(/대상 SP 정의에 없는 관계 종류 1개/)
+    expect(kinds).toHaveClass('text-destructive')
+    expect(within(kinds).getByText('plm_task_part')).toBeInTheDocument()
     // 레시피 — 레시피 판 시험과 같은 그림, 무엇을 썼나가 제목이다.
     expect(section.getByText('레시피 — 사용 중인 레시피 판 1')).toBeInTheDocument()
     expect(section.getByText('사용 시 전송 예정')).toBeInTheDocument()

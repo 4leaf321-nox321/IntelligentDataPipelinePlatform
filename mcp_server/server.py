@@ -323,7 +323,8 @@ async def pipeline_test(
     SP(연결, 토큰, 레시피가 생성하는 타입의 존재, 잠금 managed_by)를 확인하고, 레시피로
     변환해 봅니다. **대상에는 아무것도 전송하지 않습니다.** 레시피는 recipe_version › 사용
     중인 레시피 버전 › 정의 파일의 레시피 순으로 선택합니다. source.always_empty(항상 빈 열),
-    target.types_missing, recipe.unresolved를 확인하고 수정합니다. 원천이 크면 앞부분 행만
+    target.types_missing, target.relations_missing(없는 관계 종류 — 초안은
+    target.relation_drafts), recipe.unresolved를 확인하고 수정합니다. 원천이 크면 앞부분 행만
     수신합니다(source.capped). 이때 '사용 시 전송 예정'은 집계하지 않습니다.
     **푸시 원천(push)**은 사용 전에는 수신 데이터가 없습니다. `sample_rows`(원천 담당자에게
     받은 전송 형식의 항목)로 끝까지 테스트하거나, 원천이 수신 주소에 `?trial=1`로 전송한
@@ -647,11 +648,14 @@ async def type_plan(
     ctx: Context, slug: str, ontology: dict[str, Any] | str, note: str = ""
 ) -> Any:
     """**타입 계획 생성**: SP 타입 정의 초안(`type_draft` 또는 일괄 초안 생성 결과의
-    `ontology`)을 파이프라인의 원천 이름(`source`, 해당 원천으로 잠김)과 함께 대상 SP의
-    **미리 보기 계획**으로 생성합니다. 대상 SP의 MCP를 별도로 연결하지 않아도 됩니다. 적용은
-    사람이 대상 SP의 [작업] 화면에서 합니다(`link`). 적용 후 pipeline_test로 types_missing이
-    비었는지 확인합니다. 대상 토큰에 ontology:write 범위가 없으면 거부됩니다. 그 메시지를
-    사람에게 전달합니다.
+    `ontology`)과 관계 종류 초안(`ontology.relation_types` — pipeline_test의
+    target.relation_drafts, 개수 제약은 사람에게 물어 정함)을 파이프라인의 원천
+    이름(`source`, 해당 원천으로 잠김)과 함께 대상 SP의 **미리 보기 계획**으로 생성합니다.
+    대상 SP의 MCP를 별도로 연결하지 않아도 됩니다. 적용은 사람의 승인 후 type_plan_apply로
+    하거나, 사람이 대상 SP의 [작업] 화면에서 합니다(`link`). 적용 후 pipeline_test로
+    types_missing · relations_missing이 비었는지 확인합니다. 결과에 `errors`가 있으면 적용할
+    수 없습니다. 대상 토큰에 ontology:write 범위가 없으면 거부됩니다. 그 메시지를 사람에게
+    전달합니다.
     **사이드바 그룹**: 타입의 `nav_group_slug`는 대상에 있는 그룹(target_schema의 groups)
     이거나 `ontology.groups`로 함께 생성하는 그룹이어야 합니다. 기존 타입을 다른 그룹으로
     이동하려면 `{"types": [{"slug": …, "nav_group_slug": …}]}`만 전송합니다. SP는 전송한

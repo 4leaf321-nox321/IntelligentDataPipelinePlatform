@@ -394,6 +394,7 @@ def split_recipe(
         references += [{**one, "type_slug": slug} for one in refs]
     relations, candidates = _relations(model, source, order, groups, owned, used_all)
     used_all |= {one["dst"]["column"] for one in relations}
+    proposed = _new_relations(model, order, groups, owned, used_all, candidates)
     recipe: dict[str, Any] = {
         "format": "sp-table/1",
         "title": f"{type_slug}(일괄 초안 생성)",
@@ -418,9 +419,73 @@ def split_recipe(
             for one in relations
         ],
         "relation_candidates": candidates,
+        "relation_drafts": proposed,
         "skipped": skipped,
         "unused": [column for column in columns if column not in used_all],
     }
+
+
+def _new_relations(
+    model: Mapping[str, Any],
+    order: Sequence[str],
+    groups: Mapping[str, _Group],
+    owned: Mapping[str, Mapping[str, str]],
+    used: set[str],
+    candidates: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """대상에 **맞는 관계 종류가 없는** 선의 제안 — 남은 열 중 다른 타입(대상에 있거나
+    이번에 나눈 타입)의 이름이 든 식별자 꼴의 열(`BASE_MODEL_ID` → `plm_model`)이 하나뿐이면.
+    레시피에는 넣지 않는다(대상에 그 종류가 없으면 계획이 막힌다) — 넣을 줄과 관계 종류
+    초안을 함께 준다."""
+    from relay_core.typedraft import property_key, relation_draft
+
+    in_target = model.get("types") or {}
+    known_types = [*in_target, *(one for one in order if one not in in_target)]
+    covered = {(one["type_slug"], one["dst_type"]) for one in candidates}
+    for kind in model.get("relations") or []:
+        for start in kind.get("src_type_slugs") or order:
+            for end in kind.get("dst_type_slugs") or known_types:
+                covered.add((str(start), str(end)))
+    lines: list[dict[str, Any]] = []
+    for start in order:
+        taken: set[str] = set()
+        for end in known_types:
+            if (start, end) in covered:
+                continue
+            tail = _norm(str(end).rsplit("_", 1)[-1])
+            found = [
+                c
+                for c in owned[start]
+                if c not in used
+                and c != groups[start].key
+                and tail
+                and tail in _norm(c)
+                and _norm(c).endswith(_ID_ENDS)
+            ]
+            if len(found) != 1:
+                continue
+            name = re.sub(r"_(id|code|key|no|cd)$", "", property_key(found[0], taken))
+            slug = f"{start}_{name}"[:60].rstrip("_")
+            lines.append(
+                {
+                    "relation": slug,
+                    "type_slug": start,
+                    "src": {"key_of": start},
+                    "dst": {"column": found[0]},
+                    "evidence_note": {"value": f"원천 열 {found[0]}(일괄 초안 생성)"},
+                    "_dst_type": end,
+                }
+            )
+            used.add(found[0])
+    if not lines:
+        return None
+    recipe = {"types": [{"type_slug": one} for one in order]}
+    drafts = []
+    for one in lines:
+        end = one.pop("_dst_type")
+        made = relation_draft(recipe, {**one, "dst": {"key_of": end}})
+        drafts.append(made["relation_type"])
+    return {"recipe_relations": lines, "relation_types": drafts}
 
 
 def _descends(groups: Mapping[str, _Group], top: str, other: str) -> set[str]:

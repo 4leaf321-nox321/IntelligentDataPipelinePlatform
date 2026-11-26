@@ -51,8 +51,12 @@ export function trialBlocks(trial: DefinitionTrial): string[] {
   const target = trial.target
   if (!target?.reachable) out.push('대상 연결 불가')
   else if (target.token !== '정상') out.push('대상 토큰으로 정의 조회 실패')
-  else if ((target.types_missing ?? []).length > 0)
-    out.push(`대상 SP 정의에 없는 타입 ${target.types_missing!.length}개`)
+  else {
+    if ((target.types_missing ?? []).length > 0)
+      out.push(`대상 SP 정의에 없는 타입 ${target.types_missing!.length}개`)
+    if ((target.relations_missing ?? []).length > 0)
+      out.push(`대상 SP 정의에 없는 관계 종류 ${target.relations_missing!.length}개`)
+  }
   const recipe = triedRecipe(trial)
   if (recipe?.error) out.push('레시피 변환 중단')
   else if (recipe && !recipe.clean) out.push('레시피 미해결 있음')
@@ -181,6 +185,7 @@ function TargetPart({ target }: { target: DefinitionTargetCheck | undefined }) {
   const missing = target.types_missing ?? []
   const present = target.types_present ?? []
   const managedBy = target.managed_by ?? {}
+  const missingKinds = target.relations_missing ?? []
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -205,6 +210,13 @@ function TargetPart({ target }: { target: DefinitionTargetCheck | undefined }) {
         <p className="text-destructive text-sm">
           대상 SP 정의에 없는 타입 {missing.length}개. 대상에 타입을 등록해야 전송할 수 있습니다:{' '}
           <span className="font-mono text-xs">{missing.join(', ')}</span>
+        </p>
+      )}
+      {missingKinds.length > 0 && (
+        <p className="text-destructive text-sm">
+          대상 SP 정의에 없는 관계 종류 {missingKinds.length}개. 대상에 관계 종류를 등록해야 관계를
+          전송할 수 있습니다. 관계 종류 초안은 AI(MCP) 테스트 결과에 있으며, 타입 계획으로 대상에
+          생성합니다: <span className="font-mono text-xs">{missingKinds.join(', ')}</span>
         </p>
       )}
       {present.length > 0 && (

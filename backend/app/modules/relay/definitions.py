@@ -540,7 +540,9 @@ def activate(
 # --- 시험 ----------------------------------------------------------------------------------
 
 
-def _target_check(target: dict[str, Any], env: Any, wanted: list[str]) -> dict[str, Any]:
+def _target_check(
+    target: dict[str, Any], env: Any, wanted: list[str], relations: list[str] | None = None
+) -> dict[str, Any]:
     from app.modules.relay import services
 
     server = str(target.get("server") or "").rstrip("/")
@@ -569,7 +571,60 @@ def _target_check(target: dict[str, Any], env: Any, wanted: list[str]) -> dict[s
     out["types_present"] = [one for one in wanted if one in have]
     out["types_missing"] = [one for one in wanted if one not in have]
     out["managed_by"] = {one: have[one].get("managed_by") for one in out["types_present"]}
+    kinds = {
+        str(one.get("slug")): one
+        for one in schema.get("relation_types") or []
+        if isinstance(one, dict)
+    }
+    wanted_kinds = list(dict.fromkeys(relations or []))
+    out["relations_present"] = [one for one in wanted_kinds if one in kinds]
+    out["relations_missing"] = [one for one in wanted_kinds if one not in kinds]
+    if out["relations_present"]:
+        out["relation_managed_by"] = {
+            one: kinds[one].get("managed_by") for one in out["relations_present"]
+        }
     return out
+
+
+def _relation_drafts(
+    recipe: dict[str, Any],
+    missing: list[str],
+    seen: dict[str, Any] | None,
+    system: str,
+) -> dict[str, Any] | None:
+    """대상에 없는 관계 종류의 초안 — `type_plan` 에 그대로 싣는 `{"relation_types": […]}` 와
+    관계 종류마다 표본의 모양 · 볼 것. 시험의 변환 결과(`seen`)가 있으면 모양까지."""
+    from relay_core.typedraft import relation_draft
+
+    if not missing:
+        return None
+    drafts: list[dict[str, Any]] = []
+    notes: dict[str, Any] = {}
+    for one in recipe.get("relations") or []:
+        slug = str(one.get("relation") or "")
+        if slug not in missing or slug in notes:
+            continue
+        got = (seen or {}).get(slug)
+        try:
+            made = relation_draft(
+                recipe,
+                one,
+                pairs=got["pairs"] if got else ([] if seen is not None else None),
+                properties=got["properties"] if got else None,
+                system=system,
+            )
+        except ValueError as failure:
+            notes[slug] = {"error": str(failure)}
+            continue
+        drafts.append(made["relation_type"])
+        notes[slug] = {"observed": made["observed"], "check": made["check"]}
+    return {
+        "relation_types": drafts,
+        "by_relation": notes,
+        "next": "대상에 없는 관계 종류의 초안입니다. by_relation의 check를 확인해 이름 · 개수 "
+        '제약을 정한 후 type_plan(slug, {"relation_types": …})로 대상에 계획을 생성하세요. '
+        "관계 종류는 원천 이름으로 잠깁니다.",
+    }
 
 
 def _recipe_for(
@@ -626,7 +681,18 @@ def trial(
         for one in (recipe_body or {}).get("types") or []
         if "type_slug" in one
     ]
-    out["target"] = _target_check(dict(body["target"]), env, wanted)
+    wanted_relations = [
+        str(one["relation"])
+        for one in (recipe_body or {}).get("relations") or []
+        if isinstance(one, dict) and one.get("relation")
+    ]
+    out["target"] = _target_check(dict(body["target"]), env, wanted, wanted_relations)
+    system = str(body.get("system") or body.get("source") or "")
+    drafts = _relation_drafts(
+        recipe_body or {}, out["target"].get("relations_missing") or [], None, system
+    )
+    if drafts:
+        out["target"]["relation_drafts"] = drafts
     server = str(dict(body["target"]).get("server") or "").rstrip("/")
     for other in services.catalog(db):
         if other.draft or other.slug == slug or other.target_server != server:
@@ -722,6 +788,12 @@ def trial(
             computed=dict(body.get("computed") or {}),
         ),
     }
+    seen = out["recipe"].pop("_relations_seen", None)
+    if drafts and seen is not None:
+        # 시험이 변환한 관계로 다시 — 관계 속성의 데이터 타입과 표본의 모양까지.
+        out["target"]["relation_drafts"] = _relation_drafts(
+            recipe_body, out["target"]["relations_missing"], seen, system
+        )
     return out
 
 

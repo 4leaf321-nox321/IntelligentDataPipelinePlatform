@@ -316,3 +316,88 @@ def test_한_번에_초안은_한_행을_정의를_따라_여러_타입과_선�
     ).json()
     assert [one["type_slug"] for one in alone["recipe"].get("types", [])] in ([], ["mes_lot"])
     assert "relations" not in alone["recipe"] or not alone["recipe"]["relations"]
+
+
+def test_대상에_없는_관계_종류는_시험이_알리고_초안을_주며_타입_계획으로_올린다(
+    client: TestClient,
+    admin: Signed,
+    drop: Path,  # noqa: F811
+    target_sp: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from relay_core import sp
+
+    monkeypatch.setenv("MFG_HUB_TOKEN", "x")
+    slug = _slug()
+    mcp = _pat(client, admin)
+    got = client.post(f"/api/relay/pipelines/{slug}/scaffold", json=_spec(drop), headers=mcp)
+    assert got.status_code == 200, got.text
+    version = got.json()["definition"]["version"]
+    recipe = {
+        "format": "sp-table/1",
+        "title": "관계 시험",
+        "types": [{"type_slug": "mes_model", "key": {"column": "MODEL_ID"}, "fields": {}}],
+        "relations": [
+            {
+                "relation": "mes_derived_from",
+                "type_slug": "mes_model",
+                "src": {"key_of": "mes_model"},
+                "dst": {"column": "BASE"},
+                "properties": {"kind": {"column": "KIND"}},
+            }
+        ],
+    }
+    saved = client.post(
+        f"/api/relay/pipelines/{slug}/recipes",
+        json={"body": recipe, "note": "관계"},
+        headers=mcp,
+    )
+    assert saved.status_code == 201, saved.text
+    tried = client.post(
+        f"/api/relay/pipelines/{slug}/definitions/{version}/test",
+        json={"recipe_version": saved.json()["version"]},
+        headers=mcp,
+    ).json()
+    target = tried["target"]
+    assert target["relations_missing"] == ["mes_derived_from"]
+    drafts = target["relation_drafts"]
+    (kind,) = drafts["relation_types"]
+    assert kind["slug"] == "mes_derived_from" and kind["cardinality"] == "many_to_many"
+    assert kind["src_type_slugs"] == ["mes_model"] and kind["dst_type_slugs"] is None
+    assert kind["properties"] == [{"key": "kind", "label": "kind", "data_type": "text"}]
+    observed = drafts["by_relation"]["mes_derived_from"]["observed"]
+    assert observed["pairs"] == 1 and observed["fits"] == "one_to_one"  # M2 → M1 하나
+    assert tried["recipe"]["relation_rows"] == {"mes_derived_from": 1}
+    assert "_relations_seen" not in tried["recipe"]
+
+    # 관계 종류만 담은 타입 계획 — 원천 이름과 함께 미리 보기로.
+    sent: list[dict[str, Any]] = []
+
+    def post(server: str, token: str, body: dict[str, Any]) -> dict[str, Any]:
+        sent.append(body)
+        return {"ok": True, "ontology": {"errors": []}, "job_id": "job-rel-1"}
+
+    monkeypatch.setattr(sp.pipeline, "_post_bundle", post)
+    kind = {**kind, "label": "기반 모델", "inverse_label": "파생 모델"}
+    planned = client.post(
+        f"/api/relay/pipelines/{slug}/type-plan",
+        json={"ontology": {"relation_types": [kind]}},
+        headers=mcp,
+    )
+    assert planned.status_code == 200, planned.text
+    assert planned.json()["relation_types"] == ["mes_derived_from"]
+    assert planned.json()["types"] == []
+    (one,) = sent
+    assert (
+        one["source"] == "mes" and one["ontology"]["relation_types"][0]["label"] == "기반 모델"
+    )
+    bad = client.post(
+        f"/api/relay/pipelines/{slug}/type-plan",
+        json={"ontology": {"relation_types": [{**kind, "cardinality": "many"}]}},
+        headers=mcp,
+    )
+    assert bad.status_code == 422 and "cardinality" in bad.text
+    empty = client.post(
+        f"/api/relay/pipelines/{slug}/type-plan", json={"ontology": {}}, headers=mcp
+    )
+    assert empty.status_code == 422

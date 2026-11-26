@@ -11,6 +11,12 @@ relay 는 대상의 타입을 만들지 않는다(온톨로지는 대상에서 �
 
 같은 칸 대응으로 **레시피의 첫 판**(식별자 · 이름 · 칸마다 열)도 낸다 — 날짜 칸은 `date`.
 
+**관계 종류 초안**(`relation_draft`) — 레시피의 관계(`relations`)가 쓰는 관계 종류가 대상에
+없을 때. 출발 · 도착 타입은 레시피의 끝점에서(`key_of` · 참조 대조의 대상), 관계 속성의 데이터
+타입은 표본 값으로. **개수 제약은 늘 `many_to_many`** 로 둔다 — 표본으로 좁히면 나중 데이터가
+어길 때 대상이 계획 전체를 막는다. 표본의 모양(출발 하나에 도착이 몇 개인가)은 알리기만 하고
+좁힐지는 사람이 정한다(`shape`).
+
 **사이드바 묶음**(`nav_group`) — 그 타입을 SP 사이드바의 어느 묶음에 둘지. 이미 있는 묶음의
 slug, 또는 새 묶음(`{slug, label, icon, …}` — 정의의 `groups` 로 함께 만든다). 안 주면
 `suggest_group` 이 대상의 묶음에서 고른다: 같은 원천의 타입이 든 묶음 › 이름이 원천과 같은
@@ -211,3 +217,141 @@ def draft(
         ],
     }
     return {"ontology": ontology, "recipe": recipe}
+
+
+#: SP 의 개수 제약(`ontology.models.CARDINALITIES`) — 출발 · 도착 쪽에서 하나인가.
+CARDINALITIES = ("one_to_one", "one_to_many", "many_to_one", "many_to_many")
+#: 관계 속성 하나에 보는 표본 값의 수.
+PROPERTY_SAMPLES = 50
+
+
+def end_types(recipe: Mapping[str, Any], relation: Mapping[str, Any], end: str) -> list[str]:
+    """레시피 관계의 한 끝(`src` · `dst`)이 가리키는 대상 타입 — 다른 타입의
+    식별자(`key_of`)거나 대상과의 참조 대조(`match.keys`)일 때. 알 수 없으면(열 그대로 ·
+    `@파일`) 빈 목록 — 출발은 관계의 `type_slug` 로 본다."""
+    spec = relation.get(end)
+    if isinstance(spec, Mapping):
+        if spec.get("key_of"):
+            return [str(spec["key_of"])]
+        rule = spec.get("match")
+        target = str(rule.get("keys") or "").strip() if isinstance(rule, Mapping) else ""
+        if target and not target.startswith("@"):
+            return [target]
+    if end == "src" and relation.get("type_slug"):
+        return [str(relation["type_slug"])]
+    return []
+
+
+def shape(pairs: Sequence[tuple[str, str]]) -> dict[str, Any]:
+    """표본의 관계 (출발, 도착)에서 본 모양 — 출발 하나에 도착이 몇 개까지, 도착 하나에 출발이
+    몇 개까지. `fits` 는 표본이 어기지 않는 가장 좁은 개수 제약(**제안일 뿐** — 초안은
+    `many_to_many`)."""
+    by_src: dict[str, set[str]] = {}
+    by_dst: dict[str, set[str]] = {}
+    for src, dst in pairs:
+        by_src.setdefault(src, set()).add(dst)
+        by_dst.setdefault(dst, set()).add(src)
+    most_dst = max((len(one) for one in by_src.values()), default=0)
+    most_src = max((len(one) for one in by_dst.values()), default=0)
+    if not pairs:
+        fits = None
+    elif most_dst <= 1 and most_src <= 1:
+        fits = "one_to_one"
+    elif most_dst <= 1:
+        fits = "many_to_one"
+    elif most_src <= 1:
+        fits = "one_to_many"
+    else:
+        fits = "many_to_many"
+    return {
+        "pairs": len(pairs),
+        "max_dst_per_src": most_dst,
+        "max_src_per_dst": most_src,
+        "fits": fits,
+    }
+
+
+def relation_draft(
+    recipe: Mapping[str, Any],
+    relation: Mapping[str, Any],
+    *,
+    pairs: Sequence[tuple[str, str]] | None = None,
+    properties: Mapping[str, Sequence[Any]] | None = None,
+    system: str = "",
+) -> dict[str, Any]:
+    """레시피의 관계 하나 → `{"relation_type": SP 관계 종류 정의 초안, "observed": 표본의 모양,
+    "check": 사람이 볼 것}`. `pairs` · `properties` 는 레시피 시험이 만든 관계(표본)에서 —
+    없으면 모양 없이."""
+    slug = str(relation.get("relation") or "")
+    if not _SLUG.match(slug):
+        raise ValueError(
+            f"관계 slug는 소문자로 시작하는 소문자, 숫자, '_' 60자 이내여야 합니다: {slug!r}"
+        )
+    src = end_types(recipe, relation, "src")
+    dst = end_types(recipe, relation, "dst")
+    seen = properties or {}
+    props: list[dict[str, Any]] = []
+    for key in relation.get("properties") or {}:
+        values = [str(one) for one in seen.get(str(key), [])][:PROPERTY_SAMPLES]
+        props.append({"key": str(key), "label": str(key), "data_type": data_type(values)})
+    where = f"{system}에서" if system else "원천에서"
+    body: dict[str, Any] = {
+        "slug": slug,
+        "label": slug[:64],
+        "inverse_label": "",
+        "description": f"{where} 데이터 중계(datarelay)로 수신하는 관계입니다. relay가 작성한 "
+        "초안이므로 이름, 반대 방향 이름, 개수 제약, 순환 금지(acyclic)를 확인하세요.",
+        "directed": True,
+        "cardinality": "many_to_many",
+        "src_type_slugs": src or None,
+        "dst_type_slugs": dst or None,
+    }
+    if props:
+        body["properties"] = props
+    observed = shape(list(pairs)) if pairs is not None else None
+    check = ["label · inverse_label(화면에 보이는 이름)을 업무 용어로 바꾸세요."]
+    if not dst:
+        check.append(
+            "도착 타입을 레시피에서 알 수 없습니다(열 그대로 또는 @파일). dst_type_slugs를 "
+            "지정하지 않으면 어느 타입이든 도착할 수 있습니다."
+        )
+    if observed and observed["fits"] and observed["fits"] != "many_to_many":
+        check.append(
+            f"표본 {observed['pairs']}건에서는 {_CARDINALITY_TEXT[observed['fits']]}. "
+            f"cardinality를 좁힐 수 있습니다(후보: {observed['fits']}). 표본이 원천 전체가 "
+            "아니므로 업무 규칙으로 정하세요. 좁히면 어기는 관계가 오는 날 대상이 계획 "
+            "전체를 막습니다."
+        )
+    if src and dst and src == dst:
+        check.append("같은 타입끼리의 관계입니다. 순환을 막아야 하면 acyclic: true로 하세요.")
+    return {"relation_type": body, "observed": observed, "check": check}
+
+
+_CARDINALITY_TEXT = {
+    "one_to_one": "출발 하나에 도착 하나, 도착 하나에 출발 하나입니다",
+    "many_to_one": "출발 하나에 도착이 하나입니다",
+    "one_to_many": "도착 하나에 출발이 하나입니다",
+}
+
+
+def check_relation_type(one: Any) -> dict[str, Any]:
+    """`type_plan` 에 실을 관계 종류 하나의 모양 — 잘못이면 `ValueError`(SP 가 거절하기 전에,
+    빠진 칸만. 나머지는 SP 의 계획이 본다)."""
+    if not isinstance(one, Mapping):
+        raise ValueError("relation_types의 각 항목은 JSON 객체여야 합니다.")
+    slug = str(one.get("slug") or "")
+    if not _SLUG.match(slug):
+        raise ValueError(
+            f"관계 slug는 소문자로 시작하는 소문자, 숫자, '_' 60자 이내여야 합니다: {slug!r}"
+        )
+    if "cardinality" in one and one["cardinality"] not in CARDINALITIES:
+        raise ValueError(
+            f"관계 {slug}: cardinality는 {' · '.join(CARDINALITIES)} 중 하나여야 합니다."
+        )
+    for name in ("src_type_slugs", "dst_type_slugs"):
+        found = one.get(name)
+        if found is not None and (
+            not isinstance(found, list) or not all(isinstance(x, str) for x in found)
+        ):
+            raise ValueError(f"관계 {slug}: {name}는 타입 slug의 목록이어야 합니다.")
+    return dict(one)

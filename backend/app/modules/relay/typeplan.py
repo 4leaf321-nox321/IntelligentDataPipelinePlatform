@@ -13,6 +13,9 @@
   묶음이어야 한다(보내기 전에 본다). 이미 있는 타입을 다른 묶음으로 옮기는 것도 같은 길이다 —
   `{"slug", "nav_group_slug"}` 만 보내면 SP 는 보낸 칸만 고친다. 묶음은 원천으로 잠기지 않는다.
 - 원천 기록(`origin` — SP ADR 0087)을 함께 싣는다. 옛 SP 는 모르는 칸이라 무시한다.
+- **관계 종류**(`relation_types`)도 같은 길이다 — 타입과 함께, 또는 관계 종류만. 초안은
+  `pipeline_test` 가 레시피의 관계에서 짓는다(`target.relation_drafts`). 관계 종류도 원천
+  이름으로 잠긴다.
 """
 
 from __future__ import annotations
@@ -32,7 +35,7 @@ from app.shared.errors import AppError, code
 from relay_core import sp
 from relay_core.state import Workdir
 from relay_core.submit import errors_of
-from relay_core.typedraft import check_group
+from relay_core.typedraft import check_group, check_relation_type
 
 #: 한 번에 올리는 타입의 상한 — 정의 초안은 원천 하나의 몫이다.
 TYPES_MAX = 50
@@ -43,18 +46,26 @@ BODY_MAX = 512 * 1024
 def _check(ontology: Any) -> dict[str, Any]:
     if not isinstance(ontology, dict):
         raise AppError(code("RELAY", 40), "ontology는 JSON 객체여야 합니다.", status=422)
-    types = ontology.get("types")
-    if not isinstance(types, list) or not types:
+    types = ontology.get("types", [])
+    kinds = ontology.get("relation_types", [])
+    if not isinstance(types, list) or not isinstance(kinds, list) or not (types or kinds):
         raise AppError(
             code("RELAY", 40),
-            "ontology.types에 타입이 하나 이상 있어야 합니다. type_draft 또는 일괄 초안 "
-            "생성 결과의 ontology를 그대로 입력하세요.",
+            "ontology.types나 ontology.relation_types에 하나 이상 있어야 합니다. type_draft, "
+            "일괄 초안 생성 결과의 ontology나 pipeline_test의 target.relation_drafts를 그대로 "
+            "입력하세요.",
             status=422,
         )
-    if len(types) > TYPES_MAX:
+    if len(types) + len(kinds) > TYPES_MAX:
         raise AppError(
-            code("RELAY", 40), f"타입은 한 번에 최대 {TYPES_MAX}개입니다.", status=422
+            code("RELAY", 40),
+            f"타입과 관계 종류는 합쳐서 한 번에 최대 {TYPES_MAX}개입니다.",
+            status=422,
         )
+    try:
+        kinds = [check_relation_type(one) for one in kinds]
+    except ValueError as failure:
+        raise AppError(code("RELAY", 40), str(failure), status=422) from failure
     if any(not isinstance(one, dict) or not one.get("slug") for one in types):
         raise AppError(
             code("RELAY", 40), "ontology.types의 각 항목에 slug가 있어야 합니다.", status=422
@@ -73,7 +84,11 @@ def _check(ontology: Any) -> dict[str, Any]:
             ontology = {**ontology, "groups": [check_group(one) for one in groups]}
         except ValueError as failure:
             raise AppError(code("RELAY", 40), str(failure), status=422) from failure
-    out: dict[str, Any] = ontology
+    out: dict[str, Any] = {**ontology, "types": types}
+    if kinds:
+        out["relation_types"] = kinds
+    else:
+        out.pop("relation_types", None)
     return out
 
 
@@ -154,8 +169,9 @@ def submit(
     errors = errors_of(result)
     link = sp.pipeline.jobs_link(found.target_server, job_id) if job_id else ""
     names = [str(one["slug"]) for one in body["types"]]
+    kinds = [str(one["slug"]) for one in body.get("relation_types") or []]
     if job_id and not errors:
-        _remember(slug, job_id, names)  # 오류가 있는 계획은 적용할 것이 아니다
+        _remember(slug, job_id, names, kinds)  # 오류가 있는 계획은 적용할 것이 아니다
     audit.record(
         db,
         action="relay.type_plan.submit",
@@ -163,7 +179,12 @@ def submit(
         target_table="relay_pipelines",
         target_id=None,
         target_label=slug,
-        changes={"types": names, "job_id": job_id, "note": note[:200]},
+        changes={
+            "types": names,
+            "relation_types": kinds,
+            "job_id": job_id,
+            "note": note[:200],
+        },
     )
     db.commit()
     return {
@@ -171,6 +192,7 @@ def submit(
         "link": link,
         "source": found.source,
         "types": names,
+        "relation_types": kinds,
         "groups_created": created,
         "nav_group_of": {
             str(one["slug"]): one["nav_group_slug"]
@@ -204,11 +226,20 @@ def _plans(slug: str) -> Workdir:
     return Workdir(get_settings().relay_work_dir, slug)
 
 
-def _remember(slug: str, job_id: str, types: list[str]) -> None:
+def _remember(
+    slug: str, job_id: str, types: list[str], relation_types: list[str] | None = None
+) -> None:
     work = _plans(slug)
     found = work.read_json(PLANS)
     rows = found if isinstance(found, list) else []
-    rows.append({"job_id": job_id, "types": types, "at": datetime.now(UTC).isoformat()})
+    row: dict[str, Any] = {
+        "job_id": job_id,
+        "types": types,
+        "at": datetime.now(UTC).isoformat(),
+    }
+    if relation_types:
+        row["relation_types"] = relation_types
+    rows.append(row)
     work.write_json(PLANS, rows[-50:])
 
 
@@ -255,15 +286,22 @@ def apply(
         target_table="relay_pipelines",
         target_id=None,
         target_label=slug,
-        changes={"job_id": job_id, "types": known[-1].get("types"), "by": approved.by},
+        changes={
+            "job_id": job_id,
+            "types": known[-1].get("types"),
+            "relation_types": known[-1].get("relation_types") or [],
+            "by": approved.by,
+        },
     )
     approval.record(db, user, approved, action="type_plan", target=slug, job_id=job_id)
     db.commit()
     return {
         "job_id": job_id,
         "types": known[-1].get("types"),
+        "relation_types": known[-1].get("relation_types") or [],
         "result": result,
         "message": (
-            "타입 계획을 적용했습니다. pipeline_test로 대상에 타입이 생겼는지 확인하세요."
+            "타입 계획을 적용했습니다. pipeline_test로 대상에 타입 · 관계 종류가 생겼는지 "
+            "(types_missing · relations_missing) 확인하세요."
         ),
     }

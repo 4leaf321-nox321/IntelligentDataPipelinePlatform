@@ -33,6 +33,7 @@ AI의 역할은 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipel
 | 대상에 타입 없음 | `type_draft`(`get_guide('types')`) |
 | 수신량 급감, 연속 실패 확인 | `pipeline_trend` |
 | 대상에 타입 없음: 대상에 타입 계획 생성 | `type_plan` → 사람의 승인 → `type_plan_apply` |
+| 대상에 관계 종류 없음 | `pipeline_test`의 `target.relation_drafts` → `type_plan` → 사람의 승인 → `type_plan_apply`(`get_guide('types')`) |
 | 403 '호출할 수 있는 주소가 아닙니다'(RELAY-0010) | `allowed_hosts`를 확인하고 사람에게 화면의 [중계] › [허용 주소]에 추가하도록 요청(원천과 대상 SP 별도, 재시작 불필요) |
 
 레시피 작성 순서:
@@ -313,7 +314,28 @@ AI의 역할은 **레시피(`sp-table/1`)와 파이프라인 정의(`relay-pipel
    그룹만 변경하려면 `{"types": [{"slug": …, "nav_group_slug": …}]}`만 전송합니다. SP는 전송한 항목만 수정합니다.
    사이드바 그룹은 원천으로 잠기지 않습니다(SP의 화면 구성이므로 적용 후에도 SP 관리자가 수정합니다).
 3. 결과의 `link`(대상 SP의 [작업] 화면에 있는 해당 계획)를 사람에게 전달하고 **적용을 요청합니다.** 적용되면
-   `pipeline_test`를 다시 호출해 `types_missing`이 비었는지 확인합니다.
+   `pipeline_test`를 다시 호출해 `types_missing`이 비었는지 확인합니다. 결과에 `errors`가 있으면 그 계획은 적용할
+   수 없습니다. 정의를 수정해 다시 생성합니다.
+
+### 관계 종류
+
+**레시피의 `relations`가 쓰는 관계 종류가 대상에 없을 때**(`pipeline_test`의 `target.relations_missing`). 관계
+종류도 대상 SP의 정의이고 같은 길(`type_plan` → 승인 → `type_plan_apply`)로 생성합니다.
+
+1. `pipeline_test`의 `target.relation_drafts`에 초안이 있습니다. `relation_types`는 `type_plan`에 그대로 싣는
+   정의이고, `by_relation`은 관계 종류마다 표본의 모양(`observed`)과 확인할 것(`check`)입니다. 출발 · 도착 타입은
+   레시피의 끝점(`key_of`, 대상과의 `match`)에서, 관계 속성의 자료형은 테스트가 변환한 값에서 선택했습니다.
+2. **개수 제약(`cardinality`)은 초안에서 늘 `many_to_many`입니다.** `observed.fits`는 표본이 어기지 않는 가장 좁은
+   제약입니다(`many_to_one`: 출발 하나에 도착 하나). 표본은 원천 전체가 아니므로 **좁힐지는 사람에게 묻습니다.**
+   좁히면 어기는 관계가 오는 날 대상이 계획 전체를 막습니다. 같은 타입끼리의 관계는 순환을 막을지(`acyclic`)도
+   묻습니다.
+3. `label`(화면 이름)과 `inverse_label`(반대 방향 이름)을 업무 용어로 정해 `type_plan(slug, {"relation_types":
+   [...]})`을 호출합니다. 새 타입과 함께라면 `types`와 같이 싣습니다. 관계 종류도 원천 이름으로 잠깁니다.
+4. 적용 후 `pipeline_test`로 `relations_missing`이 비었는지 확인합니다.
+
+일괄 초안 생성(`pipeline_scaffold`)은 대상에 맞는 관계 종류가 없는 관계 후보를 `recipe.relation_drafts`로
+알려 줍니다(`recipe_relations`: 레시피에 넣을 줄, `relation_types`: 관계 종류 초안). 레시피에는 넣지 않았으므로
+필요하면 추가해 저장하고 테스트합니다.
 
 ## recipe
 
