@@ -82,7 +82,9 @@ def settle_pending(state: State, submit: Submitter) -> str:
     pending = state.pending
     if pending is None or not pending.job_id:
         return ""
-    if not submit.applied(pending.job_id):
+    # **끝나 들어간 것만** — 대기 · 실행 중인 적용은 아직이다(실패하면 대상에 없다,
+    # `submit.apply_status`).
+    if not submit.landed(pending.job_id):
         return ""
     if pending.part + 1 < pending.total:
         number, total = pending.part + 1, pending.total
@@ -107,6 +109,29 @@ def settle_pending(state: State, submit: Submitter) -> str:
     return (
         f"적용 대기 계획({pending.job_id[:8]})이 적용되었습니다. 해당 출력을 새 기준 출력으로 "
         "사용합니다. "
+    )
+
+
+def _drop_stale(state: State, submit: Submitter) -> str:
+    """보낼 것이 없는데 **실행이 만든 대기 계획**이 남아 있으면 거둔다 — 원천이 기준으로
+    되돌아왔다. 그 계획을 적용하면 되돌아간 원천의 옛 변경이 대상에 들어간다(2026-11-27
+    점검 — 「변경 없음」 이 그 계획을 그대로 두었다).
+
+    대상에서 그 계획을 **적용하고 있으면**(또는 대상에 닿지 않아 모르면) 그대로 둔다 — 거두면
+    그 적용이 들어간 것을 relay 가 모른다. 보정 계획(`reconcile`)은 원천이 아니라 대상의
+    어긋남을 맞추는 것이라 거두지 않는다."""
+    pending = state.pending
+    if pending is None or pending.origin != "run" or pending.part > 0:
+        return ""
+    if pending.job_id and submit.applying(pending.job_id) is not False:
+        return ""
+    state.history.append({"at": _now(), "event": "discarded", "job_id": pending.job_id})
+    state.pending = None
+    if not pending.job_id:
+        return ""
+    return (
+        f"원천이 마지막 적용 상태로 돌아와 대기 계획({pending.job_id[:8]})을 취소했습니다. "
+        "대상 SP의 [작업] 화면에 남은 해당 미리 보기는 적용하지 마세요. "
     )
 
 
@@ -342,6 +367,18 @@ def _run(
         from relay_core.retract import stopped_message
 
         return Outcome("stopped", note + stopped_message(state.stopped))
+    pending = state.pending
+    if pending is not None and pending.job_id and submit.applying(pending.job_id):
+        # **대상이 대기 계획을 적용하는 중이다**(SP 화면에서 누름) — 새 계획으로 바꾸거나
+        # 거두면 그 적용이 끝나 들어간 것을 relay 가 모른다. 원천은 받지 않는다(워터마크
+        # 그대로).
+        if note:
+            work.save_state(state)
+        return Outcome(
+            "waiting",
+            note + f"대상 SP에서 대기 계획({pending.job_id[:8]})을 적용하고 있어 실행을 "
+            "연기했습니다. 적용이 끝나면 다음 실행에서 변경 사항을 반영합니다.",
+        )
 
     since = None if full else state.watermark
     if full:
@@ -496,6 +533,8 @@ def _run(
         if superseded:
             # 들어간 조각까지로 이미 원천과 같다 — 남은 조각은 보낼 것이 아니다.
             state.pending = None
+        else:
+            note += _drop_stale(state, submit)
         state.history.append(
             {"at": _now(), "event": "nothing", "run": f"runs/{when}", "counts": counts}
         )
@@ -551,9 +590,15 @@ def apply(
     *,
     by: str | None = None,
     progress: Callable[[int, int], None] | None = None,
+    expect: str | None = None,
 ) -> Outcome:
     """대기 중인 계획을 적용한다 — 사람이 계획을 본 뒤에 부른다(또는 자동 적용 기준을 넘었을
     때 — `by="auto"`, 이력에 남는다. `autoapply`).
+
+    `expect` 는 **사람이 보고 승인한 계획의 번호**다 — 적용 작업을 넣은 뒤 실행(사람 ·
+    타이머)이 대기 계획을 바꿨으면 아무도 보지 않은 계획을 적용하게 된다(2026-11-27 점검).
+    다르면 적용하지 않는다. 나눠 보내는 계획은 첫 조각의 번호로 견준다(뒤 조각은 이어서 미리
+    본다).
 
     나눠 보내는 계획이면 **조각마다 미리 보기 → 적용**을 차례로 잇는다(`progress(조각, 전체)`).
     조각이 들어갈 때마다 상태를 적어 두어, 도중에 멈춰도 다음 「적용」 이 거기서 잇는다. 뒤
@@ -563,6 +608,13 @@ def apply(
     pending = state.pending
     if pending is None:
         return Outcome("nothing", "적용 대기 중인 계획이 없습니다.")
+    if expect and pending.job_id != expect:
+        now = pending.job_id[:8] or "없음"
+        return Outcome(
+            "blocked",
+            f"승인한 계획({expect[:8]})이 지금 적용 대기 계획({now})과 다릅니다. 그 사이 "
+            "실행이 계획을 새로 생성했습니다. 새 계획을 확인한 후 다시 적용하세요.",
+        )
     if not pending.ok and pending.part == 0:
         return Outcome(
             "blocked", "계획에 오류가 있어 적용하지 않습니다. 파이프라인을 다시 실행하세요."
@@ -601,8 +653,16 @@ def apply(
                     link=plan.link,
                 )
             work.save_state(state)
-        if submit.applied(pending.job_id):
+        if submit.landed(pending.job_id):
             note = "이미 적용된 계획입니다. "
+        elif submit.applying(pending.job_id):
+            # 다른 곳(SP 화면 · 앞서 기다리다 멈춘 적용)이 이 계획을 적용하는 중이다 — 다시
+            # 넣지 않고, 끝나 들어간 것을 다음 실행 · 상태 확인이 기준으로 올린다.
+            return Outcome(
+                "waiting",
+                f"대상 SP에서 계획({pending.job_id[:8]})을 적용하고 있습니다. 적용이 끝나면 "
+                "다음 상태 확인에서 기준 출력으로 반영합니다.",
+            )
         else:
             try:
                 result = submit.apply(pending.job_id)

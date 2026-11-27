@@ -44,6 +44,7 @@ from relay_core import reconcile, schedule
 from relay_core.describe import Described, describe, find
 from relay_core.schedule import Reconcile
 from relay_core.state import TREND, Workdir
+from relay_core.submit import LANDED, apply_status
 
 #: 작업 종류 — `relay/jobs.py` 가 등록한다.
 RUN_KIND = "relay_run"
@@ -147,18 +148,30 @@ _asked: dict[str, float] = {}
 _down: dict[str, float] = {}
 
 
+def job_status(server: str, token: str, plan: dict[str, Any]) -> str | None:
+    """계획 작업의 응답으로 적용 상태를 읽는다(`relay_core.submit.apply_status`) — 옛 SP 는
+    적용 작업을 한 번 더 묻는다."""
+
+    def child(job_id: str) -> dict[str, Any] | None:
+        status, answer = probe_http(server, token, f"/api/jobs/{job_id}")
+        return answer if status == 200 and isinstance(answer, dict) else None
+
+    return apply_status(plan, child)
+
+
 class _Applied:
     """`runner.settle_pending` 에 넘길 답 — 이미 대상에 물어 적용된 것을 안다."""
 
-    def applied(self, job_id: str) -> bool:
+    def landed(self, job_id: str) -> bool:
         return True
 
 
 def settle_seen(db: Session, found: Described, env: Mapping[str, str] | None = None) -> str:
     """**SP 화면에서 적용한 계획을 화면을 열 때 알아챈다** — 지도 · 상세 · 추적이 부른다.
 
-    대기 계획이 있으면 대상의 작업(`/api/jobs/<id>`)에 적용 기록(`applied_by`)이 있나 묻고,
-    있으면 실행 · 대조가 하는 것과 같이 기준으로 올린다(`runner.settle_pending`). 그렇지 않으면
+    대기 계획이 있으면 대상의 작업(`/api/jobs/<id>`)에 그 계획의 적용이 **끝나 들어갔나** 묻고
+    (`job_status` — 대기 · 실행 중인 적용은 아직이다), 그러면 실행 · 대조가 하는 것과 같이
+    기준으로 올린다(`runner.settle_pending`). 그렇지 않으면
     다음 실행 · 대조까지 지도가 「적용 대기」 · 추적이 「아직 적용한 것이 없습니다」 로 남았다
     (2026-11-18). 묻는 것은 짧게(`PROBE_SECONDS`) · 같은 파이프라인은 `SETTLE_EVERY` 초에
     한 번 · 닿지 않은 대상은 그만큼 건너뛴다. 실행 · 적용 · 대조가 대기 중이거나 도는 중이면
@@ -189,8 +202,10 @@ def settle_seen(db: Session, found: Described, env: Mapping[str, str] | None = N
     if status == 0:
         _down[found.target_server] = now
         return ""
-    if status != 200 or not isinstance(answer, dict) or not answer.get("applied_by"):
+    if status != 200 or not isinstance(answer, dict):
         return ""
+    if job_status(found.target_server, token, answer) != LANDED:
+        return ""  # 적용 전 · 적용 중(실패할 수 있다) · 모름 — 다음에 다시 묻는다
     work = Workdir(get_settings().relay_work_dir, found.slug)
     fresh = work.load_state()
     if fresh.pending is None or fresh.pending.job_id != job_id:

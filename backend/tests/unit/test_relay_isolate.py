@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 import os
 import pickle
+import signal
 import subprocess
 import sys
 import time
@@ -101,6 +102,50 @@ def test_워커가_죽으면_작업_프로세스도_끝난다() -> None:
     while any(Path(f"/proc/{one}").exists() for one in jobs) and time.monotonic() < deadline:
         time.sleep(0.2)
     assert not any(Path(f"/proc/{one}").exists() for one in jobs)
+
+
+def test_멈춤_신호는_작업_프로세스를_끝내지_않는다() -> None:
+    """systemd 는 워커를 멈출 때 묶음(cgroup)의 프로세스 전부에 SIGTERM 을 보낸다. 워커는 하던
+    작업을 끝내고 멈추는데 작업 프로세스가 그 자리에서 죽어, 업데이트 때마다 도는 실행이
+    「메모리 부족일 수 있음」 으로 실패했다(2026-11-27 점검). 끝낼 때는 부모가 정한다."""
+    script = (
+        "import signal;from relay_core import isolate;"
+        "signal.signal(signal.SIGTERM, lambda *_: None);"  # 워커처럼 — 하던 일을 끝낸다
+        "print(isolate.call('relay_core.isolate._hog', 1, 3.0)[0], flush=True)"
+    )
+    worker = subprocess.Popen(
+        [sys.executable, "-c", script],
+        cwd=Path(__file__).resolve().parents[2],
+        stdout=subprocess.PIPE,
+        start_new_session=True,
+    )
+    children = Path(f"/proc/{worker.pid}/task/{worker.pid}/children")
+    try:
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            time.sleep(0.2)
+            alive = [
+                one
+                for one in children.read_text().split()
+                if "isolate._main" in Path(f"/proc/{one}/cmdline").read_text()
+            ]
+            if alive:
+                break
+        time.sleep(1.0)  # 자식이 신호를 막을 때까지
+        os.killpg(worker.pid, signal.SIGTERM)  # 묶음 전부에 — systemd 처럼
+        out, _ = worker.communicate(timeout=30)
+    finally:
+        if worker.poll() is None:
+            worker.kill()
+            worker.wait()
+    assert worker.returncode == 0, out
+    assert out.strip() == str(isolate.MB).encode()
+
+
+def test_결과_없이_끝난_까닭은_종료_코드로_가린다() -> None:
+    assert "메모리가 부족" in isolate._ended(-signal.SIGKILL, "변환", 0)
+    assert "메모리" not in isolate._ended(-signal.SIGTERM, "변환", 0)
+    assert "결과 없이 종료" in isolate._ended(1, "변환", 0)
 
 
 BEARER = {"kind": "bearer", "token_env": "T"}

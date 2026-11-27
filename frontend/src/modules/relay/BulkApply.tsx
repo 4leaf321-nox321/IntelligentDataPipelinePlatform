@@ -46,7 +46,7 @@ export function BulkApply({
     for (const row of rows) {
       const slug = row.node.label
       try {
-        const queued = await relayApi.apply(slug)
+        const queued = await relayApi.apply(slug, pipelineDetailOf(row.node).pending_job)
         results.push({ slug, jobId: queued.job_id })
       } catch (caught) {
         const message = caught instanceof Error ? caught.message : ''

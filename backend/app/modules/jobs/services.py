@@ -808,6 +808,13 @@ def _run(job: Job, *, worker_id: str) -> Outcome:
                 # 취소가 도는 질의를 끊었다(`stop_midway`) — 실패가 아니다.
                 log.info("작업 취소 — 도는 질의를 끊었습니다: %s (%s)", job.id, job.kind)
                 return Outcome("cancelled")
+            if getattr(caught, "expected", False) is True:
+                # **원인을 문장으로 아는 실패**(원천에 연결할 수 없음 · 정의 오류 …) — 예외가
+                # `expected = True` 를 단다. 이름(`SourceError: …`)을 붙이면 화면 · 알림에
+                # 코드의 말이 나가고, 스택을 남기면 진짜 결함의 스택이 그 사이에 묻힌다
+                # (2026-11-27 점검).
+                log.warning("작업 실패: %s (%s): %s", job.id, job.kind, caught)
+                return Outcome("failed", error=str(caught)[:2000])
             log.exception("작업 실패: %s (%s)", job.id, job.kind)
             return Outcome("failed", error=f"{type(caught).__name__}: {caught}"[:2000])
 

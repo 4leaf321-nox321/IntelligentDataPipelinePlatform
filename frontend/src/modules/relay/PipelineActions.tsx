@@ -116,7 +116,7 @@ export function PipelineActions({
           ? full
             ? await relayApi.run(detail.slug, overwrite ? 'overwrite' : 'keep', false, true)
             : await relayApi.run(detail.slug, overwrite ? 'overwrite' : 'keep')
-          : await relayApi.apply(detail.slug)
+          : await relayApi.apply(detail.slug, pending?.job_id)
       setQueued({ ...made, what: what === 'run' ? '실행' : '적용' })
       onQueued()
     } catch (caught) {

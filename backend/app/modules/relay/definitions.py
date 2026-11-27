@@ -33,7 +33,7 @@ from app.modules.accounts.models import User
 from app.modules.relay import guard
 from app.modules.relay.models import RelayDefinition
 from app.shared import audit
-from app.shared.errors import AppError, Conflict, NotFound, code
+from app.shared.errors import AppError, Conflict, Forbidden, NotFound, code
 from relay_core.adapters.rest import Auth
 from relay_core.definition import (
     ADAPTERS,
@@ -484,6 +484,27 @@ def save_draft(
     return row, problems + [one for one in found.problems if one not in problems]
 
 
+def _fenced_for_token(
+    db: Session, kind: str, spec: dict[str, Any], target: dict[str, Any]
+) -> None:
+    """대화에서 승인한 **버전의 사용**도 울타리 안이어야 한다 — 초안 저장은 울타리 밖의
+    주소 · 다른 곳에 묶인 인증 정보를 「문제」 로만 적는다. 사용하면 그 주소가 울타리에 들고
+    인증 정보가 거기로 실려 가는데, 사람이 승인한 것은 「버전 N 사용」 이지 새 주소가
+    아니었다(2026-11-27 점검 — 대상 SP 의 토큰 이름을 다른 호스트의 원천에 적은 초안을
+    토큰이 사용할 수 있었다).
+    화면의 사람은 그대로 사용한다(주소를 보고 정한다)."""
+    fenced = _fence(db)
+    try:
+        guard.check_source(kind, spec, fenced)
+        guard.check_target(target, fenced)
+    except AppError as refused:
+        raise Forbidden(
+            refused.code,
+            f"{refused.message} 이 버전은 토큰(MCP)으로 사용할 수 없습니다. 허용 주소를 먼저 "
+            "추가하거나 화면에서 사용하세요.",
+        ) from None
+
+
 def activate(
     db: Session,
     user: User,
@@ -512,6 +533,8 @@ def activate(
     kind, spec = check_adapter(dict(row.body["adapter"]))
     if kind == "file" and not guard.source_url(kind, spec):
         guard.check_source(kind, spec, guard.Fence())  # 파일 폴더는 켜는 사람도 못 넘는다
+    if approved.via_token:
+        _fenced_for_token(db, kind, spec, dict(row.body["target"]))
     before = active(db, slug)
     db.execute(
         update(RelayDefinition)

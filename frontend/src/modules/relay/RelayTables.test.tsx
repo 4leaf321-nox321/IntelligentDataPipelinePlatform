@@ -121,7 +121,7 @@ describe('중계 표', () => {
       'http://hub/jobs?job=j-1',
     )
     await userEvent.click(within(dialog).getByRole('button', { name: '1개 적용' }))
-    expect(relayApi.apply).toHaveBeenCalledWith('plm-models')
+    expect(relayApi.apply).toHaveBeenCalledWith('plm-models', 'j-1')
     expect(await screen.findByText(/적용 작업 1건을 추가했습니다/)).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '작업 확인' })).toHaveAttribute('href', '/jobs?job=job-9')
   })

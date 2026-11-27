@@ -218,20 +218,32 @@ def test_SP_화면에서_적용한_계획은_화면을_열_때_알아챈다(
     }
     (work / "state.json").write_text(json.dumps({"pending": pending}), encoding="utf-8")
     asked: list[str] = []
+    child = {"status": "running"}
 
     def probe(server: str, token: str, path: str) -> Any:
         if path.startswith("/api/jobs/"):
             asked.append(path)
         if path == "/api/jobs/job-applied-on-sp":
             return 200, {"id": "job-applied-on-sp", "applied_by": "someone"}
+        if path == "/api/jobs/someone":
+            return 200, {"id": "someone", **child}
         return 404, None
 
     monkeypatch.setattr(services, "probe_http", probe)
+    # 적용을 눌렀지만 그 적용 작업이 아직 돌고 있다 — 들어간 것이 아니다(실패할 수 있다).
+    services._asked.clear()
+    client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers)
+    state = json.loads((work / "state.json").read_text(encoding="utf-8"))
+    assert state["pending"]["job_id"] == "job-applied-on-sp"
+    assert asked == ["/api/jobs/job-applied-on-sp", "/api/jobs/someone"]  # 옛 SP — 한 번 더
+
+    child["status"] = "done"
+    asked.clear()
     services._asked.clear()
     client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers)
     state = json.loads((work / "state.json").read_text(encoding="utf-8"))
     assert state["pending"] is None and state["applied_run"] == "runs/20261118T000000Z"
     assert any(one.get("event") == "seen_applied" for one in state["history"])
-    assert asked == ["/api/jobs/job-applied-on-sp"]
+    assert asked == ["/api/jobs/job-applied-on-sp", "/api/jobs/someone"]
     client.get("/api/relay/map", headers=admin.headers)
-    assert asked == ["/api/jobs/job-applied-on-sp"]  # 대기 계획이 없다 — 다시 묻지 않는다
+    assert len(asked) == 2  # 대기 계획이 없다 — 다시 묻지 않는다

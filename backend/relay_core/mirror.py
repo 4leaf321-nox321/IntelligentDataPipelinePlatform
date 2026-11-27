@@ -63,10 +63,13 @@ class Mirror:
             else:
                 unchanged += 1
             self._rows[one.key] = one
-        if fetched.full and fetched.complete:
+        whole = fetched.full and fetched.complete
+        covers = fetched.covers if fetched.complete else None
+        if whole or covers is not None:
             for key in [key for key in self._rows if key not in seen]:
-                del self._rows[key]
-                removed += 1
+                if whole or (covers is not None and covers(key)):
+                    del self._rows[key]
+                    removed += 1
         return Applied(added=added, changed=changed, unchanged=unchanged, removed=removed)
 
     def rows(self) -> Iterator[SourceRecord]:
@@ -135,6 +138,8 @@ class Merge:
     def __init__(self, fetched: Fetched, changes: Changes | None = None) -> None:
         self._changes = changes
         self._full = fetched.full and fetched.complete
+        self._covers = fetched.covers if fetched.complete else None
+        """증분이라도 이번에 안 온 이 키는 지운 것인가 — 펼친 항목의 원소 목록을 다 받았다."""
         self._source: Records | None = (
             fetched.records
             if isinstance(fetched.records, Records) and fetched.records.spilled
@@ -240,8 +245,10 @@ class Merge:
                     changes.removed(old.key, old_at, old.values)
                 old_at += 1
                 continue
-            if self._full:
-                self.removed += 1  # 전량을 끝까지 받았는데 안 왔다 — 부재 대조
+            if self._full or (self._covers is not None and self._covers(old.key)):
+                # 전량을 끝까지 받았는데 안 왔다(부재 대조) · 원소 목록을 받은 항목인데 그
+                # 원소가 없다(목록에서 빠졌다).
+                self.removed += 1
                 if changes is not None:
                     changes.removed(old.key, old_at, old.values)
                 old_at += 1

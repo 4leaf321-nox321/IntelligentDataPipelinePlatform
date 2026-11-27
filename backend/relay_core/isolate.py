@@ -22,6 +22,7 @@ datahub 를 끝낼 수 있다(2026-11-25 요청). 그래서
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import importlib
 import inspect
@@ -51,6 +52,9 @@ MB = memory.MB
 class MemoryLimitExceeded(RuntimeError):
     """자식의 메모리가 상한을 넘어 그 프로세스를 끝냈다 — 그때의 단계와 최고치(MB)를 든다."""
 
+    expected = True
+    """원인을 문장으로 아는 실패 — 작업 틀이 예외 이름 · 스택 없이 그 문장만 보인다."""
+
     def __init__(self, message: str, *, stage: str = "", peak_mb: float = 0.0) -> None:
         super().__init__(message)
         self.stage = stage
@@ -59,6 +63,9 @@ class MemoryLimitExceeded(RuntimeError):
 
 class ChildFailed(RuntimeError):
     """자식이 결과 없이 끝났거나, 자식의 예외를 그대로 옮기지 못했다."""
+
+    expected = True
+    """원인을 문장으로 아는 실패 — 작업 틀이 예외 이름 · 스택 없이 그 문장만 보인다."""
 
 
 #: 자식의 첫 줄 — 부모와 같은 자리에서 엔진을 불러온다.
@@ -86,7 +93,16 @@ def _main(fd: int, parent: int) -> None:
 def _protect(parent: int) -> None:
     """서버 메모리가 모자랄 때 운영체제가 이 프로세스부터 끝내게(같은 서버의 datahub 를
     지킨다), 그리고 **워커가 죽으면 같이 끝나게** — 남아서 돌면 되살아난 워커가 집은 같은
-    파이프라인의 작업과 겹친다."""
+    파이프라인의 작업과 겹친다.
+
+    **멈춤 신호(SIGTERM · SIGINT)는 받지 않는다 — 끝낼 때는 부모가 정한다.** systemd 는 워커를
+    멈출 때 그 묶음(cgroup)의 프로세스 전부에 SIGTERM 을 보낸다. 워커는 하던 작업을 끝내고
+    멈추려는데(`TimeoutStopSec`) 이 프로세스가 그 자리에서 죽어, 업데이트 때마다 도는 실행 ·
+    적용이 「메모리 부족일 수 있음」 으로 실패했다(2026-11-27 점검). 취소 · 상한은 부모가
+    SIGKILL 로, 부모가 죽으면 위의 알림(PDEATHSIG)으로 끝난다."""
+    for one in (signal.SIGTERM, signal.SIGINT):
+        with contextlib.suppress(OSError, ValueError):
+            signal.signal(one, signal.SIG_IGN)
     try:
         with open("/proc/self/oom_score_adj", "w", encoding="ascii") as handle:
             handle.write("1000")
@@ -137,7 +153,9 @@ def _child(
             pickle.dumps(error)
             send("error", error, text)
         except Exception:
-            send("error", ChildFailed(f"{type(error).__name__}: {error}"), text)
+            wrapped = ChildFailed(f"{type(error).__name__}: {error}")
+            wrapped.expected = False  # 엔진의 결함일 수 있다 — 작업 틀이 스택을 남긴다
+            send("error", wrapped, text)
     finally:
         conn.close()
 
@@ -238,16 +256,27 @@ def call(
                 last_tick = time.monotonic()
                 on_tick(stage)
         code = process.wait(timeout=5)
-        raise ChildFailed(
-            f"작업 프로세스가 결과 없이 끝났습니다(종료 코드 {code}, 단계: "
-            f"{stage}, 최고 {peak / MB:,.0f}MB). 서버 메모리가 부족해 운영체제가 끝냈을 수 "
-            "있습니다."
-        )
+        raise ChildFailed(_ended(code, stage, peak))
     finally:
         receive.close()
         if process.poll() is None and not _finished(process):
             process.kill()
         process.wait()
+
+
+def _ended(code: int, stage: str, peak: float) -> str:
+    """결과 없이 끝난 자식의 까닭 — 종료 코드로 가린다. SIGKILL 이면 운영체제(메모리 부족)나
+    서비스 중지 시간 초과다. 다른 신호 · 코드에 메모리를 짐작해 붙이면 엉뚱한 곳을 보게
+    한다."""
+    where = f"종료 코드 {code}, 단계: {stage}, 최고 {peak / MB:,.0f}MB"
+    if code == -signal.SIGKILL:
+        return (
+            f"작업 프로세스가 강제 종료되었습니다({where}). 서버 메모리가 부족해 운영체제가 "
+            "종료했거나, 서비스 중지가 제한 시간을 넘었을 수 있습니다."
+        )
+    if code < 0:
+        return f"작업 프로세스가 신호를 받아 종료되었습니다({where})."
+    return f"작업 프로세스가 결과 없이 종료되었습니다({where})."
 
 
 def _getpid() -> int:

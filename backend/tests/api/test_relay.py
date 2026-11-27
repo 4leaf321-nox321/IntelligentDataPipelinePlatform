@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from pathlib import Path
 from typing import Any
@@ -117,6 +118,7 @@ def test_실행은_시스템_관리자만_작업으로_넣고_실패는_지도�
     registry: Path,
     db: Session,
     monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     slug = _slug()
     _definition(registry, slug)
@@ -127,10 +129,21 @@ def test_실행은_시스템_관리자만_작업으로_넣고_실패는_지도�
     queued = client.post(f"/api/relay/pipelines/{slug}/run", headers=admin.headers)
     assert queued.status_code == 202, queued.text
     job_id = queued.json()["job_id"]
-    work_until(db, uuid.UUID(job_id))
+    with caplog.at_level(logging.WARNING, logger="app.modules.jobs.services"):
+        work_until(db, uuid.UUID(job_id))
     job = client.get(f"/api/jobs/{job_id}", headers=admin.headers).json()
     assert job["kind"] == "relay_run" and job["status"] == "failed", job
     assert "연결할 수 없습니다" in (job["error"] or "") or "실패" in (job["error"] or "")
+    # 원인을 문장으로 아는 실패 — 예외 이름 없이 문장만, 로그는 스택 없이 경고로.
+    assert not job["error"].startswith("SourceError"), job["error"]
+    failed = [
+        one
+        for one in caplog.records
+        if one.name == "app.modules.jobs.services" and job_id in one.getMessage()
+    ]
+    assert failed and all(
+        one.levelno == logging.WARNING and not one.exc_info for one in failed
+    )
 
     nodes = client.get("/api/relay/map", headers=admin.headers).json()["nodes"]
     (pipeline,) = [one for one in nodes if one["kind"] == "pipeline" and one["label"] == slug]

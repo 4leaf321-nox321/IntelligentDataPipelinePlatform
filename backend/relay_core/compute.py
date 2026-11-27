@@ -48,7 +48,8 @@ _NESTED = re.compile(r"\((?:[^()\\]|\\.)*[*+}](?:[^()\\]|\\.)*\)\s*[*+{]")
 
 
 class ComputeError(ValueError):
-    pass
+    expected = True
+    """원인을 문장으로 아는 실패 — 작업 틀이 예외 이름 · 스택 없이 그 문장만 보인다."""
 
 
 def check(spec: Any, columns: Iterable[str] = ()) -> dict[str, dict[str, Any]]:

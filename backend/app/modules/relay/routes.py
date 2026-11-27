@@ -68,6 +68,7 @@ from app.shared.auth import current_user, require_system_admin
 from app.shared.errors import AppError, Conflict, NotFound, code
 from relay_core import intake, retract
 from relay_core.state import TREND_MAX, Workdir
+from relay_core.submit import APPLYING, LANDED
 
 router = APIRouter(prefix="/relay", tags=["relay"])
 
@@ -273,6 +274,11 @@ def pipeline_apply(
         request, user, what="계획 적용", refused=20, approval=given.approval
     )
     params: dict[str, Any] = {"slug": slug, "by": approved.by}
+    shown = given.plan_job_id.strip()
+    if shown:
+        # 화면 · 대화에서 본 계획 — 워커가 적용 직전에 다시 견준다(`runner.apply` 의 `expect`).
+        # 넣을 때만 보면 그 사이 실행이 바꾼 계획을 적용한다.
+        params["plan"] = shown
     if approved.via_token:
         pending = str(
             ((services.read_state(slug) or {}).get("pending") or {}).get("job_id") or ""
@@ -288,6 +294,7 @@ def pipeline_apply(
             )
         approval.record(db, user, approved, action="apply", target=slug, plan=pending)
         params["approval"] = approved.approval
+        params["plan"] = pending
     return _queue(db, user, services.APPLY_KIND, params)
 
 
@@ -408,6 +415,8 @@ def pipeline_resume(
     token = services.secrets_env().get(found.target_token_env, "")
 
     def applied(job_id: str) -> bool | None:
+        """그 회수 계획이 대상에 **끝나 들어갔나** — 적용 중이면 재개하지 않는다(그 적용이
+        실패하면 대상에 남은 데이터를 기준이 회수한 것으로 안다)."""
         if not token or not found.target_server:
             return None
         status, answer = services.probe_http(found.target_server, token, f"/api/jobs/{job_id}")
@@ -415,7 +424,14 @@ def pipeline_resume(
             return False  # 대상에 그 작업이 없다 — 적용될 수 없다
         if status != 200 or not isinstance(answer, dict):
             return None
-        return bool(answer.get("applied_by"))
+        state = services.job_status(found.target_server, token, answer)
+        if state == APPLYING:
+            raise Conflict(
+                code("RELAY", 43),
+                f"대상 SP에서 회수 계획({job_id[:8]})을 적용하고 있습니다. 적용이 끝난 후 "
+                "재개하세요.",
+            )
+        return None if state is None else state == LANDED
 
     work = Workdir(get_settings().relay_work_dir, slug)
     try:

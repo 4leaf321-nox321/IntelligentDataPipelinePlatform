@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import functools
-import time
+import math
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -52,16 +52,16 @@ def ensure_can_sign_in(user: User) -> None:
 # --- 로그인 -----------------------------------------------------------------
 
 
-#: 시험이 갈아 끼운다 — 실제로 자면 시험이 30초씩 선다.
-_sleep = time.sleep
-
-
 def login_delay_seconds(failures: int) -> float:
-    """이번 실패가 몇 번째인가 -> 몇 초 늦출까. 문턱 전은 0.
+    """이번 실패가 몇 번째인가 -> 몇 초 동안 다음 시도를 받지 않을까. 문턱 전은 0.
 
-    **잠금은 없다** — 관리자 복구가 서버 콘솔뿐인 시스템에서 잠금은 자해다. 늦추기만
+    **잠금은 없다** — 관리자 복구가 서버 콘솔뿐인 시스템에서 잠금은 자해다. 기다리게만
     해도 무차별 시도는 시간당 몇 번으로 줄고, 비밀번호를 아는 사람은 한 번 기다리면
     된다.
+
+    **요청을 붙잡아 재우지 않는다**(`cooling`). 예전에는 실패한 요청을 이만큼 재웠다 — 동기
+    경로라 서버의 스레드를 그대로 쥐어, 한 계정에 틀린 비밀번호를 동시에 수십 번 보내면
+    API 전체가 멈췄고(인증 없이), 동시에 보낸 시도는 늦추지도 못했다(2026-11-27 점검).
     """
     settings = get_settings()
     over = failures - settings.login_delay_after + 1
@@ -72,8 +72,19 @@ def login_delay_seconds(failures: int) -> float:
     )
 
 
+def cooling(user: User) -> float:
+    """다음 시도를 받기까지 남은 초 — 문턱을 넘은 실패 뒤 `login_delay_seconds` 만큼."""
+    if not user.failed_logins or user.last_failed_login_at is None:
+        return 0.0
+    delay = login_delay_seconds(user.failed_logins)
+    if delay <= 0:
+        return 0.0
+    until = user.last_failed_login_at + timedelta(seconds=delay)
+    return max(0.0, (until - _now()).total_seconds())
+
+
 def _note_failure(db: Session, user: User) -> float:
-    """실패를 세고 이번에 늦출 초를 돌려준다. 창이 지났으면 처음부터."""
+    """실패를 세고 다음 시도까지 기다릴 초를 돌려준다. 창이 지났으면 처음부터."""
     settings = get_settings()
     now = _now()
     window = timedelta(minutes=settings.login_failure_window_minutes)
@@ -123,11 +134,19 @@ def authenticate(db: Session, email: str, password: str) -> User:
         security.verify_password(password, _dummy_hash())
         raise AppError(code("AUTH", 1), _INVALID_LOGIN, status=401)
 
+    wait = cooling(user)
+    if wait > 0:
+        # **기다리는 동안은 비밀번호를 견주지 않는다** — 동시에 보낸 시도도 여기서 끝난다.
+        seconds = math.ceil(wait)
+        raise AppError(
+            code("AUTH", 21),
+            f"로그인 실패가 반복되어 {seconds}초 동안 로그인할 수 없습니다. 잠시 후 다시 "
+            "시도하세요.",
+            status=429,
+            details={"retry_after": seconds},
+        )
     if not security.verify_password(password, user.password_hash):
-        # **늦추고 나서 거절한다.** 거절부터 하면 다음 시도가 바로 온다.
-        delay = _note_failure(db, user)
-        if delay > 0:
-            _sleep(delay)
+        _note_failure(db, user)
         raise AppError(code("AUTH", 1), _INVALID_LOGIN, status=401)
 
     ensure_can_sign_in(user)

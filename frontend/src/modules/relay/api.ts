@@ -591,7 +591,9 @@ export const relayApi = {
   /** 실행 추이 — 끝의 `limit` 줄(서버 상한 400). 읽기만 한다. */
   trend: (slug: string, limit = 90) =>
     api.get<TrendOut>(`${slugPath(slug)}/trend?limit=${limit}`),
-  apply: (slug: string) => api.post<QueuedOut>(`${slugPath(slug)}/apply`),
+  /** `plan` — 화면에 보인 대기 계획의 번호. 넣은 뒤 실행이 계획을 바꿨으면 워커가 적용하지 않는다. */
+  apply: (slug: string, plan?: string | null) =>
+    api.post<QueuedOut>(`${slugPath(slug)}/apply`, plan ? { plan_job_id: plan } : undefined),
   alertWebhook: () => api.get<AlertWebhookOut>('/relay/alert-webhook'),
   alertWebhookTest: () => api.post<AlertWebhookTestOut>('/relay/alert-webhook/test'),
   /**

@@ -361,7 +361,8 @@ async def pipeline_run(ctx: Context, slug: str, full: bool = False) -> Any:
     주기에 따른 실행에만 해당). 진행 상황은 job_status로 확인합니다. 결과가 수신 검증으로 인한
     중단(대량 삭제, 빈 필드)이면 원천과 어댑터를 확인해 사람에게 알립니다. [확인 후 진행]은
     사람의 승인 후 pipeline_accept로 합니다. `full`이면 워터마크를 무시하고 원천 전체를 다시
-    수신합니다(전체 재수신, 어댑터 필드를 수정한 후). 수신되지 않은 행은 삭제로 처리됩니다."""
+    수신합니다(전체 재수신, 어댑터 필드를 수정한 후). 수신되지 않은 행은 삭제로 처리됩니다.
+    대상 SP에서 대기 계획을 적용하는 중이면 실행을 연기합니다(`waiting`, 원천 수신 없음)."""
     body = {"full": True} if full else {}
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/run", body=body)
 
@@ -481,7 +482,7 @@ async def plan_review(ctx: Context, slug: str) -> Any:
 async def pipeline_apply(ctx: Context, slug: str, plan_job_id: str, approval: str) -> Any:
     """계획 적용: 적용 대기 계획을 대상 SP에 반영합니다(작업 ID 반환, job_status로 확인).
     plan_job_id는 plan_review로 보여 준 계획 번호입니다. 그 사이 계획이 바뀌었으면
-    거부됩니다."""
+    거부됩니다. 작업이 실행되기 전에 바뀌어도 적용하지 않고 `blocked`로 끝납니다."""
     body = {"plan_job_id": plan_job_id, "approval": approval}
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/apply", body=body)
 

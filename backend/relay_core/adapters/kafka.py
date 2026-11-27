@@ -45,6 +45,7 @@ from relay_core.adapters.base import Fetched
 from relay_core.adapters.parquet import plain
 from relay_core.adapters.rest import (
     Auth,
+    Families,
     SourceError,
     check_shape,
     records_of,
@@ -251,6 +252,8 @@ class _Read:
     tombstones: int = 0
     capped: bool = False
     stalled: bool = False
+    families: Families | None = None
+    """펼친 항목의 원소 목록을 받은 것 — 목록에서 빠진 원소를 지운다(`rest.Families`)."""
 
 
 ConsumerFactory = Callable[[dict[str, Any]], Any]
@@ -371,7 +374,9 @@ class KafkaAdapter:
             )
         return [{**one, META: meta} if isinstance(one, dict) else one for one in items]
 
-    def _records(self, message: Any) -> tuple[list[SourceRecord], bool]:
+    def _records(
+        self, message: Any, families: Families | None = None
+    ) -> tuple[list[SourceRecord], bool]:
         """(행들, 비석이었나)."""
         items = self._items(message)
         source = self.source
@@ -391,6 +396,8 @@ class KafkaAdapter:
                 updated_at=source.updated_at,
                 explode=source.explode,
             )
+            if families is not None:
+                families.note(item)
         return out, False
 
     # --- 읽기 --------------------------------------------------------------------------------
@@ -455,7 +462,10 @@ class KafkaAdapter:
     ) -> _Read:
         from confluent_kafka import KafkaError, TopicPartition
 
+        source = self.source
         read = _Read(records=Records(), next=dict(starts))
+        if source.explode:
+            read.families = Families(source.key, source.explode, deleted=source.deleted)
         todo = {part for part in starts if starts[part] < ends[part]}
         if not todo:
             return read
@@ -480,7 +490,7 @@ class KafkaAdapter:
                 part = message.partition()
                 if part not in todo or message.offset() >= ends[part]:
                     continue  # 시작할 때의 끝 뒤 — 다음 실행
-                rows, tomb = self._records(message)
+                rows, tomb = self._records(message, read.families)
                 read.records.extend(rows)
                 read.tombstones += int(tomb)
                 read.messages += 1
@@ -545,6 +555,7 @@ class KafkaAdapter:
             full=False,
             notes=notes,
             done=done if moved else None,
+            covers=read.families.given() if read.families is not None else None,
         )
 
     def _notes(

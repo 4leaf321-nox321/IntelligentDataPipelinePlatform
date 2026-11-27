@@ -22,7 +22,7 @@ from app.config import get_settings
 from relay_core import retract, runner
 from relay_core.state import Workdir
 from tests.api.conftest import Signed, work_until
-from tests.api.test_relay import _definition, _slug
+from tests.api.test_relay import NOWHERE, _definition, _slug
 from tests.api.test_relay_recipes import _draft, _mirror, _pat
 from tests.api.test_relay_reconcile import _baseline, _Submitter
 from tests.unit.test_relay_core import RECIPE
@@ -110,6 +110,111 @@ def test_승인_범위가_있는_토큰만_사람의_승인으로_계획을_적�
 
     # 사람의 화면 요청은 본문 없이도 그대로 된다.
     assert client.post(f"{base}/apply", headers=admin.headers).status_code == 202
+
+
+def test_승인한_뒤_계획이_바뀌면_워커가_적용하지_않는다(
+    client: TestClient,
+    admin: Signed,
+    registry: Path,
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """넣을 때만 견주면, 넣은 뒤 실행(사람 · 타이머)이 바꾼 계획을 워커가 적용한다 — 아무도
+    보지 않은 계획이다(2026-11-27 점검). 승인한 번호를 작업에 싣고 적용 직전에 다시 견준다."""
+    slug = _slug()
+    _definition(registry, slug)
+    monkeypatch.setenv("RELAY_T_TOKEN", "x")
+    _baseline(tmp_path, slug)
+    monkeypatch.setattr(retract, "Submitter", _Submitter)
+    monkeypatch.setattr(runner, "Submitter", _Submitter)
+    plain, approver = _pat(client, admin), _approver(client, admin)
+    base = f"/api/relay/pipelines/{slug}"
+    planned = client.post(
+        f"{base}/retract", json={"keys": {"plm_model": ["M1"]}}, headers=plain
+    )
+    work_until(db, uuid.UUID(planned.json()["job_id"]))
+    pending = client.get(base, headers=admin.headers).json()["state"]["pending"]["job_id"]
+
+    queued = client.post(
+        f"{base}/apply",
+        json={"plan_job_id": pending, "approval": "네, 그 계획을 적용하세요"},
+        headers=approver,
+    )
+    assert queued.status_code == 202, queued.text
+    # 작업이 돌기 전에 실행이 대기 계획을 새로 만들었다.
+    work = Workdir(get_settings().relay_work_dir, slug)
+    state = work.load_state()
+    assert state.pending is not None
+    state.pending.job_id = "job-newer"
+    work.save_state(state)
+
+    work_until(db, uuid.UUID(queued.json()["job_id"]))
+    job = client.get(f"/api/jobs/{queued.json()['job_id']}", headers=admin.headers).json()
+    assert job["params"]["plan"] == pending
+    assert job["result"]["status"] == "blocked", job["result"]
+    assert f"승인한 계획({pending[:8]})" in job["result"]["summary"]
+    left = Workdir(get_settings().relay_work_dir, slug).load_state()
+    assert left.pending is not None and left.pending.job_id == "job-newer"  # 적용하지 않았다
+
+    # 화면도 보인 계획의 번호를 싣는다 — 같으면 적용한다.
+    screen = client.post(
+        f"{base}/apply", json={"plan_job_id": "job-newer"}, headers=admin.headers
+    )
+    assert screen.status_code == 202
+    work_until(db, uuid.UUID(screen.json()["job_id"]))
+    done = client.get(f"/api/jobs/{screen.json()['job_id']}", headers=admin.headers).json()
+    assert done["params"]["plan"] == "job-newer"
+
+
+def test_토큰의_정의_버전_사용도_허용_주소와_인증_정보_묶임을_지킨다(
+    client: TestClient, admin: Signed, registry: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """초안 저장은 울타리 밖의 주소 · 다른 곳에 묶인 인증 정보를 「문제」 로만 적는다. 토큰이
+    그 버전을 사용하면 대상 SP 의 토큰이 다른 호스트로 실려 갔다 — 사람이 승인한 것은 「버전
+    사용」 이지 새 주소가 아니다(2026-11-27 점검). 화면의 사람은 그대로 사용한다."""
+    _definition(registry, _slug())  # 사용 중인 정의 — 대상 주소와 RELAY_T_TOKEN 이 묶인다
+    slug = _slug()
+    approver = _approver(client, admin)
+    body = {
+        "format": "relay-pipeline/1",
+        "slug": slug,
+        "source": "plm",
+        "system": "PLM",
+        "adapter": {
+            "kind": "rest",
+            "base_url": "https://elsewhere.example",
+            "path": "/api/items",
+            "key": "id",
+            "columns": {"NAME": "name"},
+            "auth": {"kind": "bearer", "token_env": "RELAY_T_TOKEN"},
+        },
+        "target": {
+            "name": "자주검증 Datahub",
+            "server": NOWHERE,
+            "token_env": "RELAY_T_TOKEN",
+        },
+    }
+    saved = client.post(
+        f"/api/relay/pipelines/{slug}/definitions",
+        json={"body": body, "note": "다른 호스트"},
+        headers=approver,
+    )
+    assert saved.status_code == 201, saved.text
+    assert any(one.startswith("원천:") for one in saved.json()["problems"])
+
+    path = f"/api/relay/pipelines/{slug}/definitions/1/activate"
+    refused = client.post(path, json={"approval": "버전 1 사용하세요"}, headers=approver)
+    assert refused.status_code == 403 and _code(refused).endswith("RELAY-0010"), refused.text
+    assert "토큰(MCP)으로 사용할 수 없습니다" in refused.json()["error"]["message"]
+
+    # 주소를 허용해도 대상 SP 의 토큰은 그 호스트로 실어 보낼 수 없다.
+    monkeypatch.setattr(get_settings(), "relay_source_hosts", "elsewhere.example")
+    bound = client.post(path, json={"approval": "버전 1 사용하세요"}, headers=approver)
+    assert bound.status_code == 403 and _code(bound).endswith("RELAY-0021"), bound.text
+
+    on = client.post(path, headers=admin.headers)
+    assert on.status_code == 200 and on.json()["status"] == "active", on.text
 
 
 def test_버전의_사용과_허용_주소도_승인으로(

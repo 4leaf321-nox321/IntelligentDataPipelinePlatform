@@ -8,10 +8,15 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
+import time
+from collections.abc import Iterator
 from dataclasses import replace
 from typing import Any
 from urllib.parse import quote
+
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.modules.jobs import kinds
@@ -22,6 +27,58 @@ from relay_core.describe import Described
 from relay_core.state import Workdir
 
 log = logging.getLogger(__name__)
+
+#: 같은 파이프라인의 다른 작업이 끝나기를 기다리는 상한(초) · 다시 묻는 사이.
+LOCK_WAIT_SECONDS = 2 * 3600
+LOCK_POLL_SECONDS = 2.0
+
+
+class Busy(RuntimeError):
+    """같은 파이프라인의 다른 작업이 상한 안에 끝나지 않았다."""
+
+    expected = True
+    """원인을 문장으로 아는 실패 — 작업 틀이 예외 이름 · 스택 없이 그 문장만 보인다."""
+
+
+@contextlib.contextmanager
+def exclusive(work: kinds.Work, slug: str, *, wait: bool = True) -> Iterator[bool]:
+    """**파이프라인마다 한 작업만** — PostgreSQL 의 세션 자문 잠금(따로 쥔 연결).
+
+    이중화에서는 서버마다 워커가 있고 중계 폴더는 함께 쓴다. 같은 파이프라인의 실행 · 적용 ·
+    회수가 두 서버에서 함께 돌면 `state.json` 을 서로 덮어써, 적용한 계획을 잃거나 회수의
+    멈춤이 풀렸다(2026-11-27 점검). 서버 한 대면 워커가 작업을 하나씩만 돌려 겹치지 않는다.
+
+    `wait` 이면 잠금이 풀리기를 기다린다(진행에 적는다 — 취소도 그때 본다). 아니면 한 번만 묻고
+    쥐었는지를 준다(대조는 미룬다). 워커가 죽으면 연결이 끊겨 잠금도 풀린다."""
+    from app.database import engine
+
+    key = {"k": f"relay:{slug}"}
+    conn = engine.connect()
+    held = False
+    try:
+        deadline = time.monotonic() + LOCK_WAIT_SECONDS
+        while True:
+            held = bool(
+                conn.scalar(text("SELECT pg_try_advisory_lock(hashtextextended(:k, 0))"), key)
+            )
+            conn.commit()
+            if held or not wait:
+                break
+            if time.monotonic() > deadline:
+                raise Busy(
+                    f"같은 파이프라인({slug})의 다른 작업이 {LOCK_WAIT_SECONDS // 60}분 안에 "
+                    "끝나지 않아 이 작업을 실행하지 않았습니다. 진행 중인 작업을 확인하세요."
+                )
+            work.progress("대기: 같은 파이프라인의 다른 작업 종료", 0, 0)
+            time.sleep(LOCK_POLL_SECONDS)
+        yield held
+    finally:
+        try:
+            if held:
+                conn.execute(text("SELECT pg_advisory_unlock(hashtextextended(:k, 0))"), key)
+                conn.commit()
+        finally:
+            conn.close()
 
 
 def _load(work: kinds.Work) -> tuple[Described, Pipeline, Workdir]:
@@ -129,7 +186,16 @@ def _tidy(folder: Workdir) -> int:
         return 0
 
 
+def _slug_of(work: kinds.Work) -> str:
+    return str(work.params.get("slug") or "")
+
+
 def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
+    with exclusive(work, _slug_of(work)):
+        return _run_held(work, apply=apply)
+
+
+def _run_held(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
     found, pipeline, folder = _load(work)
     work.progress("적용" if apply else "수신 · 변환 · 비교 · 미리 보기", 0, 0)
     reconciled = False
@@ -149,6 +215,9 @@ def _run(work: kinds.Work, *, apply: bool) -> dict[str, Any]:
             label="적용",
             progress_kw="progress",
             on_progress=shown,
+            # 승인한 계획 — 넣은 뒤 실행이 계획을 바꿨으면 적용하지 않는다
+            # (`routes.pipeline_apply`).
+            expect=str(work.params.get("plan") or "") or None,
         )
         outcome.memory = outcome.memory or record
         # **보정 계획을 적용했으면 바로 다시 견준다** — 안 그러면 다음 대조(며칠 뒤)까지 홈이
@@ -232,20 +301,32 @@ def _running_besides(work: kinds.Work, slug: str) -> str:
     return ""
 
 
+def _deferred(other: str) -> dict[str, Any]:
+    return {
+        "ok": True,
+        "status": services.DEFERRED,
+        "summary": f"[{services.DEFERRED}] 같은 파이프라인의 {other} 작업이 진행 중이라 "
+        "대조를 연기했습니다. 작업이 끝난 후 다시 대조합니다.",
+    }
+
+
 def reconcile_job(work: kinds.Work) -> dict[str, Any]:
     """대조 — `plan` 이면 어긋난 줄의 보정 계획(미리보기)까지 올린다. 적용은 사람이.
 
     **적용보다 뒤에** — 같은 파이프라인의 실행 · 적용이 돌고 있거나 대상 SP 가 계획을 적용하는
-    중이면 미룬다(`deferred` — 보고서 · 이력은 그대로, 타이머가 다음 틱에 다시 넣는다)."""
-    _, pipeline, folder = _load(work)
-    other = _running_besides(work, pipeline.slug)
+    중이면 미룬다(`deferred` — 보고서 · 이력은 그대로, 타이머가 다음 틱에 다시 넣는다). 잠금
+    (`exclusive`)은 기다리지 않는다 — 쥔 작업이 있으면 미룬다."""
+    other = _running_besides(work, _slug_of(work))
     if other:
-        return {
-            "ok": True,
-            "status": services.DEFERRED,
-            "summary": f"[{services.DEFERRED}] 같은 파이프라인의 {other} 작업이 진행 중이라 "
-            "대조를 연기했습니다. 작업이 끝난 후 다시 대조합니다.",
-        }
+        return _deferred(other)
+    with exclusive(work, _slug_of(work), wait=False) as held:
+        if not held:
+            return _deferred("다른")
+        return _reconcile_held(work)
+
+
+def _reconcile_held(work: kinds.Work) -> dict[str, Any]:
+    _, pipeline, folder = _load(work)
     if work.params.get("plan"):
         work.progress("대조 · 보정 계획 생성", 0, 0)
         outcome, record = _engine(
@@ -290,6 +371,11 @@ def retract_job(work: kinds.Work) -> dict[str, Any]:
     켜기는 사람이. 선의 도착 쪽 타입은 대상의 관계 종류로 채운다(기준의 정의에 없을 때).
     지우기는 대상 SP 판이 받을 때만 — 옛 판은 칸을 무시하고 사용 중지하므로, 사람이 고른 것과
     다른 일이 조용히 일어나지 않게 여기서 멈춘다."""
+    with exclusive(work, _slug_of(work)):
+        return _retract_held(work)
+
+
+def _retract_held(work: kinds.Work) -> dict[str, Any]:
     found, pipeline, folder = _load(work)
     work.progress("회수 계획 생성", 0, 0)
     action = str(work.params.get("action") or "deprecate")

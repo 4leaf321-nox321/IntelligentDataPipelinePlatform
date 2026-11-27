@@ -13,7 +13,7 @@ apply=false → 작업 결과 · 지문을 `preview.json` 에). 그 계획은 �
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -23,7 +23,8 @@ from relay_core.definition import Target
 
 
 class SubmitError(RuntimeError):
-    pass
+    expected = True
+    """원인을 문장으로 아는 실패 — 작업 틀이 예외 이름 · 스택 없이 그 문장만 보인다."""
 
 
 #: 틀의 검증이 정의 · 객체 · 관계가 없는 묶음에 내는 오류의 앞머리.
@@ -53,6 +54,44 @@ def digest_of(run: Path) -> str:
 
 class NotApplied(SubmitError):
     """적용 작업이 끝났지만 대상 SP 가 아무것도 쓰지 않았다 — 적용 시점의 검사에 오류."""
+
+
+#: 계획의 적용 상태(`apply_status`) — 적용 작업 없음 · 대기 또는 실행 중 · 끝나 들어감.
+NOT_APPLIED, APPLYING, LANDED = "none", "applying", "done"
+
+
+def apply_status(
+    plan: Mapping[str, Any] | None, child: Callable[[str], Mapping[str, Any] | None]
+) -> str | None:
+    """계획 작업의 응답(`GET /api/jobs/<계획>`)으로 적용 상태를 읽는다. 모르면 None.
+
+    **`applied_by` 만으로는 「들어갔다」 가 아니다.** SP 는 적용을 *시작하면* 그 칸을 채운다
+    (적용 작업이 대기 · 실행 중이어도 — 같은 계획을 두 번 넣지 않게). 그것만 보고 기준을
+    올리면, 그 적용이 실패하거나 `applied: false` 로 끝났을 때 대상에 없는 변경을 기준이 들고
+    있어 다시 보내지 않는다(2026-11-27 점검). SP 0.4.108 부터 같은 응답에 그 작업의 상태
+    (`applied_status`)가 오고, 그 전 판은 적용 작업(`child`)을 한 번 더 묻는다."""
+    if plan is None:
+        return None
+    child_id = str(plan.get("applied_by") or "")
+    if not child_id:
+        return NOT_APPLIED
+    given = plan.get("applied_status")
+    if given:
+        status = str(given)
+    else:
+        job = child(child_id)
+        if job is None:
+            return None
+        status = str(job.get("status") or "")
+        result = job.get("result")
+        if status == "done" and isinstance(result, Mapping) and result.get("applied") is False:
+            return NOT_APPLIED
+    if status in ("queued", "running"):
+        return APPLYING
+    if status == "done":
+        return LANDED
+    # 묻는 사이에 실패 · 취소로 끝났다 — SP 는 그 적용을 셈하지 않는다(다시 적용할 수 있다).
+    return NOT_APPLIED if status in ("failed", "cancelled") else None
 
 
 def errors_of(result: Mapping[str, Any]) -> list[str]:
@@ -121,24 +160,28 @@ class Submitter:
         )
 
     def applied(self, job_id: str) -> bool | None:
-        """그 계획을 어디서든 적용했나 — 못 닿으면 None(모른다)."""
+        """그 계획의 적용이 **시작됐나**(끝났거나 대기 · 실행 중) — 못 닿으면 None(모른다).
+        기준을 올리는 데는 쓰지 않는다 — 그것은 `landed`."""
         result = sp.pipeline.plan_applied(self.target.server, self.target.token, job_id)
         return None if result is None else bool(result)
 
+    def apply_status(self, job_id: str) -> str | None:
+        """그 계획의 적용 상태(`apply_status`) — 못 닿으면 None."""
+        return apply_status(self._probe(f"/api/jobs/{job_id}"), self._child)
+
     def applying(self, job_id: str) -> bool | None:
         """그 계획을 **지금 적용하고 있나** — 적용 작업이 대기 · 실행 중. 못 닿으면 None.
+        대조가 그 사이에 읽으면 반쯤 들어간 대상과 견줘 거짓 어긋남이 난다."""
+        status = self.apply_status(job_id)
+        return None if status is None else status == APPLYING
 
-        SP 는 적용을 **시작하면** 계획의 `applied_by` 를 채운다(적용 작업이 대기 · 실행
-        중이어도 — 같은 계획을 두 번 넣지 않게). 그래서 「적용됐나」(`applied`)만 보면 반쯤
-        들어간 대상을 다 들어간 것으로 안다 — 대조가 그 사이에 읽으면 거짓 어긋남이 난다."""
-        plan = self._probe(f"/api/jobs/{job_id}")
-        if plan is None:
-            return None
-        child = str(plan.get("applied_by") or "")
-        if not child:
-            return False
-        job = self._probe(f"/api/jobs/{child}")
-        return None if job is None else str(job.get("status")) in ("queued", "running")
+    def landed(self, job_id: str) -> bool | None:
+        """그 계획의 적용이 **끝나 대상에 들어갔나** — 기준을 올려도 되나. 못 닿으면 None."""
+        status = self.apply_status(job_id)
+        return None if status is None else status == LANDED
+
+    def _child(self, job_id: str) -> dict[str, Any] | None:
+        return self._probe(f"/api/jobs/{job_id}")
 
     def _probe(self, path: str) -> dict[str, Any] | None:
         """묻기만 하는 GET — 오래 매달리지 않는다(`PROBE_SECONDS`). 못 닿거나 200 이 아니면

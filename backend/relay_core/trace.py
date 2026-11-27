@@ -33,6 +33,9 @@ AGGREGATES = ("collect", "join")
 class TraceError(Exception):
     """찾을 수 없다 — 모르는 타입 · 그 식별자가 어디에도 없음 · 레시피 없음."""
 
+    expected = True
+    """원인을 문장으로 아는 실패 — 작업 틀이 예외 이름 · 스택 없이 그 문장만 보인다."""
+
 
 class _Cannot(Exception):
     """이 식별자 규칙은 여기서 풀 수 없다(참조 대조 · 해석기 · 날짜)."""

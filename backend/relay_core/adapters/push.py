@@ -23,7 +23,14 @@ from pathlib import Path
 from typing import Any
 
 from relay_core.adapters.base import Fetched
-from relay_core.adapters.rest import Auth, SourceError, check_shape, records_of, value_at
+from relay_core.adapters.rest import (
+    Auth,
+    Families,
+    SourceError,
+    check_shape,
+    records_of,
+    value_at,
+)
 from relay_core.records import SourceRecord
 
 #: 받을 함의 파일 이름 — 받은 차례(시각)로 서도록.
@@ -68,7 +75,7 @@ class PushAdapter:
             return []
         return sorted(one for one in self.inbox.iterdir() if one.name.endswith(SUFFIX))
 
-    def _records(self, file: Path) -> list[SourceRecord]:
+    def _records(self, file: Path, families: Families | None = None) -> list[SourceRecord]:
         source = self.source
         try:
             body = json.loads(file.read_text(encoding="utf-8"))
@@ -86,6 +93,8 @@ class PushAdapter:
                 updated_at=source.updated_at,
                 explode=source.explode,
             )
+            if families is not None:
+                families.note(item)
         return out
 
     def fetch(self, since: str | None, *, limit: int | None = None) -> Fetched:
@@ -94,8 +103,15 @@ class PushAdapter:
         check_shape(self.source.key, self.source.explode)
         files = self._files()
         records: list[SourceRecord] = []
+        source = self.source
+        # 펼친 항목의 원소 목록을 받은 것 — 목록에서 빠진 원소를 지운다(`rest.Families`).
+        families = (
+            Families(source.key, source.explode, deleted=source.deleted)
+            if source.explode
+            else None
+        )
         for file in files:
-            records += self._records(file)
+            records += self._records(file, families)
             if limit and len(records) >= limit:
                 return Fetched(records=records[:limit], complete=False)
         if not files:
@@ -111,6 +127,7 @@ class PushAdapter:
             complete=True,
             full=False,
             done=done,
+            covers=families.given() if families is not None else None,
         )
 
     def probe(self) -> str:

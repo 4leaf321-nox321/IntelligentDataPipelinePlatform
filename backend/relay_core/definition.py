@@ -62,7 +62,8 @@ _SOURCE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,39}$")
 
 
 class DefinitionError(ValueError):
-    pass
+    expected = True
+    """원인을 문장으로 아는 실패 — 작업 틀이 예외 이름 · 스택 없이 그 문장만 보인다."""
 
 
 @dataclass(frozen=True)

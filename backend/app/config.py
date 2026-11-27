@@ -486,8 +486,8 @@ class Settings(BaseSettings):
         return f"/{cleaned}" if cleaned else ""
 
     login_delay_after: int = 5
-    """같은 계정의 로그인 실패가 이 횟수부터 응답을 늦춘다. **잠그지 않는다** —
-    관리자 복구가 서버 콘솔뿐인 시스템에서 잠금은 자해다."""
+    """같은 계정의 로그인 실패가 이 횟수부터 다음 시도를 잠시 받지 않는다(429, 요청을 재우지
+    않는다). **잠그지 않는다** — 관리자 복구가 서버 콘솔뿐인 시스템에서 잠금은 자해다."""
     login_delay_step_seconds: int = 2
     login_delay_max_seconds: int = 30
     login_failure_window_minutes: int = 15

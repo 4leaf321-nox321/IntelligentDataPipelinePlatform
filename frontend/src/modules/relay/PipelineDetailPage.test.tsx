@@ -288,7 +288,7 @@ describe('파이프라인 상세', () => {
     expect(screen.getByText('분할 번들 2/3')).toBeInTheDocument()
     expect(screen.getByText(/앞의 분할 번들 1개는 적용되었습니다/)).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /적용/ }))
-    await waitFor(() => expect(relayApi.apply).toHaveBeenCalledWith('plm-tasks'))
+    await waitFor(() => expect(relayApi.apply).toHaveBeenCalledWith('plm-tasks', 'p2'))
   })
 
   it('자동 적용 — 미사용이면 「미사용」 을 흐리게, 사용하면 기준을 적는다', async () => {
@@ -343,7 +343,7 @@ describe('파이프라인 상세', () => {
     relayApi.apply.mockResolvedValue({ job_id: 'job-10', kind: 'relay_apply' })
     await mount()
     await userEvent.click(screen.getByRole('button', { name: /적용/ }))
-    await waitFor(() => expect(relayApi.apply).toHaveBeenCalledWith('plm-tasks'))
+    await waitFor(() => expect(relayApi.apply).toHaveBeenCalledWith('plm-tasks', 'plan-1'))
     expect(await screen.findByText('적용 작업을 등록했습니다')).toBeInTheDocument()
   })
 })

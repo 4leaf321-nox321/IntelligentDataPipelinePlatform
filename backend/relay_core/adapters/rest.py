@@ -28,6 +28,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import hashlib
+import json
 import os
 import re
 import threading
@@ -51,6 +52,9 @@ class SourceError(RuntimeError):
     """원천이 거절했거나 모양이 다르다 — **멈춘다.** 덜 받은 채 넘어가면 부재 대조가 아직 안
     받은
     것을 지운다."""
+
+    expected = True
+    """원인을 문장으로 아는 실패 — 작업 틀이 예외 이름 · 스택 없이 그 문장만 보인다."""
 
 
 #: httpx 의 「클라이언트의 인증을 그대로」 표시.
@@ -429,6 +433,58 @@ def check_shape(key: str | Sequence[str], explode: str) -> None:
         )
 
 
+class Families:
+    """펼친 항목(부모)마다 「이번에 그 원소 목록을 다 받았다」 — 증분에서 목록에서 빠진
+    원소를 지운다.
+
+    증분은 바뀐 항목만 받는다. 펼친 행은 항목의 원소마다 한 행이라 원소 하나가 목록에서
+    빠지면 그 행은 다시 오지 않는다(삭제 표시도 없다). 미러가 그 행을 영영 들고 있어 대상에서
+    지우지 않았다(2026-11-27 점검). 그래서 목록을 받은 항목의 식별자(키에서 원소의 칸을 뺀
+    것)를 적어 두고, 미러를 이을 때 그 항목의 행 가운데 이번에 안 온 것을 지운다
+    (`Fetched.covers` · `mirror.Merge`).
+
+    - **목록 칸이 없는 항목은 적지 않는다** — 요약만 주는 목록에서 원소를 모른다. 빈
+      목록(`[]`)은 「원소 없음」 이라 적는다. 지운 항목은 목록이 없어도 적는다(원소 전부가
+      지운 것이다).
+    - 키에 항목의 칸이 없으면(원소의 칸만) 무리를 모른다 — 아무것도 지우지 않는다.
+    - 키 값에 이음 글자(`|`)가 든 행은 나눌 수 없어 건드리지 않는다.
+    - 한 번에 같은 항목이 여러 번 오면(Kafka) 그 가운데 한 번이라도 온 원소는 남는다."""
+
+    def __init__(
+        self, key: str | Sequence[str], explode: str, *, deleted: str | None = None
+    ) -> None:
+        paths = key_paths(key)
+        self.width = len(paths)
+        self.positions = tuple(
+            i for i, one in enumerate(paths) if _under(one, explode) is None
+        )
+        self.paths = [paths[i] for i in self.positions]
+        self.explode = explode
+        self.deleted = deleted
+        self.seen: set[str] = set()
+
+    def note(self, item: Any, *, cell: Callable[[Any], str] | None = None) -> None:
+        if not self.positions or not isinstance(item, dict):
+            return
+        gone = bool(self.deleted) and truthy(value_at(item, self.deleted or ""))
+        if not gone and not isinstance(value_at(item, self.explode), list):
+            return
+        text = cell or as_text
+        parts = [text(value_at(item, one)).strip() for one in self.paths]
+        if all(parts):
+            self.seen.add(KEY_JOIN.join(parts))
+
+    def covers(self, key: str) -> bool:
+        parts = key.split(KEY_JOIN)
+        if len(parts) != self.width:
+            return False
+        return KEY_JOIN.join(parts[i] for i in self.positions) in self.seen
+
+    def given(self) -> Callable[[str], bool] | None:
+        """`Fetched.covers` 에 줄 것 — 적은 항목이 없으면 None."""
+        return self.covers if self.seen else None
+
+
 def records_of(
     item: Any,
     *,
@@ -713,6 +769,12 @@ class RestAdapter:
         records = Records()
         page, offset, cursor, follow = source.start_page, 0, "", ""
         watermark: str | None = None
+        # 증분에서 펼친 항목의 원소 목록을 다 받았나 — 목록에서 빠진 원소를 지운다.
+        families = (
+            Families(source.key, source.explode, deleted=source.deleted)
+            if source.explode and since and self._narrows()
+            else None
+        )
         for _ in range(source.max_pages):
             if follow:
                 # 응답이 준 다음 주소 그대로 — 질의는 그 안에 있다(인증만 다시 싣는다).
@@ -751,6 +813,8 @@ class RestAdapter:
             for item in self._detailed(items):
                 for one in self._records(item, detailed=True):
                     records.append(one)
+                if families is not None:
+                    families.note(item)
                 if limit and len(records) >= limit:
                     return Fetched(records=records[:limit], complete=False)
             if source.watermark_path:
@@ -787,7 +851,26 @@ class RestAdapter:
             )
         if watermark is None:
             watermark = records.latest or since
-        return Fetched(records=records, watermark=watermark, complete=True, full=not since)
+        # **`since` 를 실어 보낼 자리가 없으면 받은 것이 전량이다** — 워터마크가 있어도
+        # (변경 시각 칸 `updated_at` 은 기본으로 읽는다). 「증분」 으로 두면 원천에서 사라진
+        # 행을 미러가 영영 들고 있어 대상에서 지우지 않았다(2026-11-27 점검). XML 어댑터와
+        # 같은 판정이다.
+        full = not since or not self._narrows()
+        return Fetched(
+            records=records,
+            watermark=watermark,
+            complete=True,
+            full=full,
+            covers=families.given() if families is not None else None,
+        )
+
+    def _narrows(self) -> bool:
+        """`since` 가 원천에 실려 가나 — 증분 칸(`since_param`) · POST 본문의 `{since}`."""
+        source = self.source
+        if source.since_param:
+            return True
+        post = source.method.upper() == "POST"
+        return post and "{since}" in json.dumps(source.body or {}, ensure_ascii=False)
 
 
 #: 쪽 넘김의 방식.

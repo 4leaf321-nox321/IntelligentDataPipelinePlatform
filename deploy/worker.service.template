@@ -24,6 +24,8 @@ ExecStart=/usr/bin/apptainer exec \
 Restart=on-failure
 RestartSec=10
 # 하던 작업을 끝내고 멈춘다 — 그 안에 못 끝내면 systemd 가 죽이고, 다른 워커가 되살린다.
+# 작업 프로세스(중계의 실행 · 적용)는 SIGTERM 을 받지 않는다 — 끝낼 때는 워커가 정한다
+# (`relay_core/isolate._protect`). 받으면 묶음 전부에 가는 이 신호에 그 자리에서 죽는다.
 TimeoutStopSec=120
 KillSignal=SIGTERM
 

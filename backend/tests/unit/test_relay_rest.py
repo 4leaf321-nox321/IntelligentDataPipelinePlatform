@@ -90,6 +90,74 @@ def test_쪽을_끝까지_넘기고_인증과_증분을_싣는다() -> None:
     assert seen[0].url.params["updated_since"] == "2026-11-01T00:00:00Z"
 
 
+def test_증분_칸이_없으면_워터마크가_있어도_전량이다() -> None:
+    """`since` 를 실어 보낼 자리가 없으면 원천은 늘 전부를 준다 — 「증분」 으로 두면 원천에서
+    사라진 행을 미러가 영영 들고 있었다(2026-11-27 점검)."""
+    seen: list[httpx.Request] = []
+    later = "2026-11-01T00:00:00Z"
+    plain = _adapter(_paged(ROWS, seen), since_param=None)
+    got = plain.fetch(later)
+    assert got.full and [one.key for one in got.records] == ["M1", "M2", "M3"]
+    assert "updated_since" not in seen[0].url.params
+
+    # POST 본문에 `{since}` 자리가 있으면 증분이다.
+    def searched(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"items": []})
+
+    body = {"filter": {"changed_after": "{since}"}, "page": "{page}"}
+    post = _adapter(searched, since_param=None, method="POST", body=body)
+    assert not post.fetch(later).full
+    bare = _adapter(searched, since_param=None, method="POST", body={"page": "{page}"})
+    assert bare.fetch(later).full
+    assert not _adapter(_paged(ROWS, [])).fetch(later).full  # 증분 칸이 있으면 증분
+
+
+def test_증분에서_목록에서_빠진_원소는_지우고_목록이_없는_항목은_그대로(
+    tmp_path: Path,
+) -> None:
+    """펼친 행은 원소가 목록에서 빠져도 다시 오지 않는다 — 목록을 받은 항목의 나머지 원소를
+    지운다. 목록 칸이 아예 없는 항목(요약)은 원소를 모르니 건드리지 않는다(2026-11-27 점검)."""
+    from relay_core.mirror import Mirror
+
+    items: list[dict[str, Any]] = [
+        {"id": "O1", "at": "t1", "lines": [{"no": 1, "q": 5}, {"no": 2, "q": 7}]},
+        {"id": "O2", "at": "t1", "lines": [{"no": 1, "q": 3}]},
+        {"id": "O3", "at": "t1", "lines": [{"no": 1, "q": 9}]},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        since = request.url.params.get("updated_since")
+        return httpx.Response(
+            200, json={"items": [one for one in items if not since or one["at"] > since]}
+        )
+
+    adapter = _adapter(
+        handler,
+        paging="none",
+        key=["id", "lines.no"],
+        columns={"QTY": "lines.q"},
+        explode="lines",
+        updated_at="at",
+        deleted="gone",
+    )
+    work = Workdir(tmp_path / "w", "t")
+    first = adapter.fetch(None)
+    work.merge_mirror(first)
+    memory = Mirror(first.records)
+    # O1 은 2번 줄이 빠졌고, O2 는 지워져 목록 없이 오고, O3 은 목록 없이 요약만 온다.
+    items[:] = [
+        {"id": "O1", "at": "t2", "lines": [{"no": 1, "q": 5}]},
+        {"id": "O2", "at": "t2", "gone": True},
+        {"id": "O3", "at": "t2"},
+    ]
+    later = adapter.fetch(first.watermark)
+    assert not later.full and later.covers is not None
+    work.merge_mirror(later)
+    assert [one.key for one in work.mirror_rows()] == ["O1|1", "O3|1"]
+    assert memory.apply(later).removed == 2  # 메모리의 미러도 같은 규칙
+    assert sorted(one.key for one in memory.rows()) == ["O1|1", "O3|1"]
+
+
 def test_중첩을_펴고_목록은_세미콜론으로_지운_것은_표시로() -> None:
     body = {
         "items": [
@@ -169,6 +237,10 @@ class FakeSubmitter:
     def applying(self, job_id: str) -> bool | None:
         return job_id in self.applying_jobs
 
+    def landed(self, job_id: str) -> bool | None:
+        """끝나 들어간 적용만 — 적용 중인 것은 아직이다."""
+        return job_id in self.applied_jobs and job_id not in self.applying_jobs
+
     def apply(self, job_id: str) -> dict[str, Any]:
         self.applied_jobs.add(job_id)
         return {"summary": "적용"}
@@ -224,3 +296,90 @@ def test_한_바퀴_같은_계획은_다시_안_올리고_적용된_것이_기�
     assert later.status == "planned", later.message
     counts = later.counts["objects"]["plm_model"]
     assert (counts["changed"], counts["gone"], counts["unchanged"]) == (1, 1, 1)
+
+
+def test_적용_상태는_끝나_들어간_것만_적용됨이다() -> None:
+    from relay_core.submit import APPLYING, LANDED, NOT_APPLIED, apply_status
+
+    jobs: dict[str, dict[str, Any]] = {
+        "c-run": {"status": "running"},
+        "c-done": {"status": "done", "result": {"applied": True}},
+        "c-refused": {"status": "done", "result": {"applied": False}},
+        "c-failed": {"status": "failed"},
+    }
+
+    def child(job_id: str) -> dict[str, Any] | None:
+        return jobs.get(job_id)
+
+    # SP 0.4.108 이상 — 같은 응답의 `applied_status` 로.
+    assert apply_status({"applied_by": "x", "applied_status": "queued"}, child) == APPLYING
+    assert apply_status({"applied_by": "x", "applied_status": "done"}, child) == LANDED
+    # 옛 SP — 적용 작업을 한 번 더 묻는다.
+    assert apply_status({"applied_by": "c-run"}, child) == APPLYING
+    assert apply_status({"applied_by": "c-done"}, child) == LANDED
+    # 묻는 사이에 끝났지만 들어가지 않았다 — SP 는 다시 적용할 수 있게 둔다.
+    assert apply_status({"applied_by": "c-refused"}, child) == NOT_APPLIED
+    assert apply_status({"applied_by": "c-failed"}, child) == NOT_APPLIED
+    assert apply_status({"applied_by": None}, child) == NOT_APPLIED
+    # 모르면 모른다 — 계획에도 적용 작업에도 닿지 않았다.
+    assert apply_status(None, child) is None
+    assert apply_status({"applied_by": "c-gone"}, child) is None
+
+
+def test_대상에서_적용_중인_계획은_기준으로_올리지_않고_적용도_다시_넣지_않는다(
+    tmp_path: Path,
+) -> None:
+    rows = [dict(one) for one in ROWS]
+    work = Workdir(tmp_path / "work", "t")
+    fake = FakeSubmitter()
+    pipeline = _pipeline(tmp_path, rows)
+    assert runner.run(pipeline, work, fake).status == "planned"  # type: ignore[arg-type]
+    job = work.load_state().pending.job_id  # type: ignore[union-attr]
+
+    # 사람이 SP 화면에서 [적용]을 눌렀고, 그 적용 작업이 아직 대기 중이다.
+    fake.applying_jobs.add(job)
+    again = runner.run(pipeline, work, fake)  # type: ignore[arg-type]
+    state = work.load_state()
+    assert state.applied_run is None and state.pending and state.pending.job_id == job
+    assert again.status == "waiting" and "실행을 연기했습니다" in again.message
+    waited = runner.apply(pipeline, work, fake)  # type: ignore[arg-type]
+    assert waited.status == "waiting" and "적용하고 있습니다" in waited.message
+    assert job not in fake.applied_jobs  # 다시 넣지 않았다
+
+    # 그 적용이 실패했다 — SP 는 다시 적용할 수 있게 둔다. relay 도 아직 대기 계획이다.
+    fake.applying_jobs.discard(job)
+    assert runner.apply(pipeline, work, fake).status == "applied"  # type: ignore[arg-type]
+    assert work.load_state().applied_run
+
+
+def test_원천이_기준으로_돌아오면_대기_계획을_거두되_적용_중이면_둔다(tmp_path: Path) -> None:
+    """보낼 것이 없는 실행이 실행의 대기 계획을 그대로 두면, 그 계획을 적용했을 때 되돌아간
+    원천의 옛 값이 대상에 들어갔다(2026-11-27 점검)."""
+    rows = [dict(one) for one in ROWS]
+    changed = [dict(one) for one in rows]
+    changed[0].update(name="갤럭시 S", updated_at="2026-11-04T00:00:00Z")
+    work = Workdir(tmp_path / "work", "t")
+    fake = FakeSubmitter()
+
+    def run(source: list[dict[str, Any]]) -> runner.Outcome:
+        return runner.run(_pipeline(tmp_path, source), work, fake, full=True)  # type: ignore[arg-type]
+
+    assert run(rows).status == "planned"
+    assert runner.apply(_pipeline(tmp_path, rows), work, fake).status == "applied"  # type: ignore[arg-type]
+
+    # 원천이 바뀌어 계획이 생겼다가, 적용 전에 원천이 원래대로 돌아왔다.
+    assert run(changed).status == "planned"
+    stale = work.load_state().pending.job_id  # type: ignore[union-attr]
+    back = run(rows)
+    assert (
+        back.status == "nothing" and f"대기 계획({stale[:8]})을 취소했습니다" in back.message
+    )
+    state = work.load_state()
+    assert state.pending is None and state.history[-2]["event"] == "discarded"
+
+    # 대상에서 적용하고 있으면 거두지 않는다 — 실행 자체를 연기한다.
+    assert run(changed).status == "planned"
+    applying = work.load_state().pending.job_id  # type: ignore[union-attr]
+    fake.applying_jobs.add(applying)
+    assert run(rows).status == "waiting"
+    assert work.load_state().pending.job_id == applying  # type: ignore[union-attr]

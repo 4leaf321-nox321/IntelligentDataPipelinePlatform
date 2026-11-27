@@ -30,6 +30,7 @@ from relay_core.adapters.base import Fetched
 from relay_core.adapters.rest import (
     KEY_JOIN,
     Auth,
+    Families,
     SourceError,
     as_text,
     check_shape,
@@ -275,6 +276,13 @@ class ODataAdapter:
         params: dict[str, Any] | None = self._first_params(since, version)
         records = Records()
         skip = 0
+        # 증분에서 펼친 항목의 원소 목록을 다 받았나 — 목록에서 빠진 원소를 지운다
+        # (`rest.Families`).
+        families = (
+            Families(source.key, source.explode, deleted=source.deleted)
+            if source.explode and since and source.modified_field
+            else None
+        )
         for _ in range(source.max_pages):
             body = _clean(
                 get_json(
@@ -299,6 +307,8 @@ class ODataAdapter:
             for item in items:
                 for one in self._records(item):
                     records.append(one)
+                if families is not None:
+                    families.note(item)
             if limit and len(records) >= limit:
                 return Fetched(records=records[:limit], complete=False)
             if nxt:
@@ -314,4 +324,10 @@ class ODataAdapter:
                 "없습니다."
             )
         watermark = records.latest or since
-        return Fetched(records=records, watermark=watermark, complete=True, full=not since)
+        return Fetched(
+            records=records,
+            watermark=watermark,
+            complete=True,
+            full=not since,
+            covers=families.given() if families is not None else None,
+        )

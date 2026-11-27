@@ -93,7 +93,8 @@ def after_apply(stopped: Mapping[str, Any] | None) -> str:
 
 
 class RetractError(ValueError):
-    pass
+    expected = True
+    """원인을 문장으로 아는 실패 — 작업 틀이 예외 이름 · 스택 없이 그 문장만 보인다."""
 
 
 def _now() -> str:
@@ -693,5 +694,5 @@ def resume(work: Workdir, applied: Callable[[str], bool | None], *, by: str = ""
 class _Applied:
     """적용됐다고 이미 안 계획을 기준으로 올릴 때 — `settle_pending` 의 묻기를 대신한다."""
 
-    def applied(self, job_id: str) -> bool:
+    def landed(self, job_id: str) -> bool:
         return True

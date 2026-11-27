@@ -30,6 +30,10 @@ class Fetched:
     done: Callable[[], None] | None = None
     """미러에 **반영한 뒤** 부른다 — 보내 주는 원천(push)이 받을 함의 묶음을 지운다. 받기
     점검이 멈추면 안 부른다(다음 실행이 같은 것을 다시 받는다)."""
+    covers: Callable[[str], bool] | None = None
+    """증분에서도 **이번에 안 온 그 키를 지운 것으로 보나** — 펼친 항목(`explode`)의 원소
+    목록을 이번에 다 받았으면 그 항목의 행 가운데 안 온 것은 목록에서 빠진 것이다
+    (`rest.Families`). 끝까지 받았을 때만 쓴다(`complete`)."""
 
 
 class Adapter(Protocol):

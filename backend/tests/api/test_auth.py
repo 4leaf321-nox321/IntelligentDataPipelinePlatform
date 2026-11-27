@@ -733,3 +733,38 @@ def test_관리자가_아니면_남의_토큰을_보지도_폐기하지도_못�
     )
     assert refused.status_code == 403, refused.text
     assert own.get("/api/auth/me", headers=heads["연동"]).status_code == 200
+
+
+def test_실패가_반복되면_요청을_재우지_않고_기다리는_동안은_바로_거절한다(
+    client: TestClient, db: Session, workspace: Workspace
+) -> None:
+    """예전에는 실패한 요청을 그 초만큼 재웠다 — 동기 경로라 서버 스레드를 쥐어, 한 계정에 틀린
+    비밀번호를 동시에 보내면 API 전체가 멈췄다(2026-11-27 점검). 이제는 기다리는 동안의 시도를
+    비밀번호를 견주지 않고 429 로 바로 거절한다."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.config import get_settings
+    from app.modules.auth import services as auth_services
+
+    user = _make_user(db, workspace, label="throttle", is_system_admin=False, role="member")
+    wrong = {"email": user.email, "password": "not-the-password"}
+    for _ in range(get_settings().login_delay_after):
+        assert client.post("/api/auth/login", json=wrong).status_code == 401
+    assert auth_services.login_delay_seconds(get_settings().login_delay_after) > 0
+
+    # 맞는 비밀번호도 기다리는 동안은 받지 않는다 — 견주지도 않는다.
+    right = {"email": user.email, "password": PASSWORD}
+    held = client.post("/api/auth/login", json=right)
+    assert held.status_code == 429, held.text
+    body = held.json()["error"]
+    assert body["code"] == code("AUTH", 21) and body["details"]["retry_after"] > 0
+    assert "초 동안 로그인할 수 없습니다" in body["message"]
+
+    # 기다린 뒤에는 맞는 비밀번호로 들어가고, 센 실패는 지운다.
+    db.refresh(user)
+    assert user.last_failed_login_at is not None
+    user.last_failed_login_at = datetime.now(UTC) - timedelta(minutes=1)
+    db.commit()
+    assert client.post("/api/auth/login", json=right).status_code == 200
+    db.refresh(user)
+    assert user.failed_logins == 0
