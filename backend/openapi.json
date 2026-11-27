@@ -10284,6 +10284,21 @@
             ],
             "title": "Schedule"
           },
+          "reconcile": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconcile"
+          },
           "note": {
             "type": "string",
             "maxLength": 200,

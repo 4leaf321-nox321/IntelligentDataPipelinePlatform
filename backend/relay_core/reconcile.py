@@ -9,21 +9,31 @@ relay 는 평소 자기 출력끼리만 견준다(`diff`) — 원천이 안 바�
     다름       칸 값이 기준과 다르다(빈 칸은 「안 보냄」 이라 견주지 않는다)
     대상에만   대상엔 살아 있는데 기준엔 없다
 
-**읽기만 한다.** 대상은 세 길 중 하나로 읽는다(`best_reader`) — 견주는 타입이 다 **코어로
-열렸으면 코어 API**(커서로 2,000개씩 — 27만 객체 36초), 아니면 **묶음 내보내기**(작업 하나,
-시스템 관리자 토큰), 둘 다 안 되면 **목록 API**(200개씩 처음부터 세어 넘겨 대상이 클수록
-가파르게 느려진다 — 27만 객체 236초, 2026-11-06 실측). 느린 길로 읽었으면 보고서에 까닭을
-적는다. 고치는 일은
-**보정 계획**(`resync`)이다 — 어긋난 줄을 기준 그대로 다시 보내는 미리보기라, 평소 계획처럼
-대상의 검토함에 뜨고 적용은 사람이 한다. 다시 보내는 객체에 닿는 기준의 선도 함께 싣는다(객체가
-지워졌으면 선도 사라졌다). **대상에만 있는 것은 그 타입을 이 원천이 잠갔을 때만**
-(`managed_by == source`) 무덤으로 싣는다 — 안 잠긴 타입이면 사람이 만든 것일 수 있다.
+**읽기만 한다.** 대상은 이 차례로 고른 한 길로 읽는다(`best_reader`):
+
+1. 견주는 타입이 다 **코어로 열렸으면 코어 API**(커서로 2,000개씩 — 27만 객체 36초).
+2. 대상 SP 가 **목록을 커서로 넘기면**(SP v0.4.89, ADR 0079) **목록 API 를 커서로** 2,000개씩
+   — 뒤쪽 쪽도 같은 비용이고, 흘려 받아 바구니에 넣는다(대상 객체를 다 쥐지 않는다).
+3. 옛 SP 면 **묶음 내보내기**(작업 하나, 시스템 관리자 토큰 — 봉투를 통째로 받는다).
+4. 그것도 안 되면 **목록 API 를 offset 으로**(200개씩 처음부터 세어 넘겨 대상이 클수록
+   가파르게 느려진다 — 27만 객체 236초, 2026-11-06 실측).
+
+느린 길로 읽었으면 보고서에 까닭을 적는다. **적용보다 뒤에 읽는다** — 대상 SP 가 계획을
+적용하는 중이면(적용 작업이 대기 · 실행 중) 대조를 미루고(`Report.deferred`), 읽는 사이에
+적용이 시작됐으면 결과를 버리고 미룬다. 반쯤 들어간 대상을 읽으면 거짓 어긋남이 난다.
+
+고치는 일은 **보정 계획**(`resync`)이다 — 어긋난 줄을 기준 그대로 다시 보내는 미리보기라,
+평소 계획처럼 대상의 검토함에 뜨고 적용은 사람이 한다. 다시 보내는 객체에 닿는 기준의 선도
+함께 싣는다(객체가 지워졌으면 선도 사라졌다). **대상에만 있는 것은 그 타입을 이 원천이
+잠갔을 때만**(`managed_by == source`) 무덤으로 싣는다 — 안 잠긴 타입이면 사람이 만든 것일 수
+있다.
 
 선은 아직 따로 견주지 않는다 — 대상 API 가 관계 종류마다의 선 목록을 주지 않는다.
 
-참조 칸은 코어 · 내보내기가 상대의 **식별자**로 준다 — 그러면 대상 객체를 타입마다 흘려 견주고
-다 쥐지 않는다. 목록 API 는 상대의 id 로 준다 — 같은 대조에서 받은 객체면 그 식별자로, 아니면
-상대의 이름(`ref_labels`)으로 견주고, 둘 다 아니면 **확인 못 함**으로 센다(어긋남으로 세지
+참조 칸은 코어 · 내보내기가 상대의 **식별자**로 준다 — 그러면 대상 객체를 타입마다 흘려
+견준다. 목록 API 는 상대의 id 로 준다 — 받은 객체(견주는 타입과 그 참조가 가리키는 타입)의 id →
+식별자를 **디스크의 표**(`_DiskRefs`)에 적어 두고 바구니마다 그 바구니의 id 만 꺼내 푼다. 못
+풀면 상대의 이름(`ref_labels`)으로 견주고, 둘 다 아니면 **확인 못 함**으로 센다(어긋남으로 세지
 않는다).
 """
 
@@ -31,7 +41,9 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import shutil
+import sqlite3
 import urllib.parse
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
@@ -45,11 +57,17 @@ from relay_core.diff import _batches as diff_batches
 from relay_core.diff import head as diff_head
 from relay_core.diff import write_batches
 from relay_core.runner import Outcome, fold, origin_for, pending_of, propose, settle_pending
-from relay_core.state import Workdir, stamp
+from relay_core.state import State, Workdir, stamp
 from relay_core.submit import SubmitError, Submitter
 
-#: 대상 목록 한 쪽 — SP 의 목록 상한(`MAX_LIMIT`)과 같다.
-PAGE = 200
+#: 대상 목록 한 쪽 — SP 의 API 토큰 상한(`MACHINE_MAX_LIMIT`, ADR 0079). 옛 SP 는 200 으로
+#: 줄여 준다(`limit` 을 말없이 깎는다 — 응답의 `limit` 이 실제 쪽).
+PAGE = 2000
+#: 목록이 커서로 넘긴다는 표 — 응답에 이 칸이 있다(마지막 쪽이면 null). 옛 SP 는 `cursor` 를
+#: 모르는 인자로 버리고 이 칸 없이 첫 쪽을 준다.
+NEXT_CURSOR = "next_cursor"
+#: 옛 SP 라 목록을 offset 으로 넘겼을 때의 `via`.
+OFFSET_VIA = "목록(offset)"
 #: 화면 · 이력에 싣는 본보기 — 타입 · 갈래마다 이만큼(파일에는 전부 남는다).
 SAMPLE = 20
 #: 마지막 보고서 — 작업 폴더의 이 파일.
@@ -70,8 +88,9 @@ class ReconcileError(RuntimeError):
 class Reader(Protocol):
     """대상 읽기. 더 알 수 있으면 함께 준다(없으면 목록 API 처럼 다룬다): `via`(읽은 길) ·
     `fallback`(느린 길로 읽은 까닭) · `notice`(그 밖에 보고서에 알릴 것) · `keyed`(참조
-    칸이 상대의 식별자로 온다 — 그러면 객체를 흘려 견주고 다 쥐지 않는다) · `blind`(그 길이
-    주지 않는 고정 칸 — 확인 못 함으로 센다)."""
+    칸이 상대의 식별자로 온다 — 그러면 id 를 풀 표가 필요 없다) · `blind`(그 길이 주지 않는
+    고정 칸 — 확인 못 함으로 센다) · `referenced(slugs)`(참조가 가리키는 다른 타입 — id 를
+    풀려고 함께 읽는다) · `slow`(다 읽은 뒤 — offset 으로 넘긴 까닭)."""
 
     def objects(self, type_slug: str) -> Iterable[dict[str, Any]] | None:
         """그 타입의 객체 전부(사용 중지 포함) — 대상에 타입이 없으면 None."""
@@ -87,16 +106,25 @@ def _short(failure: object) -> str:
 
 
 class TargetReader:
-    """대상 SP 를 읽는다 — 목록 API 를 200개씩 쪽마다. **어디서나 되지만** 처음부터 세어 넘겨
-    대상이 클수록 가파르게 느려진다 — 다른 길(코어 · 내보내기)이 안 될 때 쓴다."""
+    """대상 SP 를 목록 API 로 읽는다 — **커서로**(`cursor=start` → `next_cursor`, SP v0.4.89)
+    2,000개씩. 쪽마다 같은 비용이라 대상이 커도 곧게 늘고, 객체는 쪽마다 흘려 준다(다 쥐지
+    않는다). 옛 SP 는 `cursor` 를 모르고 첫 쪽을 주므로 그 뒤는 offset 으로 넘긴다 — 처음부터
+    세어 넘겨 대상이 클수록 가파르게 느려진다(그때 `slow` 에 까닭, `via` 는
+    「목록(offset)」)."""
 
-    via = "목록"
     keyed = False
     blind: frozenset[str] = frozenset()
 
     def __init__(self, target: Target) -> None:
         self.target = target
         self.fallback = ""
+        self.notice = ""
+        self.slow = ""
+        self._schema: dict[str, dict[str, Any]] | None = None
+
+    @property
+    def via(self) -> str:
+        return OFFSET_VIA if self.slow else "목록"
 
     def _get(self, path: str) -> tuple[int, Any]:
         headers = {"Authorization": f"Bearer {self.target.token}", "X-Client": "datarelay"}
@@ -109,32 +137,82 @@ class TargetReader:
             raise ReconcileError(str(stop)) from None
         return int(status), body
 
-    def objects(self, type_slug: str) -> list[dict[str, Any]] | None:
-        out: list[dict[str, Any]] = []
-        quoted = urllib.parse.quote(type_slug)
+    def _page(self, type_slug: str, path: str) -> dict[str, Any]:
+        status, body = self._get(path)
+        if status != 200 or not isinstance(body, dict):
+            raise ReconcileError(f"대상의 {type_slug} 목록을 조회하지 못했습니다({status}).")
+        return body
+
+    def objects(self, type_slug: str) -> Iterator[dict[str, Any]] | None:
+        """그 타입의 객체를 쪽마다 흘려 — 대상에 타입이 없으면 None(첫 쪽은 여기서 받는다)."""
+        base = f"/api/objects/{urllib.parse.quote(type_slug)}?limit={PAGE}"
+        status, body = self._get(f"{base}&cursor=start")
+        if status == 404:
+            return None
+        projected = status == 422
+        if projected:
+            # 다른 표를 비추는 타입(`OBJECTS-0156`)은 커서를 안 받는다 — offset 으로(SP 는
+            # 커서를 안다 — 까닭을 적지 않는다).
+            body = self._page(type_slug, f"{base}&offset=0")
+        elif status != 200 or not isinstance(body, dict):
+            raise ReconcileError(f"대상의 {type_slug} 목록을 조회하지 못했습니다({status}).")
+        return self._rest(type_slug, base, body, old_sp=not projected)
+
+    def _rest(
+        self, type_slug: str, base: str, body: dict[str, Any], *, old_sp: bool = True
+    ) -> Iterator[dict[str, Any]]:
+        by_cursor = NEXT_CURSOR in body
+        if not by_cursor and old_sp and not self.slow:
+            self.slow = (
+                "대상 SP가 목록의 커서 페이지 처리를 지원하지 않아 offset으로 조회했습니다"
+                f"({type_slug} 등). 대상이 클수록 느려지며, 커서 페이지 처리는 SP v0.4.89부터 "
+                "지원합니다"
+            )
+        seen = 0
         while True:
-            status, body = self._get(f"/api/objects/{quoted}?limit={PAGE}&offset={len(out)}")
-            if status == 404:
-                return None
-            if status != 200 or not isinstance(body, dict):
-                raise ReconcileError(
-                    f"대상의 {type_slug} 목록을 조회하지 못했습니다({status})."
-                )
             items = [one for one in body.get("items") or [] if isinstance(one, dict)]
-            out.extend(items)
-            if not items or len(out) >= int(body.get("total") or 0):
-                return out
+            yield from items
+            seen += len(items)
+            if by_cursor:
+                after = str(body.get(NEXT_CURSOR) or "")
+                if not after:
+                    return
+                path = f"{base}&cursor={urllib.parse.quote(after)}"
+            else:
+                if not items or seen >= int(body.get("total") or 0):
+                    return
+                path = f"{base}&offset={seen}"
+            body = self._page(type_slug, path)
+
+    def cursors(self, slugs: Iterable[str]) -> bool:
+        """대상 SP 가 목록을 커서로 넘기나 — 있는 타입 하나에 한 줄만 물어 본다."""
+        for slug in slugs:
+            quoted = urllib.parse.quote(slug)
+            status, body = self._get(f"/api/objects/{quoted}?limit=1&cursor=start")
+            if status == 404:
+                continue
+            return status == 200 and isinstance(body, dict) and NEXT_CURSOR in body
+        return False
 
     def schema(self) -> dict[str, dict[str, Any]]:
-        """타입마다 정의(`/api/ontology/schema` 의 types) — 못 읽으면 빈 것."""
-        status, body = self._get("/api/ontology/schema")
-        if status != 200 or not isinstance(body, dict):
-            return {}
-        return {
-            str(one.get("slug")): one
-            for one in body.get("types") or []
-            if isinstance(one, dict) and one.get("slug")
-        }
+        """타입마다 정의(`/api/ontology/schema` 의 types) — 못 읽으면 빈 것. 한 번만 묻는다."""
+        if self._schema is None:
+            status, body = self._get("/api/ontology/schema")
+            self._schema = (
+                {
+                    str(one.get("slug")): one
+                    for one in body.get("types") or []
+                    if isinstance(one, dict) and one.get("slug")
+                }
+                if status == 200 and isinstance(body, dict)
+                else {}
+            )
+        return self._schema
+
+    def referenced(self, slugs: Iterable[str]) -> list[str]:
+        """견주는 타입의 참조 칸이 가리키는 **다른** 타입 — id 를 식별자로 풀려고 함께 읽는다
+        (내보내기가 그 타입의 묶음까지 내보내는 것과 같다). 대상에 있는 것만."""
+        return referenced(self.schema(), slugs)
 
     def managed_by(self) -> dict[str, str | None]:
         return {slug: one.get("managed_by") for slug, one in self.schema().items()}
@@ -232,6 +310,18 @@ def _export_item(row: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def referenced(schema: dict[str, dict[str, Any]], slugs: Iterable[str]) -> list[str]:
+    """그 타입들의 참조 칸(`object_ref`)이 가리키는, 그 밖의 타입 — 대상에 있는 것만."""
+    wanted = [slug for slug in slugs if slug in schema]
+    out: dict[str, None] = {}
+    for slug in wanted:
+        for prop in schema[slug].get("properties") or []:
+            target = prop.get("ref_type_slug") if isinstance(prop, dict) else None
+            if prop.get("data_type") == "object_ref" and target in schema:
+                out[str(target)] = None
+    return [one for one in out if one not in wanted]
+
+
 def export_groups(schema: dict[str, dict[str, Any]], slugs: Iterable[str]) -> list[str] | None:
     """그 타입들을 읽으려면 내보낼 사이드바 묶음 — 참조 칸이 가리키는 타입의 묶음까지(그래야
     참조가 식별자로 온다). 묶음이 없는 타입이 있으면 None(내보내기로는 못 읽는다)."""
@@ -320,7 +410,7 @@ class ExportReader:
 
     @property
     def via(self) -> str:
-        return "내보내기" if self._items is not None else "목록"
+        return "내보내기" if self._items is not None else self.lister.via
 
     @property
     def keyed(self) -> bool:
@@ -328,7 +418,14 @@ class ExportReader:
 
     blind: frozenset[str] = frozenset()
 
-    def objects(self, type_slug: str) -> list[dict[str, Any]] | None:
+    @property
+    def slow(self) -> str:
+        return self.lister.slow
+
+    def referenced(self, slugs: Iterable[str]) -> list[str]:
+        return [] if self._items is not None else self.lister.referenced(slugs)
+
+    def objects(self, type_slug: str) -> Iterable[dict[str, Any]] | None:
         if type_slug not in self._schema:
             return None
         if self._items is not None and type_slug in self._items:
@@ -340,9 +437,11 @@ class ExportReader:
 
 
 def best_reader(target: Target, slugs: Iterable[str]) -> Reader:
-    """대상을 읽을 길 — 견주는 타입이 **다 코어로 열렸으면 코어 API**, 아니면 **묶음
-    내보내기**, 그것도 안 되면 **목록 API**(까닭을 `fallback` 에). 한 대조는 한 길로 읽는다 —
-    섞으면 참조를 푸는 법(식별자 · id)이 타입마다 달라진다."""
+    """대상을 읽을 길 — 견주는 타입이 **다 코어로 열렸으면 코어 API**, 대상이 목록을 **커서로
+    넘기면 목록 API(커서)**, 아니면 **묶음 내보내기**, 그것도 안 되면 **목록 API(offset)**
+    (까닭을 `fallback` 에). 한 대조는 한 길로 읽는다 — 섞으면 참조를 푸는 법(식별자 · id)이
+    타입마다 달라진다. 커서 목록을 내보내기보다 앞에 두는 것은 **메모리 때문이다** — 내보내기는
+    봉투(객체 + 선 50만 줄까지)를 통째로 받아 쥐고, 커서 목록은 쪽마다 흘려 바구니에 넣는다."""
     lister = TargetReader(target)
     schema = lister.schema()
     present = [slug for slug in slugs if slug in schema]
@@ -352,8 +451,14 @@ def best_reader(target: Target, slugs: Iterable[str]) -> Reader:
     core = lister.core_types()
     if present and set(present) <= core:
         return CoreReader(lister, schema)
-    exported = ExportReader(target, present)
     closed = ", ".join(sorted(set(present) - core))
+    if lister.cursors(present):
+        if closed:
+            lister.notice = (
+                f"코어 공개되지 않은 타입({closed})이 있어 목록 API(커서)로 조회했습니다"
+            )
+        return lister
+    exported = ExportReader(target, present)
     # 코어로 열기로 한 타입 하나를 빠뜨려도 대조는 돈다 — 무엇이 빠졌는지는 보고서가 말한다.
     if closed and exported.keyed:
         exported.notice = (
@@ -394,15 +499,21 @@ class Report:
     types: dict[str, TypeDrift] = field(default_factory=dict)
     problems: list[str] = field(default_factory=list)
     via: str = ""
-    """대상을 어떻게 읽었나 — 내보내기 · 목록(내보내기를 못 써 쪽마다 읽었다)."""
+    """대상을 어떻게 읽었나 — 코어 · 목록 · 내보내기."""
     notes: list[str] = field(default_factory=list)
-    """대조는 됐지만 알릴 것 — 내보내기를 못 쓴 까닭."""
+    """대조는 됐지만 알릴 것 — 느린 길로 읽은 까닭."""
+    deferred: str = ""
+    """**미룬 대조** — 대상에서 계획을 적용하는 중이라 읽지 않았거나 읽은 것을 버렸다(까닭).
+    보고서 파일 · 이력에 남기지 않는다(지난 대조가 그대로 마지막 대조다). 타이머가 다음
+    차례에 다시 넣는다."""
 
     @property
     def drift(self) -> int:
         return sum(one.drift for one in self.types.values())
 
     def summary(self) -> str:
+        if self.deferred:
+            return self.deferred
         if self.problems:
             return "대조하지 못했습니다. " + " / ".join(self.problems)
         rows = sum(one.rows for one in self.types.values())
@@ -569,6 +680,66 @@ class _Refs:
         return None if unknown else False
 
 
+#: SP 의 객체 id 모양 — 목록의 참조 칸 값이 이것이면 식별자로 푼다.
+_ID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+
+
+def _ids_in(item: dict[str, Any]) -> Iterator[str]:
+    """줄의 칸 값 중 id 모양인 것 — 바구니를 견주기 전에 풀 id."""
+    for value in (item.get("properties") or {}).values():
+        for one in _values(value):
+            if isinstance(one, str) and _ID.match(one):
+                yield one
+
+
+class _DiskRefs(_Refs):
+    """id → 식별자를 **디스크의 표**(SQLite)에 — 목록 API 로 받은 객체가 수십만이어도 메모리에
+    다 들지 않는다. 바구니를 견주기 전에 그 바구니의 줄이 가리키는 id 만 꺼낸다(`load`)."""
+
+    #: 한 번에 묻는 id 수 — SQLite 의 매개변수 한도보다 한참 아래.
+    CHUNK = 500
+    #: 이만큼 모아 한 번에 적는다.
+    BATCH = 5000
+
+    def __init__(self, file: Path) -> None:
+        super().__init__()
+        file.parent.mkdir(parents=True, exist_ok=True)
+        self._db = sqlite3.connect(file)
+        self._db.execute("PRAGMA journal_mode=OFF")
+        self._db.execute("PRAGMA synchronous=OFF")
+        self._db.execute("CREATE TABLE IF NOT EXISTS ids (id TEXT PRIMARY KEY, key TEXT)")
+        self._waiting: list[tuple[str, str]] = []
+
+    def add(self, items: Iterable[dict[str, Any]]) -> None:
+        for one in items:
+            self.add_one(one)
+
+    def add_one(self, item: dict[str, Any]) -> None:
+        if item.get("id") and item.get("key"):
+            self._waiting.append((str(item["id"]), str(item["key"])))
+            if len(self._waiting) >= self.BATCH:
+                self._flush()
+
+    def _flush(self) -> None:
+        if self._waiting:
+            self._db.executemany("INSERT OR REPLACE INTO ids VALUES (?, ?)", self._waiting)
+            self._waiting = []
+
+    def load(self, ids: Iterable[str]) -> None:
+        """`same` 이 볼 id 를 이것들로 — 앞 바구니의 것은 놓는다."""
+        self._flush()
+        wanted = sorted(set(ids))
+        self.keys = {}
+        for at in range(0, len(wanted), self.CHUNK):
+            chunk = wanted[at : at + self.CHUNK]
+            marks = ",".join("?" * len(chunk))
+            query = f"SELECT id, key FROM ids WHERE id IN ({marks})"
+            self.keys.update(self._db.execute(query, chunk).fetchall())
+
+    def close(self) -> None:
+        self._db.close()
+
+
 def _diff_row(
     row: dict[str, Any],
     item: dict[str, Any],
@@ -677,49 +848,66 @@ def _compare(
 ) -> None:
     """**기준도 대상도 메모리에 다 들지 않는다** — 둘 다 (타입, 식별자)의 해시로 바구니에 나눠
     두고 바구니마다 견준다(`BUCKET_ROWS` 줄씩). 한 식별자는 늘 한 바구니라 결과가 한꺼번에
-    견준 것과 같다. 목록 API(참조가 id 로 온다)만은 대상 객체를 다 받아 두어야 id 를 푼다."""
+    견준 것과 같다. 대상은 타입마다 **흘려** 받는다. 참조가 id 로 오면(목록 API) id → 식별자를
+    디스크의 표에 적어 두고(`_DiskRefs`) 바구니마다 그 바구니의 id 만 꺼낸다."""
     base = _base(work, applied_run, folder)
     count = base.held.count
     there = spill.Spill(folder / "target", count)
+    if reader is None:
+        reader = best_reader(pipeline.target, base.rows)
+    keyed = bool(getattr(reader, "keyed", False))
+    refs: _Refs = _Refs() if keyed else _DiskRefs(folder / "ids.sqlite")
     try:
-        if reader is None:
-            reader = best_reader(pipeline.target, base.rows)
-        report.via = str(getattr(reader, "via", ""))
         fallback = str(getattr(reader, "fallback", "") or "")
         if fallback:
             report.notes.append(f"목록 API로 조회했습니다. 사유: {fallback}")
         notice = str(getattr(reader, "notice", "") or "")
         if notice:
             report.notes.append(notice)
-        keyed = bool(getattr(reader, "keyed", False))
         blind = frozenset(getattr(reader, "blind", frozenset()))
         managed = reader.managed_by()
-        refs = _Refs()
-        # 참조가 id 로 오면(목록 API) 다른 타입의 객체까지 받아 두어야 그 id 를 식별자로 푼다.
-        # 식별자로 오면(코어 · 내보내기) 타입마다 **흘려** 바구니에 넣는다.
-        held: dict[str, Iterable[dict[str, Any]] | None] = {}
-        if not keyed:
-            for slug in base.rows:
-                got = reader.objects(slug)
-                held[slug] = list(got) if got is not None else None
-                refs.add(held[slug] or [])
+        if isinstance(refs, _DiskRefs):
+            # 참조가 가리키는 다른 타입(기준정보 · 다른 원천의 것)도 id 만 적어 둔다 — 안
+            # 그러면 그 참조는 이름으로만 견줘 「확인 못 함」 이 는다(내보내기는 그 묶음까지
+            # 내보낸다).
+            others = getattr(reader, "referenced", None)
+            unread: list[str] = []
+            for slug in others(base.rows) if callable(others) else []:
+                try:
+                    refs.add(reader.objects(slug) or [])
+                except ReconcileError:
+                    unread.append(slug)
+            if unread:
+                report.notes.append(
+                    f"참조 대상 타입({', '.join(unread)})을 조회하지 못해 그 참조는 이름으로 "
+                    "비교했습니다"
+                )
         for slug, rows in base.rows.items():
             one = report.types.setdefault(slug, TypeDrift(rows=rows))
             one.managed = bool(managed.get(slug)) and managed.get(slug) == pipeline.source
-            items = held.pop(slug) if not keyed else reader.objects(slug)
+            items = reader.objects(slug)
             if items is None:
                 one.absent = True
                 report.problems.append(f"대상에 타입이 없습니다: {slug}")
                 continue
             for item in items:
                 key = str(item.get("key") or "")
+                if isinstance(refs, _DiskRefs):
+                    refs.add_one(item)
                 if key:
                     there.put(_bucket(slug, key, count), [slug, key, item])
         there.close()
+        # 읽은 길은 다 읽은 뒤에 — 옛 SP 면 첫 쪽에서야 offset 으로 넘기는 줄 안다.
+        report.via = str(getattr(reader, "via", ""))
+        slow = str(getattr(reader, "slow", "") or "")
+        if slow:
+            report.notes.append(slow)
         for bucket in range(count):
             wanted: dict[tuple[str, str], dict[str, Any]] = {
                 (slug, key): row for slug, key, row in base.held.read(bucket)
             }
+            if isinstance(refs, _DiskRefs):
+                refs.load(one for _s, _k, item in there.read(bucket) for one in _ids_in(item))
             seen: set[tuple[str, str]] = set()
             for slug, key, item in there.read(bucket):
                 if (slug, key) in seen:
@@ -741,6 +929,8 @@ def _compare(
                 report.types[slug].missing.append(key)
             del wanted, seen
     finally:
+        if isinstance(refs, _DiskRefs):
+            refs.close()
         there.drop()
         base.held.drop()
     for one in report.types.values():
@@ -750,15 +940,34 @@ def _compare(
         one.changed = dict(sorted(one.changed.items()))
 
 
+def _applying(state: State, submit: Submitter) -> str:
+    """대상 SP 가 기다리는 계획을 **지금 적용하고 있으면** 그 계획(앞 8자) — 아니면(모르면) 빈
+    글."""
+    pending = state.pending
+    if pending is None or not pending.job_id or not submit.applying(pending.job_id):
+        return ""
+    return pending.job_id[:8]
+
+
 def compare(
     pipeline: Pipeline,
     work: Workdir,
     reader: Reader | None = None,
     submit: Submitter | None = None,
 ) -> Report:
-    """대상과 기준을 견주고 보고서를 작업 폴더(`reconcile.json`) · 이력에 남긴다."""
+    """대상과 기준을 견주고 보고서를 작업 폴더(`reconcile.json`) · 이력에 남긴다.
+
+    **적용보다 뒤에** — 대상 SP 가 계획을 적용하는 중이면 읽지 않고, 읽는 사이에 적용이
+    시작됐으면 읽은 것을 버린다(둘 다 `deferred`, 보고서 · 이력은 그대로)."""
     submit = submit or Submitter(pipeline.target)
     state = work.load_state()
+    waiting = _applying(state, submit)
+    if waiting:
+        told = (
+            f"대상 SP에서 계획({waiting})을 적용하고 있어 대조를 연기했습니다. 적용이 끝난 후 "
+            "다시 대조합니다."
+        )
+        return Report(at=_now(), baseline="", source=pipeline.source, deferred=told)
     note = settle_pending(state, submit)
     before = state.applied_run
     # 나눠 보내는 계획이 일부만 들어갔으면 그 조각까지 기준에 접는다 — 안 그러면 들어간 것을
@@ -770,11 +979,19 @@ def compare(
     if not state.applied_run:
         report.problems.append("적용한 계획이 없어 비교할 기준 출력이 없습니다.")
         return report
+    # 기다리는 계획 — 읽는 사이에 대상에서 그것을 적용하기 시작하면 반쯤 들어간 것을 읽는다.
+    waited = state.pending.job_id if state.pending is not None else ""
     folder = work.path(f"work/{stamp()}.reconcile.spill")
     try:
         _compare(pipeline, work, state.applied_run, folder, reader, report)
     finally:
         shutil.rmtree(folder, ignore_errors=True)
+    if waited and submit.applied(waited):
+        report.deferred = (
+            f"대조 중에 대상 SP에서 계획({waited[:8]}) 적용이 시작되어 결과를 폐기했습니다. "
+            "적용이 끝난 후 다시 대조합니다."
+        )
+        return report
     work.write_json(REPORT, report.to_json())
     state = work.load_state()
     state.history.append(
@@ -811,6 +1028,13 @@ def resync(
     적용을 기다리는 계획이 있으면 올리지 않는다 — 그것을 덮으면 사람이 보던 계획이 사라진다."""
     submit = submit or Submitter(pipeline.target)
     state = work.load_state()
+    waiting = _applying(state, submit)
+    if waiting:
+        return Outcome(
+            "waiting",
+            f"대상 SP에서 계획({waiting})을 적용하고 있습니다. 적용이 끝난 후 보정 계획을 "
+            "다시 생성하세요.",
+        )
     settle_pending(state, submit)
     if state.pending is not None:
         return Outcome(
@@ -819,6 +1043,8 @@ def resync(
             "않았습니다. 계획을 적용하거나 다시 실행한 후 대조하세요.",
         )
     report = compare(pipeline, work, reader, submit)
+    if report.deferred:
+        return Outcome("waiting", f"{report.deferred} 보정 계획은 그 후에 다시 생성하세요.")
     if report.problems:
         return Outcome("blocked", report.summary())
     if not report.drift:

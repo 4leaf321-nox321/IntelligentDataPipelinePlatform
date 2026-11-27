@@ -501,6 +501,12 @@ def check_body(body: dict[str, Any]) -> tuple[str, str]:
         raise DefinitionError(str(failure)) from failure
     intake(body)
     computed(body)
+    from relay_core.schedule import ScheduleError, check_reconcile
+
+    try:
+        check_reconcile(body.get("reconcile"))
+    except ScheduleError as failure:
+        raise DefinitionError(str(failure)) from failure
     return slug, source
 
 

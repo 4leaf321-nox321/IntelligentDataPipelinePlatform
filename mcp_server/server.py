@@ -372,7 +372,10 @@ async def pipeline_reconcile(ctx: Context, slug: str, plan: bool = False) -> Any
     대상은 조회만). 누락, 사용 중지, 값 불일치, 대상에만 존재를 집계합니다. `plan=True`이면
     불일치 항목을 다시 전송하는 **보정 계획**(미리 보기)까지 생성합니다. 적용은 사람의 승인 후
     pipeline_apply로 합니다. 진행 상황은 job_status, 결과는 pipeline_reconcile_report로
-    확인합니다."""
+    확인합니다. 대상 SP에서 계획을 적용하는 중이거나 같은 파이프라인의 실행 · 적용이 진행
+    중이면 작업 결과가 `deferred`(대조 연기)입니다. 보고서는 그대로이므로 작업이 끝난 후 다시
+    호출합니다. 정기 대조의 요일 · 주기는 정의의 `reconcile`에 둡니다
+    (get_guide('reconcile'))."""
     return await _call(ctx, "POST", f"/relay/pipelines/{slug}/reconcile", body={"plan": plan})
 
 
@@ -698,6 +701,7 @@ async def pipeline_scaffold(
     split: bool = True,
     sample_rows: list[dict[str, Any]] | None = None,
     nav_group: str | dict[str, Any] | None = None,
+    reconcile: dict[str, Any] | bool | None = None,
 ) -> Any:
     """**일괄 초안 생성**: 원천 주소와 인증(`adapter`, 인증 정보는 token_env 이름만, 형식
     항목은 비워도 됨), 원천 이름(`source`: plm, mes), 대상 타입(`type_slug`)만으로 다음을 한
@@ -718,7 +722,9 @@ async def pipeline_scaffold(
     pipeline_draft_save로 수정한 후 `next`를 따릅니다. 초안을 사용 상태로 전환하지 않습니다.
     사용은 사람의 승인 후 definition_activate · recipe_activate로 합니다. 대상에 타입이
     없으면(`type_missing`) `nav_group`(사이드바 그룹: 기존 그룹 slug 또는 새 그룹)을 따르고,
-    지정하지 않으면 대상의 그룹 중에서 선택합니다(recipe.nav_group에 선택한 그룹과 사유)."""
+    지정하지 않으면 대상의 그룹 중에서 선택합니다(recipe.nav_group에 선택한 그룹과 사유).
+    `reconcile`(대조 일정: {"weekdays": ["sun"], "at": "03:00"} · {"every_days": 14} ·
+    false)을 주면 정의에 넣고, 없으면 서버의 기본 주기를 따릅니다."""
     body: dict[str, Any] = {
         "adapter": json.loads(adapter) if isinstance(adapter, str) else adapter,
         "source": source,
@@ -731,6 +737,7 @@ async def pipeline_scaffold(
         "system": system,
         "type_label": type_label,
         "schedule": schedule,
+        "reconcile": reconcile,
         "note": note,
         "split": split,
         "sample_rows": sample_rows,

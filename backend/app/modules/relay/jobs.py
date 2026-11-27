@@ -222,9 +222,30 @@ def run_job(work: kinds.Work) -> dict[str, Any]:
     return _run(work, apply=False)
 
 
+def _running_besides(work: kinds.Work, slug: str) -> str:
+    """같은 파이프라인의 실행 · 적용 · 회수가 **지금 도나**(워커가 여럿이면 겹친다) — 그
+    작업의 이름, 없으면 빈 글. 대기 중인 것은 이 대조 뒤에 돈다."""
+    for one in services.busy(work.db, slug, but=work.job.id):
+        if one.status == "running" and one.kind != services.RECONCILE_KIND:
+            spec = kinds.get(one.kind)
+            return spec.label if spec else one.kind
+    return ""
+
+
 def reconcile_job(work: kinds.Work) -> dict[str, Any]:
-    """대조 — `plan` 이면 어긋난 줄의 보정 계획(미리보기)까지 올린다. 적용은 사람이."""
+    """대조 — `plan` 이면 어긋난 줄의 보정 계획(미리보기)까지 올린다. 적용은 사람이.
+
+    **적용보다 뒤에** — 같은 파이프라인의 실행 · 적용이 돌고 있거나 대상 SP 가 계획을 적용하는
+    중이면 미룬다(`deferred` — 보고서 · 이력은 그대로, 타이머가 다음 틱에 다시 넣는다)."""
     _, pipeline, folder = _load(work)
+    other = _running_besides(work, pipeline.slug)
+    if other:
+        return {
+            "ok": True,
+            "status": services.DEFERRED,
+            "summary": f"[{services.DEFERRED}] 같은 파이프라인의 {other} 작업이 진행 중이라 "
+            "대조를 연기했습니다. 작업이 끝난 후 다시 대조합니다.",
+        }
     if work.params.get("plan"):
         work.progress("대조 · 보정 계획 생성", 0, 0)
         outcome, record = _engine(
@@ -243,6 +264,13 @@ def reconcile_job(work: kinds.Work) -> dict[str, Any]:
     report, record = _engine(
         work, "relay_core.reconcile.compare", pipeline, folder, label="대조"
     )
+    if report.deferred:
+        return {
+            **record,
+            "ok": True,
+            "status": services.DEFERRED,
+            "summary": f"[{services.DEFERRED}] {report.deferred}",
+        }
     status = "problem" if report.problems else ("drift" if report.drift else "same")
     return {
         **record,

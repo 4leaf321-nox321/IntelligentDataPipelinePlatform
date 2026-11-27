@@ -19,6 +19,7 @@ import shutil
 import sys
 import tempfile
 import time
+import uuid
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,11 +100,18 @@ def body_size(send: Path) -> int:
     return len(json.dumps(body, ensure_ascii=False).encode())
 
 
+def _id(type_slug: str, key: str) -> str:
+    """대상 SP 의 객체 id 모양(UUID) — 대조는 이 모양의 값만 id 로 푼다."""
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"{type_slug}:{key}"))
+
+
 def target_items(run: Path, recipe: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
     """기준 출력을 대상 SP 의 객체 모양으로 — 대조가 「같음」 을 내게(참조 칸은 상대의 id)."""
     refs = {
         one["type_slug"]: {
-            name for name, spec in (one.get("fields") or {}).items() if "key_of" in spec
+            name: str(spec["key_of"])
+            for name, spec in (one.get("fields") or {}).items()
+            if "key_of" in spec
         }
         for one in recipe["types"]
     }
@@ -113,11 +121,11 @@ def target_items(run: Path, recipe: dict[str, Any]) -> dict[str, list[dict[str, 
         slug = body["type_slug"]
         for row in body["rows"]:
             props = {
-                k: (f"id-{v}" if k in refs[slug] and v else v)
+                k: (_id(refs[slug][k], v) if k in refs[slug] and v else v)
                 for k, v in row.items()
                 if k not in ("key", "label") and not k.startswith("_")
             }
-            item = {"id": f"id-{row['key']}", "key": row["key"], "label": row.get("label")}
+            item = {"id": _id(slug, row["key"]), "key": row["key"], "label": row.get("label")}
             item |= {"status": "active", "properties": props, "ref_labels": {}}
             out.setdefault(slug, []).append(item)  # 5,000줄씩 나뉜 파일을 합친다
     return out

@@ -25,7 +25,6 @@ sys.path.insert(0, str(HERE))
 from relay_bench import RECIPE, Adapter, body_size, rows  # noqa: E402
 
 from relay_core import parts, reconcile, runner  # noqa: E402
-from relay_core.adapters.base import Fetched  # noqa: E402
 from relay_core.definition import Pipeline, Target  # noqa: E402
 from relay_core.state import Workdir  # noqa: E402
 from relay_core.submit import Submitter  # noqa: E402
@@ -96,7 +95,7 @@ def main(n: int) -> None:
     print(f"N = {n:,} 행 — 대상 {URL} · 조각 상한 {PART_MB}MB", flush=True)
 
     t, since = time.perf_counter(), _now()
-    adapter.next = Fetched(records=rows(n), watermark="w1", complete=True, full=True)
+    adapter.next = (lambda: rows(n), {"watermark": "w1", "complete": True, "full": True})
     first = runner.run(pipeline, work, submit)
     pending = work.load_state().pending
     assert pending is not None, first.message
@@ -117,8 +116,10 @@ def main(n: int) -> None:
         print(f"  멈춤: {done.message[:400]}", flush=True)
         return
 
-    changed = [r for r in rows(n, 1) if r.values["MODEL_NAME"].endswith("v2")]
-    adapter.next = Fetched(records=changed, watermark="w2", complete=True, full=False)
+    adapter.next = (
+        lambda: (r for r in rows(n, 1) if r.values["MODEL_NAME"].endswith("v2")),
+        {"watermark": "w2", "complete": True, "full": False},
+    )
     since = _now()
     again = runner.run(pipeline, work, submit)
     pending = work.load_state().pending

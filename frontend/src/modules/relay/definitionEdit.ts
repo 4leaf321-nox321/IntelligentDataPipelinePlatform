@@ -137,6 +137,52 @@ export function withSchedule(schedule: unknown, kind: ScheduleKind, value: strin
   return { ...rest, every_minutes: Number.isFinite(minutes) && value.trim() ? minutes : value }
 }
 
+/** 대조 일정(정의의 `reconcile`) — 서버 기본(칸 없음) · 매주 요일 · N일마다 · 사용 안 함(false). */
+export type ReconcileKind = 'server' | 'weekly' | 'every' | 'off'
+
+export const WEEKDAYS = [
+  ['mon', '월'],
+  ['tue', '화'],
+  ['wed', '수'],
+  ['thu', '목'],
+  ['fri', '금'],
+  ['sat', '토'],
+  ['sun', '일'],
+] as const
+
+const WEEKDAY_OF: Record<string, string> = Object.fromEntries(WEEKDAYS.map(([day, ko]) => [ko, day]))
+
+export function reconcileKindOf(reconcile: unknown): ReconcileKind {
+  if (reconcile === false) return 'off'
+  if (isPlain(reconcile) && reconcile.weekdays !== undefined) return 'weekly'
+  if (isPlain(reconcile) && reconcile.every_days !== undefined) return 'every'
+  return 'server'
+}
+
+/** 정의의 요일(영어 세 글자 · 한 글자 한국어, 하나 또는 목록) → 영어 세 글자. */
+export function weekdaysOf(reconcile: unknown): string[] {
+  const given = isPlain(reconcile) ? reconcile.weekdays : undefined
+  const list = Array.isArray(given) ? given : given === undefined ? [] : [given]
+  return list.map((one) => WEEKDAY_OF[String(one)] ?? String(one).toLowerCase())
+}
+
+/** 대조 일정의 방식을 바꾼다 — 시각(`at`)은 남긴다. 서버 기본이면 칸이 없고, 사용 안 함이면 false. */
+export function withReconcileKind(reconcile: unknown, kind: ReconcileKind): unknown {
+  if (kind === 'server') return undefined
+  if (kind === 'off') return false
+  const time = isPlain(reconcile) && reconcile.at !== undefined ? { at: reconcile.at } : {}
+  return kind === 'weekly' ? { weekdays: ['sun'], ...time } : { every_days: 7, ...time }
+}
+
+/** 대조 요일 하나를 켜고 끈다 — 월요일부터의 차례로 둔다. */
+export function withWeekday(reconcile: unknown, day: string, on: boolean): Record<string, unknown> {
+  const rest = isPlain(reconcile) ? { ...reconcile } : {}
+  const kept = weekdaysOf(rest).filter((one) => one !== day)
+  const next = on ? [...kept, day] : kept
+  rest.weekdays = WEEKDAYS.map(([one]) => one as string).filter((one) => next.includes(one))
+  return rest
+}
+
 /** 열 대응 — 표의 줄(열 이름 → 원천의 자리). 열이 `"*"`(파일의 모든 열)이면 표가 아니다(null). */
 export function columnRows(columns: unknown): [string, string][] | null {
   if (typeof columns === 'string') return null

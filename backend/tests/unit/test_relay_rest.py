@@ -148,6 +148,8 @@ class FakeSubmitter:
         self.previews: list[Path] = []
         self.origins: list[dict[str, str] | None] = []
         self.applied_jobs: set[str] = set()
+        self.applying_jobs: set[str] = set()
+        """대상에서 적용하는 중인 계획 — 대조가 그동안 읽지 않는다."""
 
     def preview(self, run: Path, *, origin: dict[str, str] | None = None) -> Plan:
         self.previews.append(run)
@@ -162,7 +164,10 @@ class FakeSubmitter:
         )
 
     def applied(self, job_id: str) -> bool | None:
-        return job_id in self.applied_jobs
+        return job_id in self.applied_jobs or job_id in self.applying_jobs
+
+    def applying(self, job_id: str) -> bool | None:
+        return job_id in self.applying_jobs
 
     def apply(self, job_id: str) -> dict[str, Any]:
         self.applied_jobs.add(job_id)

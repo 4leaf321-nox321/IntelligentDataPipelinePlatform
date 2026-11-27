@@ -87,6 +87,8 @@ def _reconcile_state(job: Job, slug: str) -> str | None:
     if job.kind == services.RECONCILE_KIND:
         if job.status == "failed":
             return "problem"
+        if (job.result or {}).get("status") == services.DEFERRED:
+            return None  # 미룬 대조 — 보고서는 지난 대조 그대로다
     elif not (job.status == "done" and (job.result or {}).get("reconciled")):
         return None
     return services.reconcile_status(services.read_report(slug))

@@ -413,3 +413,18 @@ def test_비밀처럼_보이는_칸_이름_질의의_키도_거절한다(
     named = {**base, "columns": {"ACCESS_TOKEN": "access_token"}}  # 원천의 열 이름일 뿐
     got = client.post("/api/relay/discover", json={"adapter": named}, headers=mcp)
     assert got.status_code == 200, got.text
+
+
+def test_대조_일정은_정의에_적고_틀리면_거절한다(
+    client: TestClient, admin: Signed, drop: Path
+) -> None:
+    slug = _slug()
+    wrong = _save(
+        client, admin.headers, slug, _body(slug, drop, reconcile={"weekdays": ["sunday"]})
+    )
+    assert wrong.status_code == 422 and "weekdays" in wrong.json()["error"]["message"]
+    body = _body(slug, drop, reconcile={"weekdays": ["sun", "wed"], "at": "02:30"})
+    assert _save(client, admin.headers, slug, body).status_code == 201
+    client.post(f"/api/relay/pipelines/{slug}/definitions/1/activate", headers=admin.headers)
+    detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
+    assert detail["reconcile_label"] == "매주 수·일 02:30"

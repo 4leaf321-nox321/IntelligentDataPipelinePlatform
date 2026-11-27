@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import uuid
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -19,7 +20,7 @@ from typing import Any
 
 import httpx
 from dotenv import dotenv_values
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.config import BACKEND_DIR, get_settings
@@ -39,8 +40,9 @@ from app.modules.relay.schemas import (
 )
 from app.shared import extensions
 from app.shared.errors import AppError, NotFound, code
-from relay_core import reconcile
+from relay_core import reconcile, schedule
 from relay_core.describe import Described, describe, find
+from relay_core.schedule import Reconcile
 from relay_core.state import TREND, Workdir
 
 #: 작업 종류 — `relay/jobs.py` 가 등록한다.
@@ -658,7 +660,7 @@ def detail(db: Session, slug: str) -> PipelineDetail:
         late=late,
         draft=found.draft,
         reconcile=report,
-        reconcile_label=reconcile_label(),
+        reconcile_label=reconcile_label(found),
         target_version=version,
         target_deletes=retract.supports_delete(version),
         retracted=retracted_count(slug),
@@ -688,10 +690,17 @@ def trace_value(db: Session, slug: str, type_slug: str, key: str) -> dict[str, A
     return got.to_json()
 
 
-def reconcile_label() -> str:
-    days = get_settings().relay_reconcile_days
-    at = get_settings().relay_reconcile_at
-    return f"{days}일마다 {at}" if days else "수동"
+def reconcile_rule(found: Described) -> Reconcile | None:
+    """그 파이프라인의 대조 일정 — 정의의 `reconcile` 에 서버의 기본(`RELAY_RECONCILE_DAYS` ·
+    `RELAY_RECONCILE_AT`)을 채운다. 타이머가 대조하지 않으면 None."""
+    settings = get_settings()
+    return schedule.reconcile_rule(
+        found.reconcile, days=settings.relay_reconcile_days, at=settings.relay_reconcile_at
+    )
+
+
+def reconcile_label(found: Described) -> str:
+    return schedule.reconcile_label(reconcile_rule(found))
 
 
 def maintenance(db: Session, viewer: User) -> list[extensions.MaintenanceItem]:
@@ -798,7 +807,9 @@ def enqueue_due(db: Session, now: datetime | None = None) -> list[str]:
                     workspace_id=None,
                 )
                 queued.append(found.slug)
-        if reconcile_due(db, found.slug, moment):
+        # **적용보다 뒤에** — 이 틱에 실행을 넣었으면 대조는 그 실행(과 자동 적용)이 끝난 뒤의
+        # 틱으로 미룬다.
+        if found.slug not in queued and reconcile_due(db, found, moment):
             job_services.enqueue(
                 db,
                 kind=RECONCILE_KIND,
@@ -811,23 +822,53 @@ def enqueue_due(db: Session, now: datetime | None = None) -> list[str]:
     return queued
 
 
-def reconcile_due(db: Session, slug: str, moment: datetime) -> bool:
-    """대조할 차례인가 — 적용한 것이 있고, `RELAY_RECONCILE_DAYS` 일에 한 번, 그날
-    `RELAY_RECONCILE_AT` 뒤 첫 차례에. 마지막 대조(작업)가 그 안에 있으면 아니다."""
-    settings = get_settings()
-    applied_at = (read_state(slug) or {}).get("applied_at")
-    if not settings.relay_reconcile_days or not applied_at:
+#: 대조를 미룬 작업의 결과 상태 — 대상에서 적용하는 중이었다(`relay_core.reconcile`).
+DEFERRED = "deferred"
+
+
+def busy(db: Session, slug: str, *, but: uuid.UUID | None = None) -> list[Job]:
+    """그 파이프라인의 대기 · 실행 중인 작업(실행 · 적용 · 대조 · 회수) — `but` 은 빼고."""
+    rows = db.scalars(
+        select(Job).where(
+            Job.kind.in_((RUN_KIND, APPLY_KIND, RECONCILE_KIND, RETRACT_KIND)),
+            Job.params["slug"].as_string() == slug,
+            Job.status.in_(("queued", "running")),
+            *([Job.id != but] if but is not None else []),
+        )
+    ).all()
+    return list(rows)
+
+
+def last_reconciled(db: Session, slug: str) -> Job | None:
+    """마지막으로 **한** 대조 작업 — 미룬 것(`DEFERRED`)은 세지 않는다(다음 틱에 다시 넣게)."""
+    return db.scalar(
+        select(Job)
+        .where(
+            Job.kind == RECONCILE_KIND,
+            Job.params["slug"].as_string() == slug,
+            func.coalesce(Job.result["status"].as_string(), "") != DEFERRED,
+        )
+        .order_by(Job.created_at.desc())
+        .limit(1)
+    )
+
+
+def reconcile_due(db: Session, found: Described, moment: datetime) -> bool:
+    """대조할 차례인가 — 적용한 것이 있고 그 파이프라인의 대조 일정(`reconcile_rule`)이 됐다.
+
+    **적용보다 뒤에 짚는다** — 그 파이프라인의 실행 · 적용 · 회수 · 대조가 대기 · 실행 중이면
+    아니다(다음 틱에 다시 본다). 일정은 「마지막 차례 뒤에 한 대조가 있나」 로 가르므로, 미뤄도
+    차례를 놓치지 않는다 — 실행이 끝난 뒤의 첫 틱에 넣는다."""
+    rule = reconcile_rule(found)
+    applied_at = (read_state(found.slug) or {}).get("applied_at")
+    if rule is None or not applied_at or busy(db, found.slug):
         return False
-    jobs = recent_jobs(db, slug, limit=1, kinds=(RECONCILE_KIND,))
-    if jobs and jobs[0].status in ("queued", "running"):
-        return False
-    hour, minute = (int(part) for part in settings.relay_reconcile_at.split(":"))
-    slot = moment.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if slot > moment:
-        slot -= timedelta(days=1)
-    if not jobs:
-        # 처음 — 첫 적용 뒤 처음 맞는 그 시각에(적용하고 5분 만에 견주지 않게).
-        first = datetime.fromisoformat(str(applied_at)).astimezone(moment.tzinfo)
-        return first < slot
-    last = jobs[0].created_at.astimezone(moment.tzinfo)
-    return last < slot - timedelta(days=settings.relay_reconcile_days - 1)
+    last = last_reconciled(db, found.slug)
+    # 처음이면 첫 적용 뒤 처음 맞는 차례에(적용하고 5분 만에 견주지 않게).
+    first = datetime.fromisoformat(str(applied_at)).astimezone(moment.tzinfo)
+    return schedule.reconcile_due(
+        rule,
+        last=last.created_at.astimezone(moment.tzinfo) if last is not None else None,
+        first=first,
+        now=moment,
+    )

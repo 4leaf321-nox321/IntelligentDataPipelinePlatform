@@ -55,6 +55,7 @@ TOP_KEYS = {
     "source",
     "system",
     "schedule",
+    "reconcile",
     "auto_apply",
     "intake",
     "computed",

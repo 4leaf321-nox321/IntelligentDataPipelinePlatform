@@ -166,7 +166,151 @@ def test_타이머는_적용_뒤_정한_시각에_대조를_한_번_넣는다(
     assert f"{slug}(대조)" not in services.enqueue_due(db, after)  # 이미 대기 중
 
     monkeypatch.setattr(get_settings(), "relay_reconcile_days", 0)
-    assert not services.reconcile_due(db, slug, after)
+    assert not services.reconcile_due(db, services.by_slug(slug, db), after)
+
+
+def _finish(db: Session, slug: str, at: str, **result: Any) -> None:
+    """그 파이프라인의 대기 중인 작업을 끝난 것으로 — 넣은 때를 `at` 으로(타이머가 보는 때)."""
+    from sqlalchemy import select
+
+    from app.modules.jobs.models import Job
+
+    for job in db.scalars(
+        select(Job).where(Job.params["slug"].as_string() == slug, Job.status == "queued")
+    ):
+        job.status, job.result = "done", dict(result) or None
+        job.created_at = datetime.fromisoformat(at)
+    db.commit()
+
+
+def test_대조는_정의의_요일에_실행_적용이_끝난_뒤에_넣고_미룬_것은_다시(
+    registry: Path, db: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.modules.jobs import services as job_services
+    from app.modules.relay import services
+
+    slug, off = _slug(), _slug()
+    # 매일 04:00 에 실행하고, 대조는 일요일 04:00 — 같은 시각이면 실행이 먼저다.
+    _definition(
+        registry,
+        slug,
+        schedule={"daily_at": "04:00"},
+        reconcile={"weekdays": ["sun"], "at": "04:00"},
+    )
+    _definition(registry, off, reconcile=False)
+    for one in (slug, off):
+        work = _baseline(tmp_path, one)
+        state = work.load_state()
+        state.applied_at = "2026-11-01T00:00:00+00:00"  # 일요일 0시에 첫 적용
+        work.save_state(state)
+    found = services.by_slug(slug, db)
+    assert services.reconcile_label(found) == "매주 일요일 04:00"
+    assert services.reconcile_label(services.by_slug(off, db)) == "수동"
+
+    def tick(at: str) -> list[str]:
+        return services.enqueue_due(db, datetime.fromisoformat(at))
+
+    first = tick("2026-11-01T03:55:00+00:00")  # 첫 실행은 바로, 대조는 04:00 전이라 아직
+    assert slug in first and f"{slug}(대조)" not in first
+    _finish(db, slug, "2026-11-01T03:55:00+00:00", status="planned")
+    queued = tick("2026-11-01T04:05:00+00:00")
+    # 그 틱에 실행을 넣었다 — 대조는 실행(과 자동 적용)이 끝난 뒤로.
+    assert slug in queued and f"{slug}(대조)" not in queued
+    assert f"{off}(대조)" not in queued  # 정의가 대조를 껐다
+    assert f"{slug}(대조)" not in tick("2026-11-01T04:10:00+00:00")  # 실행이 아직 대기 중
+    _finish(db, slug, "2026-11-01T04:05:00+00:00", status="planned")
+    assert f"{slug}(대조)" in tick("2026-11-01T04:15:00+00:00")  # 실행이 끝난 뒤의 첫 틱
+
+    # 대상이 적용 중이라 미룬 대조는 세지 않는다 — 다음 틱에 다시 넣는다.
+    _finish(db, slug, "2026-11-01T04:15:00+00:00", status=services.DEFERRED)
+    assert services.last_reconciled(db, slug) is None
+    assert f"{slug}(대조)" in tick("2026-11-01T04:20:00+00:00")
+    _finish(db, slug, "2026-11-01T04:20:00+00:00", status="same")
+    assert f"{slug}(대조)" not in tick("2026-11-02T04:25:00+00:00")  # 월요일 — 차례가 아니다
+    _finish(db, slug, "2026-11-02T04:05:00+00:00", status="planned")
+    assert f"{slug}(대조)" not in tick("2026-11-08T03:00:00+00:00")  # 다음 일요일 04:00 전
+    _finish(db, slug, "2026-11-08T03:00:00+00:00", status="planned")
+    queued = tick("2026-11-08T04:01:00+00:00")
+    assert slug in queued and f"{slug}(대조)" not in queued  # 그날의 실행이 먼저
+    _finish(db, slug, "2026-11-08T04:01:00+00:00", status="planned")
+    queued = tick("2026-11-08T04:06:00+00:00")
+    assert f"{slug}(대조)" in queued and slug not in queued
+    # 사람이 넣은 실행이 대기 중이어도 넣지 않는다.
+    _finish(db, slug, "2026-11-08T04:06:00+00:00", status="same")
+    job_services.enqueue(
+        db, kind=services.APPLY_KIND, params={"slug": slug}, user=None, workspace_id=None
+    )
+    db.commit()
+    sunday = datetime.fromisoformat("2026-11-15T04:05:00+00:00")
+    assert not services.reconcile_due(db, found, sunday)
+    _finish(db, slug, "2026-11-15T04:00:00+00:00", status="applied")
+    assert services.reconcile_due(db, found, sunday)
+
+
+class _Applying(_Submitter):
+    """대상 SP 가 기다리는 계획을 적용하고 있다."""
+
+    def applying(self, job_id: str) -> bool | None:
+        return True
+
+
+def test_대상에서_적용하는_중이면_대조_작업이_미루고_알림_보고서를_건드리지_않는다(
+    client: TestClient,
+    admin: Signed,
+    registry: Path,
+    db: Session,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.modules.relay import services
+
+    slug = _slug()
+    _definition(registry, slug)
+    monkeypatch.setenv("RELAY_T_TOKEN", "x")
+    work = _baseline(tmp_path, slug)
+    rows = [dict(one) for one in ROWS]
+    rows[0] = {**rows[0], "name": "갤럭시 2", "updated_at": "2026-11-10T00:00:00Z"}
+    fake: Any = FakeSubmitter()
+    assert runner.run(_pipeline(tmp_path, rows), work, fake).status == "planned"
+    target = FakeReader({"plm_model": SAME}, {})
+    monkeypatch.setattr(reconcile, "best_reader", lambda _target, _slugs: target)
+    monkeypatch.setattr(reconcile, "Submitter", _Applying)
+
+    job = _job(client, db, admin, f"/api/relay/pipelines/{slug}/reconcile")
+    assert job["status"] == "done" and job["result"]["status"] == "deferred", job
+    assert "적용하고 있어 대조를 연기했습니다" in job["result"]["summary"]
+    assert services.read_report(slug) is None  # 보고서 · 이력은 그대로
+    assert services.last_reconciled(db, slug) is None  # 타이머가 다음 틱에 다시 넣는다
+    detail = client.get(f"/api/relay/pipelines/{slug}", headers=admin.headers).json()
+    assert detail["reconcile"] is None and detail["reconcile_label"] == "7일마다 03:00"
+
+    planned = _job(client, db, admin, f"/api/relay/pipelines/{slug}/reconcile", plan=True)
+    assert planned["result"]["status"] == "waiting", planned
+    assert "적용하고 있습니다" in planned["result"]["summary"]
+
+
+def test_같은_파이프라인의_실행이_돌면_대조가_미룬다(registry: Path, db: Session) -> None:
+    from types import SimpleNamespace
+
+    from app.modules.jobs import services as job_services
+    from app.modules.relay import jobs, services
+
+    slug = _slug()
+    _definition(registry, slug)
+    run = job_services.enqueue(
+        db, kind=services.RUN_KIND, params={"slug": slug}, user=None, workspace_id=None
+    )
+    mine = job_services.enqueue(
+        db, kind=services.RECONCILE_KIND, params={"slug": slug}, user=None, workspace_id=None
+    )
+    db.flush()
+    work: Any = SimpleNamespace(db=db, job=mine)
+    assert jobs._running_besides(work, slug) == ""  # 대기 중인 실행은 이 대조 뒤에 돈다
+    run.status = "running"
+    db.flush()
+    assert jobs._running_besides(work, slug) == "중계 실행"
+    run.status, mine.status = "done", "done"
+    db.commit()
 
 
 def test_이중화의_두_타이머가_겹치면_한_대만_넣는다(registry: Path, db: Session) -> None:

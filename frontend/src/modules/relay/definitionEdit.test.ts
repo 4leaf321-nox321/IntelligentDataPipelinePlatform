@@ -12,9 +12,13 @@ import {
   columnsOf,
   keyOf,
   keyText,
+  reconcileKindOf,
+  weekdaysOf,
   withAt,
   withAuthKind,
+  withReconcileKind,
   withSchedule,
+  withWeekday,
 } from '@/modules/relay/definitionEdit'
 
 const BASE = {
@@ -83,6 +87,22 @@ describe('정의 편집의 규칙', () => {
       every_minutes: 30,
     })
     expect(withSchedule({ daily_at: '01:00' }, 'manual', '')).toBeUndefined()
+  })
+
+  it('대조 주기 — 서버 기본 · 매주 요일 · N일마다 · 사용 안 함, 시각은 남긴다', () => {
+    expect(reconcileKindOf(undefined)).toBe('server')
+    expect(reconcileKindOf(false)).toBe('off')
+    expect(reconcileKindOf({ weekdays: ['sun'], every_days: 14 })).toBe('weekly')
+    expect(reconcileKindOf({ every_days: 3 })).toBe('every')
+    expect(withReconcileKind({ every_days: 3, at: '04:00' }, 'weekly')).toEqual({ weekdays: ['sun'], at: '04:00' })
+    expect(withReconcileKind({ weekdays: ['sun'] }, 'every')).toEqual({ every_days: 7 })
+    expect(withReconcileKind({ weekdays: ['sun'] }, 'server')).toBeUndefined()
+    expect(withReconcileKind({ weekdays: ['sun'] }, 'off')).toBe(false)
+    // 한국어 요일도 읽고, 켜고 끄면 월요일부터의 차례로 둔다.
+    expect(weekdaysOf({ weekdays: ['일', 'MON'] })).toEqual(['sun', 'mon'])
+    expect(weekdaysOf({ weekdays: 'sat' })).toEqual(['sat'])
+    expect(withWeekday({ weekdays: ['일'], at: '02:00' }, 'wed', true)).toEqual({ weekdays: ['wed', 'sun'], at: '02:00' })
+    expect(withWeekday({ weekdays: ['sun', 'wed'] }, 'sun', false)).toEqual({ weekdays: ['wed'] })
   })
 
   it('저장 전에 — slug 는 못 바꾸고, 비밀은 어디에도 못 적는다', () => {

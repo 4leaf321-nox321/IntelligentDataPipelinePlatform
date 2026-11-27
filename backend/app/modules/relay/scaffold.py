@@ -245,6 +245,8 @@ def run(
         body["computed"] = key_spec["computed"]
     if spec.get("schedule"):
         body["schedule"] = spec["schedule"]
+    if spec.get("reconcile") is not None:
+        body["reconcile"] = spec["reconcile"]
     note = str(spec.get("note") or "일괄 초안 생성")
     row, def_problems = definitions.save_draft(db, user, request, slug, body, note)
 

@@ -30,13 +30,18 @@ import {
   isPlain,
   keyOf,
   keyText,
+  reconcileKindOf,
   scheduleKindOf,
   textOf,
+  WEEKDAYS,
+  weekdaysOf,
   withAt,
   withAuthKind,
+  withReconcileKind,
   withSchedule,
+  withWeekday,
 } from '@/modules/relay/definitionEdit'
-import type { DefinitionDoc, ScheduleKind } from '@/modules/relay/definitionEdit'
+import type { DefinitionDoc, ReconcileKind, ScheduleKind } from '@/modules/relay/definitionEdit'
 import { ErrorNotice } from '@/shared/components/ErrorNotice'
 import { Alert, AlertDescription } from '@/shared/components/ui/alert'
 import { Button } from '@/shared/components/ui/button'
@@ -192,6 +197,13 @@ function ColumnsTable({ rows, onChange }: { rows: [string, string][]; onChange: 
   )
 }
 
+/** 숫자 칸 — 숫자로 읽히면 숫자, 아니면 글 그대로(검사가 말한다), 비면 칸이 없다. */
+function numberOrText(value: string): number | string | undefined {
+  const text = value.trim()
+  const number = Number(text)
+  return text ? (Number.isFinite(number) ? number : text) : undefined
+}
+
 /** 「칸」 — 본문의 칸을 고친다. 고친 것은 곧장 `onChange` 로(본문 하나가 정본이다). */
 function DefinitionFields({
   doc,
@@ -210,6 +222,8 @@ function DefinitionFields({
   const intake = doc.intake
   const intakeOn = intake !== false
   const scheduleKind = scheduleKindOf(doc.schedule)
+  const reconcileKind = reconcileKindOf(doc.reconcile)
+  const reconcileDays = weekdaysOf(doc.reconcile)
   const [columns, setColumns] = useState<[string, string][]>(() => rows ?? [])
   const authText = (name: string) => textOf(at(auth, [name]))
   const putAuth = (name: string, text: string) => {
@@ -374,6 +388,65 @@ function DefinitionFields({
                 className="h-8 w-24 font-mono text-xs"
                 value={textOf(at(doc.schedule, ['every_minutes']))}
                 onChange={(event) => put(['schedule'], withSchedule(doc.schedule, 'every', event.target.value))}
+              />
+            )}
+          </span>
+        </Row>
+        <Row
+          label="대조 주기"
+          hint="대상 SP와의 대조 시점. 같은 파이프라인의 실행 · 적용 종료 후 대조. 시각 미입력 시 서버의 대조 시각"
+        >
+          <span className="flex flex-wrap items-center gap-2">
+            <select
+              aria-label="대조 주기"
+              className={SELECT}
+              value={reconcileKind}
+              onChange={(event) =>
+                put(['reconcile'], withReconcileKind(doc.reconcile, event.target.value as ReconcileKind))
+              }
+            >
+              <option value="server">서버 기본</option>
+              <option value="weekly">매주 요일</option>
+              <option value="every">N일마다</option>
+              <option value="off">사용 안 함</option>
+            </select>
+            {reconcileKind === 'weekly' && (
+              <>
+                {WEEKDAYS.map(([day, label]) => (
+                  <label key={day} className="flex items-center gap-1 text-sm">
+                    <input
+                      type="checkbox"
+                      aria-label={`대조 요일 ${label}`}
+                      checked={reconcileDays.includes(day)}
+                      onChange={(event) => put(['reconcile'], withWeekday(doc.reconcile, day, event.target.checked))}
+                    />
+                    {label}
+                  </label>
+                ))}
+                <Input
+                  aria-label="대조 최소 간격(일)"
+                  className="h-8 w-28 font-mono text-xs"
+                  placeholder="간격(격주 14)"
+                  value={textOf(at(doc.reconcile, ['every_days']))}
+                  onChange={(event) => put(['reconcile', 'every_days'], numberOrText(event.target.value))}
+                />
+              </>
+            )}
+            {reconcileKind === 'every' && (
+              <Input
+                aria-label="대조 간격(일)"
+                className="h-8 w-24 font-mono text-xs"
+                value={textOf(at(doc.reconcile, ['every_days']))}
+                onChange={(event) => put(['reconcile', 'every_days'], numberOrText(event.target.value))}
+              />
+            )}
+            {(reconcileKind === 'weekly' || reconcileKind === 'every') && (
+              <Input
+                aria-label="대조 시각"
+                type="time"
+                className="h-8 w-32"
+                value={textOf(at(doc.reconcile, ['at']))}
+                onChange={(event) => put(['reconcile', 'at'], event.target.value || undefined)}
               />
             )}
           </span>

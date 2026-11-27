@@ -171,6 +171,9 @@ class BenchSubmitter:
     def applied(self, job_id: str) -> bool | None:
         return job_id in self._applied()
 
+    def applying(self, job_id: str) -> bool | None:
+        return False
+
     def apply(self, job_id: str) -> dict[str, Any]:
         self.file.write_text(json.dumps(sorted(self._applied() | {job_id})))
         return {"summary": "적용"}

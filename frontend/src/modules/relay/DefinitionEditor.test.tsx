@@ -130,6 +130,28 @@ describe('정의 편집', () => {
     expect(onSaved).toHaveBeenCalledWith({ version: 5, problems: [] })
   })
 
+  it('대조 주기 — 매주 고른 요일 · 시각을 정의의 reconcile 로 저장하고, 사용 안 함은 false', async () => {
+    await mount()
+    await screen.findByLabelText('path')
+    const kind = screen.getByRole('combobox', { name: '대조 주기' })
+    expect(kind).toHaveValue('server')
+    await userEvent.selectOptions(kind, 'weekly')
+    expect(screen.getByLabelText('대조 요일 일')).toBeChecked()
+    await userEvent.click(screen.getByLabelText('대조 요일 수'))
+    await userEvent.type(screen.getByLabelText('대조 시각'), '02:30')
+    expect(screen.getByTestId('definition-changes')).toHaveTextContent('reconcile(추가)')
+    await userEvent.type(screen.getByLabelText('정의 메모'), '대조 요일')
+    await userEvent.click(screen.getByRole('button', { name: '초안 저장' }))
+    await waitFor(() => expect(relayApi.saveDefinition).toHaveBeenCalled())
+    expect(relayApi.saveDefinition.mock.calls[0][1].reconcile).toEqual({ weekdays: ['wed', 'sun'], at: '02:30' })
+
+    await userEvent.selectOptions(kind, 'off')
+    expect(screen.queryByLabelText('대조 시각')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: '초안 저장' }))
+    await waitFor(() => expect(relayApi.saveDefinition).toHaveBeenCalledTimes(2))
+    expect(relayApi.saveDefinition.mock.calls[1][1].reconcile).toBe(false)
+  })
+
   it('본문(JSON) — 읽히지 않으면 까닭을 말하고, 비밀을 적으면 저장하지 않는다', async () => {
     await mount()
     await screen.findByLabelText('path')

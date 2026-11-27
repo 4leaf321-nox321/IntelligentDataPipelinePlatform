@@ -48,7 +48,8 @@ from relay_core.state import Workdir
 
 #: 대상의 한 타입에서 읽을 객체의 상한 — 후보를 고르려고 읽는다(기준정보 타입은 대개 수천).
 OBJECTS_MAX = 20_000
-PAGE = 500
+#: 한 쪽 — 대상 SP 의 API 토큰 상한(ADR 0079). 옛 SP 는 200 으로 줄여 준다.
+PAGE = 2000
 TIMEOUT = 10.0
 #: 한 번에 승인할 수 있는 대응의 수.
 ENTRIES_MAX = 500
@@ -96,19 +97,22 @@ def _type_path(type_slug: str) -> str:
 
 
 def target_objects(found: Described, type_slug: str) -> list[TargetObject]:
-    """대상의 그 타입 객체 — 키 · 이름 · 별칭 · 상태(쪽마다, `OBJECTS_MAX` 까지)."""
+    """대상의 그 타입 객체 — 키 · 이름 · 별칭 · 상태(`OBJECTS_MAX` 까지). **커서로** 넘긴다
+    (`cursor=start` → `next_cursor`, SP v0.4.89) — 옛 SP 는 `next_cursor` 없이 답하므로 그때는
+    offset 으로."""
     server, headers = _auth(found)
     path = _type_path(type_slug)
     items: list[dict[str, Any]] = []
+    cursor: str | None = "start"
     while len(items) < OBJECTS_MAX:
         url = f"{server}/api/objects/{path}"
+        params: dict[str, Any] = {"limit": PAGE}
+        if cursor is not None:
+            params["cursor"] = cursor
+        else:
+            params["offset"] = len(items)
         try:
-            answer = httpx.get(
-                url,
-                params={"limit": PAGE, "offset": len(items)},
-                headers=headers,
-                timeout=TIMEOUT,
-            )
+            answer = httpx.get(url, params=params, headers=headers, timeout=TIMEOUT)
         except httpx.HTTPError as failure:
             raise AppError(
                 code("RELAY", 25),
@@ -126,9 +130,15 @@ def target_objects(found: Described, type_slug: str) -> list[TargetObject]:
         body = answer.json()
         page = list(body.get("items") or [])
         items += page
+        if cursor is not None and "next_cursor" in body:
+            cursor = body.get("next_cursor")
+            if not cursor:
+                break
+            continue
+        cursor = None  # 옛 SP — 첫 쪽 뒤로는 offset
         if not page or len(items) >= int(body.get("total") or 0):
             break
-    return inbox.as_objects(items)
+    return inbox.as_objects(items[:OBJECTS_MAX])
 
 
 def _resolve_many(found: Described, type_slug: str, texts: list[str]) -> list[dict[str, Any]]:

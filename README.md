@@ -90,8 +90,9 @@ cd backend
 ```
 
 화면의 「지금 실행」 · 「적용」 · 「대조」 와 타이머가 같은 함수를 작업으로 부른다. **대조**는 대상 SP 에
-지금 있는 것을 지난번 적용된 출력과 견준다(빠짐 · 안 씀 · 다름 · 대상에만) — 타이머가 `RELAY_RECONCILE_DAYS`
-(기본 7)일마다 `RELAY_RECONCILE_AT`(03:00)에 넣고, 어긋나면 홈 「남은 일」 이 말한다. 정의는 `RELAY_PIPELINES_DIR`(운영
+지금 있는 것을 지난번 적용된 출력과 견준다(빠짐 · 안 씀 · 다름 · 대상에만) — 타이머가 정의의 `reconcile`(요일 ·
+며칠마다 · 시각, 없으면 `RELAY_RECONCILE_DAYS`(기본 7)일마다 `RELAY_RECONCILE_AT`(03:00))대로, 같은 파이프라인의
+실행 · 적용이 끝난 뒤에 넣고, 어긋나면 홈 「남은 일」 이 말한다. 대상 목록은 커서로 2,000개씩 흘려 읽는다. 정의는 `RELAY_PIPELINES_DIR`(운영
 `<DATA_DIR>/relay/pipelines`), 비밀은 정의에 적지 않고 `token_env` 의 환경 변수로.
 
 **MCP(8082)** — `mcp_server/`(별도 venv). AI(Claude Desktop)가 사용자의 PAT 로 붙어 **원천을 탐색하고**

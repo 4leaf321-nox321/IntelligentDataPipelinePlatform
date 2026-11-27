@@ -280,8 +280,9 @@ def test_내보내기_한_번으로_읽고_참조는_식별자로_온다(monkeyp
     reader = reconcile.ExportReader(_sp(monkeypatch, fake), ["plm_model"])
     assert reader.via == "내보내기" and not reader.fallback
     assert ("POST", "/api/bundles/export") in fake.calls
-    models = reader.objects("plm_model")
-    assert models is not None
+    got = reader.objects("plm_model")
+    assert got is not None
+    models = list(got)
     first = models[0]
     assert first["key"] == "M1" and first["properties"] == {"task": "T-1"}
     assert models[1]["status"] == "deprecated"
@@ -296,7 +297,7 @@ def test_내보내기를_못_쓰면_목록으로_읽고_까닭을_적는다(monk
     fake = _Sp(export_status=403)
     reader = reconcile.ExportReader(_sp(monkeypatch, fake), ["plm_model"])
     assert reader.via == "목록" and "403" in reader.fallback and "관리자만" in reader.fallback
-    assert reader.objects("loose") == [{"id": "u1", "key": "L1", "label": "목록"}]
+    assert list(reader.objects("loose") or []) == [{"id": "u1", "key": "L1", "label": "목록"}]
 
 
 def test_내보내기의_줄로_견주면_참조를_식별자로_바로_본다() -> None:
@@ -406,3 +407,208 @@ def test_바구니로_나눠_견줘도_한꺼번에_견준_것과_같다(
     }
     assert whole["types"]["plm_model"]["changed"] == {"M3": ["label"]}
     assert not list(work.path("work").glob("*.reconcile.spill"))
+
+
+# --- 목록을 커서로 · 대상 객체를 다 쥐지 않기 ---------------------------------------------
+
+KIND_ID = "0b6c6a8e-0000-4000-8000-00000000000a"
+NEW_ID = "0b6c6a8e-0000-4000-8000-00000000000b"
+
+
+class _ListSp(_Sp):
+    """목록 API 를 커서로(`cursors`) 또는 옛 SP 처럼 offset 으로만 넘기는 대상."""
+
+    def __init__(self, cursors: bool = True) -> None:
+        super().__init__()
+        self.cursors = cursors
+        self.models = [
+            {"id": "u-m1", "key": "M1", "label": "갤럭시", "status": "active"},
+            {"id": "u-m2", "key": "M2", "label": "엣지", "status": "deprecated"},
+            {"id": "u-m3", "key": "M3", "label": "노트", "status": "active"},
+        ]
+
+    def send(self, _server: str, method: str, url: str, *_a: Any, **_k: Any) -> Any:
+        path = url.split("sp.test", 1)[1]
+        if not path.startswith("/api/objects/plm_model?"):
+            return super().send(_server, method, url, *_a, **_k)
+        self.calls.append((method, path))
+        query = dict(one.split("=", 1) for one in path.split("?", 1)[1].split("&"))
+        size = min(int(query["limit"]), 2)  # 시험에서는 두 줄씩
+        if self.cursors and "cursor" in query:
+            at = 0 if query["cursor"] == "start" else int(query["cursor"].removeprefix("c%20"))
+            page = self.models[at : at + size]
+            more = at + size < len(self.models)
+            after = f"c {at + size}" if more else None
+            return 200, {"items": page, "total": 3, "next_cursor": after}
+        at = int(query.get("offset", 0))  # 옛 SP — cursor 는 모르는 인자라 버린다
+        return 200, {"items": self.models[at : at + size], "total": 3, "limit": 200}
+
+
+def test_대상이_커서로_넘기면_목록을_커서로_흘려_읽는다(monkeypatch: Any) -> None:
+    fake = _ListSp()
+    reader = reconcile.best_reader(_sp(monkeypatch, fake), ["plm_model"])
+    assert isinstance(reader, reconcile.TargetReader) and reader.via == "목록"
+    # 코어로 안 열렸고 SP 가 커서로 넘긴다 — 봉투를 통째로 받는 내보내기보다 먼저다.
+    assert "코어 공개되지 않은 타입(plm_model)" in reader.notice and "커서" in reader.notice
+    assert ("POST", "/api/bundles/export") not in fake.calls
+    got = reader.objects("plm_model")
+    assert got is not None and not isinstance(got, list)  # 쪽마다 흘려 준다
+    assert [one["key"] for one in got] == ["M1", "M2", "M3"]
+    listed = [path for _m, path in fake.calls if path.startswith("/api/objects/plm_model")]
+    assert listed[-2:] == [
+        "/api/objects/plm_model?limit=2000&cursor=start",
+        "/api/objects/plm_model?limit=2000&cursor=c%202",
+    ]
+    assert not [one for one in listed if "offset=" in one] and not reader.slow
+    assert reader.objects("없는타입") is None
+
+    # 다른 표를 비추는 타입은 커서를 거절한다(422) — offset 으로 읽되 「옛 SP」 라 하지 않는다.
+    class Projected(_ListSp):
+        def send(self, _server: str, method: str, url: str, *_a: Any, **_k: Any) -> Any:
+            if "cursor=start" in url:
+                return 422, {"error": {"code": "OBJECTS-0156"}}
+            return super().send(_server, method, url, *_a, **_k)
+
+    reader = reconcile.TargetReader(_sp(monkeypatch, Projected(cursors=False)))
+    assert [one["key"] for one in reader.objects("plm_model") or []] == ["M1", "M2", "M3"]
+    assert not reader.slow and reader.via == "목록"
+
+
+def test_옛_SP_면_목록을_offset_으로_넘기고_까닭을_적는다(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    fake = _ListSp(cursors=False)
+    target = _sp(monkeypatch, fake)
+    reader = reconcile.TargetReader(target)
+    assert not reader.cursors(["없는타입", "plm_model"])  # 있는 타입 하나에 한 줄만 묻는다
+    got = list(reader.objects("plm_model") or [])
+    assert [one["key"] for one in got] == ["M1", "M2", "M3"]
+    assert fake.calls[-1][1] == "/api/objects/plm_model?limit=2000&offset=2"
+    assert reader.via == reconcile.OFFSET_VIA and "SP v0.4.89" in reader.slow
+
+    pipeline, work, submit = _applied(tmp_path)
+    report = compare(pipeline, work, reconcile.TargetReader(target), submit)
+    assert report.via == "목록(offset)" and any("offset" in one for one in report.notes)
+
+
+class _Ided(FakeReader):
+    """목록 API 처럼 참조를 상대의 **id** 로 주는 읽개 — 참조가 가리키는 타입도 준다."""
+
+    def __init__(self, items: dict[str, list[dict[str, Any]] | None], refs: list[str]) -> None:
+        super().__init__(items, {})
+        self.refs = refs
+        self.asked: list[str] = []
+
+    def objects(self, type_slug: str) -> Any:
+        self.asked.append(type_slug)
+        found = self.items.get(type_slug)
+        return None if found is None else iter(found)
+
+    def referenced(self, slugs: Any) -> list[str]:
+        return list(self.refs)
+
+
+def test_목록의_참조_id_는_디스크의_표로_풀고_바구니로_나눠도_같다(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """참조 칸(여기서는 model_kind)이 상대 타입 객체의 id 로 온다 — 그 타입을 함께 읽어 id →
+    식별자를 디스크의 표에 적고, 바구니마다 그 바구니의 id 만 꺼내 견준다."""
+    pipeline, work, fake = _applied(tmp_path)
+    models = [
+        {**_item("M1", "갤럭시", ""), "properties": {"model_kind": KIND_ID}},
+        {**_item("M2", "엣지", ""), "properties": {"model_kind": [NEW_ID]}},
+        {**_item("M3", "노트", ""), "properties": {"model_kind": NEW_ID}},
+    ]
+    kinds = [{"id": KIND_ID, "key": "양산"}, {"id": NEW_ID, "key": "선행"}]
+    reader = _Ided({"plm_model": models, "plm_kind": kinds}, ["plm_kind"])
+    whole = compare(pipeline, work, reader, fake)
+    assert reader.asked == ["plm_kind", "plm_model"]  # 참조가 가리키는 타입을 먼저
+    one = whole.types["plm_model"]
+    # M3 은 「양산」 이어야 하는데 「선행」 의 id 다 — 다름. 나머지는 id 를 풀어 같다.
+    assert one.changed == {"M3": ["model_kind"]} and one.unverified == 0, whole.summary()
+    monkeypatch.setattr(reconcile, "BUCKET_ROWS", 2000)  # 바구니 3
+    split = compare(pipeline, work, reader, fake)
+    assert split.to_json()["types"] == whole.to_json()["types"]
+    assert not list(work.path("work").glob("*.reconcile.spill"))
+
+    # 참조가 가리키는 타입을 못 읽으면 그 참조는 이름(`ref_labels`)으로 — 이름이 다르면
+    # 어긋남이 아니라 확인 못 함이다(그 id 가 무엇인지 모른다). 까닭은 보고서에.
+    class Broken(_Ided):
+        def objects(self, type_slug: str) -> Any:
+            if type_slug == "plm_kind":
+                raise reconcile.ReconcileError("403")
+            return super().objects(type_slug)
+
+    labelled = [{**one, "ref_labels": {KIND_ID: "양산", NEW_ID: "선행"}} for one in models]
+    broken = Broken({"plm_model": labelled}, ["plm_kind"])
+    report = compare(pipeline, work, broken, fake)
+    assert any("참조 대상 타입(plm_kind)" in one for one in report.notes)
+    assert (
+        report.types["plm_model"].changed == {} and report.types["plm_model"].unverified == 1
+    )
+
+
+def test_디스크의_표는_그_바구니의_id_만_꺼낸다(tmp_path: Path) -> None:
+    refs = reconcile._DiskRefs(tmp_path / "ids.sqlite")
+    refs.add([{"id": f"u-{n}", "key": f"K-{n}"} for n in range(12_000)])
+    refs.load(["u-5", "u-11999", "없는 id"])
+    assert refs.keys == {"u-5": "K-5", "u-11999": "K-11999"}
+    assert refs.same("K-5", "u-5", {}) is True and refs.same("K-6", "u-5", {}) is False
+    refs.load([])
+    assert refs.keys == {}
+    refs.close()
+    item = {"properties": {"a": KIND_ID, "b": [NEW_ID, "글"], "c": 3, "d": "아님"}}
+    assert list(reconcile._ids_in(item)) == [KIND_ID, NEW_ID]
+
+
+# --- 적용보다 뒤에 ------------------------------------------------------------------------
+
+
+def _waiting(tmp_path: Path) -> tuple[Any, Workdir, Any, str]:
+    """적용한 기준 위에 다음 계획이 대상에서 기다린다."""
+    pipeline, work, fake = _applied(tmp_path)
+    rows = [dict(one) for one in ROWS]
+    rows[2] = {**rows[2], "name": "노트 2", "updated_at": "2026-11-10T00:00:00Z"}
+    changed = runner.run(_pipeline(tmp_path, rows), work, fake)
+    assert changed.status == "planned", changed.message
+    pending = work.load_state().pending
+    assert pending is not None
+    return pipeline, work, fake, pending.job_id
+
+
+def test_대상에서_적용하는_중이면_대조를_미루고_보고서는_그대로(tmp_path: Path) -> None:
+    pipeline, work, fake, job = _waiting(tmp_path)
+    reader = FakeReader({"plm_model": SAME[:1]}, {"plm_model": "plm"})
+    fake.applying_jobs.add(job)
+    history = len(work.load_state().history)
+
+    report = compare(pipeline, work, reader, fake)
+    assert report.deferred and "적용하고 있어 대조를 연기했습니다" in report.summary()
+    assert work.read_json(reconcile.REPORT) is None  # 지난 대조(없음)가 그대로
+    state = work.load_state()
+    assert len(state.history) == history and state.pending is not None  # 기준도 안 옮겼다
+    outcome = resync(pipeline, work, reader, fake)
+    assert outcome.status == "waiting" and "적용하고 있습니다" in outcome.message
+    assert len(fake.previews) == 2  # 보정 계획을 안 올렸다
+
+    # 적용이 끝나면 그 계획이 기준이 되고 대조가 돈다.
+    fake.applying_jobs.discard(job)
+    fake.applied_jobs.add(job)
+    report = compare(pipeline, work, reader, fake)
+    assert not report.deferred and report.baseline == work.load_state().applied_run
+    assert work.read_json(reconcile.REPORT)["drift"] == report.drift > 0
+
+
+def test_읽는_사이에_적용이_시작되면_읽은_것을_버린다(tmp_path: Path) -> None:
+    pipeline, work, fake, job = _waiting(tmp_path)
+
+    class Racing(FakeReader):
+        def objects(self, type_slug: str) -> Any:
+            fake.applying_jobs.add(job)  # 사람이 대상 화면에서 적용을 눌렀다
+            return super().objects(type_slug)
+
+    report = compare(pipeline, work, Racing({"plm_model": SAME}, {}), fake)
+    assert report.deferred and "결과를 폐기했습니다" in report.summary()
+    assert work.read_json(reconcile.REPORT) is None
+    # 아직 적용하는 중이면 보정 계획도 미룬다.
+    assert resync(pipeline, work, Racing({"plm_model": SAME}, {}), fake).status == "waiting"

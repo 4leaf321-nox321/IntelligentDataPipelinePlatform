@@ -125,6 +125,38 @@ class Submitter:
         result = sp.pipeline.plan_applied(self.target.server, self.target.token, job_id)
         return None if result is None else bool(result)
 
+    def applying(self, job_id: str) -> bool | None:
+        """그 계획을 **지금 적용하고 있나** — 적용 작업이 대기 · 실행 중. 못 닿으면 None.
+
+        SP 는 적용을 **시작하면** 계획의 `applied_by` 를 채운다(적용 작업이 대기 · 실행
+        중이어도 — 같은 계획을 두 번 넣지 않게). 그래서 「적용됐나」(`applied`)만 보면 반쯤
+        들어간 대상을 다 들어간 것으로 안다 — 대조가 그 사이에 읽으면 거짓 어긋남이 난다."""
+        plan = self._probe(f"/api/jobs/{job_id}")
+        if plan is None:
+            return None
+        child = str(plan.get("applied_by") or "")
+        if not child:
+            return False
+        job = self._probe(f"/api/jobs/{child}")
+        return None if job is None else str(job.get("status")) in ("queued", "running")
+
+    def _probe(self, path: str) -> dict[str, Any] | None:
+        """묻기만 하는 GET — 오래 매달리지 않는다(`PROBE_SECONDS`). 못 닿거나 200 이 아니면
+        None."""
+        headers = {"Authorization": f"Bearer {self.target.token}", "X-Client": "datarelay"}
+        url = f"{self.target.server.rstrip('/')}{path}"
+        pipeline = sp.pipeline
+        try:
+            if pipeline.SEND is pipeline._urllib_send:
+                status, answer = pipeline._urllib_send(
+                    "GET", url, headers, None, timeout=pipeline.PROBE_SECONDS
+                )
+            else:
+                status, answer = pipeline.SEND("GET", url, headers, None)
+        except (OSError, ValueError):
+            return None
+        return answer if status == 200 and isinstance(answer, dict) else None
+
     def apply(self, job_id: str) -> dict[str, Any]:
         """계획을 적용하고 끝날 때까지 본다 — 적용 작업의 결과. SP 의 적용 작업은 그 시점의
         대상으로 다시 검사해 **오류가 있으면 아무것도 쓰지 않고 「끝남」 으로 끝난다**

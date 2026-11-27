@@ -922,11 +922,18 @@ describe('파이프라인 상세 · 대조', () => {
     expect(within(section()).getByText('번들 내보내기(1회)')).toBeInTheDocument()
   })
 
-  it('대상 읽기 — 목록으로 읽은 보고서', async () => {
+  it('대상 읽기 — 목록으로 읽은 보고서(커서 · 이전 SP 의 offset)', async () => {
     auth.admin = false
     relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile({ via: '목록' }) }))
     await mount()
-    expect(within(section()).getByText('목록 API(페이지당 200개, 느림)')).toBeInTheDocument()
+    expect(within(section()).getByText('목록 API(커서, 2,000개 단위)')).toBeInTheDocument()
+  })
+
+  it('대상 읽기 — 이전 SP 라 offset 으로 읽은 보고서', async () => {
+    auth.admin = false
+    relayApi.pipeline.mockResolvedValue(detail({ reconcile: sampleReconcile({ via: '목록(offset)' }) }))
+    await mount()
+    expect(within(section()).getByText('목록 API(offset, 페이지당 200개, 느림)')).toBeInTheDocument()
   })
 
   it('대상 읽기 — 코어로 읽은 보고서', async () => {

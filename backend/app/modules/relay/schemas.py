@@ -408,6 +408,8 @@ class ScaffoldIn(BaseModel):
     """대상이 같은 파이프라인의 slug — 그 대상(주소 · 토큰 이름)을 쓴다."""
     system: str = Field("", max_length=80)
     schedule: dict[str, Any] | None = None
+    reconcile: dict[str, Any] | bool | None = None
+    """대조 일정(`relay_core.schedule.check_reconcile`) — 안 주면 서버의 기본."""
     note: str = Field("", max_length=200)
     split: bool = True
     """대상의 정의를 따라 한 행을 여러 타입 · 선으로 나눈다(같은 원천이 주인인 참조 타입) —

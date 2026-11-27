@@ -370,8 +370,9 @@ function ReconcileActions({
 /** 대조가 대상을 읽은 길(`Report.via`) — 코어가 가장 빠르고, 목록은 대상이 클수록 느려진다. */
 const VIA_LABEL: Record<string, string> = {
   코어: '코어 API(커서, 2,000개 단위)',
+  목록: '목록 API(커서, 2,000개 단위)',
   내보내기: '번들 내보내기(1회)',
-  목록: '목록 API(페이지당 200개, 느림)',
+  '목록(offset)': '목록 API(offset, 페이지당 200개, 느림)',
 }
 
 export function ReconcileSection({
@@ -413,7 +414,8 @@ export function ReconcileSection({
       <p className="text-muted-foreground text-sm">
         대상 SP의 현재 객체를 기준 출력(마지막으로 적용된 출력)과 비교합니다. 대상에서 객체를 삭제 또는
         사용 중지하거나 백업에서 복원한 경우 일반 실행으로는 감지되지 않습니다. 불일치 객체는 보정 계획으로
-        기준 출력대로 다시 전송합니다.
+        기준 출력대로 다시 전송합니다. 대조 주기는 정의의 [대조 주기]에서 지정하며, 같은 파이프라인의 실행 · 적용이
+        끝난 후 대조합니다.
       </p>
 
       <dl className="space-y-1.5">

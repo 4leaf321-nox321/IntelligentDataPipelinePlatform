@@ -17,7 +17,7 @@ from urllib.parse import urlsplit
 from relay_core import autoapply, compute, intake
 from relay_core.autoapply import Policy
 from relay_core.definition import FORMAT, DefinitionError, check_adapter, column_default
-from relay_core.schedule import ScheduleError, check, label
+from relay_core.schedule import Reconcile, ScheduleError, check, check_reconcile, label
 
 
 @dataclass
@@ -57,6 +57,9 @@ class Described:
     lineage: list[Step] = field(default_factory=list)
     schedule: dict[str, Any] | None = None
     schedule_label: str = "수동"
+    reconcile: Reconcile | None = None
+    """정의의 대조 일정(`reconcile`) — None 이면 서버의 기본(`RELAY_RECONCILE_DAYS` · `_AT`).
+    채운 일정 · 이름은 `app/modules/relay/services.reconcile_rule`."""
     auto_apply: Policy | None = None
     auto_apply_label: str = "미사용"
     intake_label: str = intake.label(intake.Policy())
@@ -175,6 +178,10 @@ def describe_body(
     try:
         out.schedule = check(body.get("schedule"))
         out.schedule_label = label(out.schedule)
+    except ScheduleError as failure:
+        out.problems.append(str(failure))
+    try:
+        out.reconcile = check_reconcile(body.get("reconcile"))
     except ScheduleError as failure:
         out.problems.append(str(failure))
     try:
